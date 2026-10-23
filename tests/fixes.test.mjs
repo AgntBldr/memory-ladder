@@ -58,7 +58,7 @@ test('F5 empty initialized memory repo receives exactly one baseline',t=>{
 });
 test('F5 failed baseline can retry install and create its first commit',t=>{
   const f=fixture(t);fs.mkdirSync(f.memory,{recursive:true});f.git(f.memory,'init');
-  const hook=put(path.join(f.memory,'.git/hooks/pre-commit'),'#!/bin/sh\nexit 1\n');
+  const hook=put(path.join(f.memory,'.git/hooks/pre-commit'),'#!/bin/sh\nexit 1\n');fs.chmodSync(hook,0o755);
   assert.equal(f.install().status,1);assert.ok(!fs.existsSync(path.join(engine(f),'KIT.json')));
   assert.notEqual(f.exec('git',['-C',f.memory,'rev-parse','--verify','HEAD']).status,0);
   fs.unlinkSync(hook);ok(f.install());assert.equal(f.git(f.memory,'rev-list','--count','HEAD'),'1');
