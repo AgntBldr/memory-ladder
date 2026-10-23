@@ -1,0 +1,39 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import childProcess from 'node:child_process';
+import { args, locations, isDirect, slash, read } from './lib.mjs';
+
+export const marker = '# memory-v3-gate (installed by scripts/memory/install-hooks.mjs; edit there)';
+const shellQuoted = value => `"${slash(path.resolve(value)).replace(/["$`\\]/g, '\\$&')}"`;
+export function install({ memoryDir, repo, uninstall = false }) {
+  if (!memoryDir || !fs.existsSync(path.join(memoryDir, '.git')) || !fs.statSync(path.join(memoryDir, '.git')).isDirectory()) {
+    return { ok: false, message: 'memory dir has no .git folder; hook not changed' };
+  }
+  let hooksPath = '';
+  try { hooksPath = childProcess.execFileSync('git', ['-C', memoryDir, 'config', '--local', 'core.hooksPath'],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).trim(); }
+  catch { /* An unset hooksPath uses the repository's hooks directory. */ }
+  const hook = path.join(hooksPath ? path.resolve(memoryDir, hooksPath) : path.join(memoryDir, '.git/hooks'), 'pre-commit');
+  const exists = fs.existsSync(hook);
+  const owned = exists && read(hook).split(/\r?\n/).includes(marker);
+  if (exists && !owned) return { ok: false, message: 'foreign pre-commit hook; refusing to change it' };
+  if (uninstall) {
+    if (owned) fs.unlinkSync(hook);
+    return { ok: true, message: owned ? 'memory gate hook removed' : 'memory gate hook is not installed' };
+  }
+  fs.mkdirSync(path.dirname(hook), { recursive: true });
+  const text = `#!/bin/sh\n${marker}\nif ! command -v node >/dev/null 2>&1; then\n  echo "memory gate skipped: node not found"\n  exit 0\nfi\nnode ${shellQuoted(path.join(repo, 'scripts/memory/memory-check.mjs'))} --hook --scope memory --memory-dir ${shellQuoted(memoryDir)} || {\n  echo "memory gate failed: fix the FAIL lines above (or add a dated allow entry) and commit again"; exit 1; }\n`;
+  fs.writeFileSync(hook, text);
+  if (process.platform !== 'win32') fs.chmodSync(hook, 0o755);
+  return { ok: true, message: `memory gate hook installed: ${hook}` };
+}
+export function main(argv = process.argv.slice(2)) {
+  try {
+    const opts = args(argv);
+    if (opts.help) { console.log('Usage: install-hooks.mjs [--uninstall] [--memory-dir PATH] [--repo PATH]'); return 0; }
+    const result = install({ ...locations(opts), uninstall: Boolean(opts.uninstall) });
+    console.log(result.message);
+    return result.ok ? 0 : 1;
+  } catch (error) { console.error(`install-hooks: ${error.message}`); return 1; }
+}
+if (isDirect(import.meta.url)) process.exitCode = main();

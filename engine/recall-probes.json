@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "minPass": 0.8,
+  "probes": [
+    {
+      "id": "resume",
+      "q": "current task next checkpoint",
+      "expect": [
+        "current-state.md"
+      ],
+      "source": "example"
+    }
+  ]
+}
