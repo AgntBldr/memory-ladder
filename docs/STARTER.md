@@ -8,7 +8,8 @@ with a private Git remote you control.
 
 ## Part 1: first setup (once)
 
-Needs: Node 22 or newer, Git, and the project folder as a Git repository (`git init` first if it is not).
+Needs: Node 22 or newer, Git with a name and email set (Git for Windows on Windows: the hook runs in Git Bash),
+the project folder as a Git repository (`git init` first if it is not), and a private Git remote for the memory.
 
 1. **Get the kit next to the project**, not inside it:
    `git clone --branch <tag> <KIT_REMOTE> <KIT>` (or copy the kit folder). If that tag predates this
@@ -24,8 +25,9 @@ Needs: Node 22 or newer, Git, and the project folder as a Git repository (`git i
    The last line must read `0 FAIL`; the one expected WARN on a fresh install is `repo.remote`.
 
    **Where everything lives after this step** (a project with no instructions file before):
-   - `AGENTS.md`: the `## Memory gate` section, the only rules the agent needs; `CLAUDE.md` holds `@AGENTS.md`
-     so every agent reads one source. Point the agent here.
+   - `AGENTS.md`: the `## Memory gate` section with the gate rules; `CLAUDE.md` holds `@AGENTS.md` so every
+     agent reads one source. If the project already had both files, add `@AGENTS.md` to `CLAUDE.md` yourself.
+     The full routine, including the lesson file format, is in `.claude/skills/memory-ladder/SKILL.md`.
    - `scripts/memory/memory-check.mjs`: the gate; `scripts/memory/memory-recall.mjs`: recall. Run both from
      the project root.
    - `.claude/settings.json`: the SessionStart hook that runs the gate with `--session-start`.
@@ -41,18 +43,22 @@ Needs: Node 22 or newer, Git, and the project folder as a Git repository (`git i
    (the installer's ignore rules live in `scripts/memory/.gitignore`). Never `git add -A`.
 6. **First session prompt**, pasted into the agent in `<PROJECT>`:
 
-   > Read AGENTS.md and follow its `## Memory gate` section. Run `node scripts/memory/memory-check.mjs` and report
-   > the last line. Open the memory router the gate names, then its state file. Write the first state block:
-   > what this project is, what is being built first, what waits on me. Add one hard-rule file only if I have
-   > given you a rule that must fire before you know the task. Commit the memory repo and push it. Tell me
-   > the three commands you will run at the start and end of every session.
+   > Read AGENTS.md and follow its `## Memory gate` section, and read `.claude/skills/memory-ladder/SKILL.md`.
+   > Run `node scripts/memory/memory-check.mjs` and report the last line. Open `MEMORY.md` in the memory folder
+   > the gate names, then `current-state.md`. Write the first state block: what this project is, what is being
+   > built first, what waits on me. Add one hard-rule file only if I have given you a rule that must fire before
+   > you know the task. Commit the memory repo and push it. Tell me which commands you will run at session start
+   > and at a checkpoint.
 
-   The agent should answer with the gate line, the recall command and the checkpoint commands below. If it
-   answers with anything else, it did not read the gate section; paste the prompt again.
+   Start or restart the agent after the install so it loads the hook and skills. The agent should answer with
+   the gate line and the commands below. If it answers with anything else, it did not read the files; paste
+   the prompt again.
 
 ## Part 2: every session afterwards
 
-**Start.** The hook runs the gate and prints the last ten lines of state. Before opening any index, ask:
+**Start.** In Claude Code the hook runs the gate and prints one line, `memory gate: ok` with counts, or the
+FAIL findings and the command to run. Codex and Cursor do not run the hook; run the gate by hand. Before opening
+any index, ask:
 `node scripts/memory/memory-recall.mjs "<what I am about to do>"` and open only the files it returns. Then
 open the router's hard-rule lines that match the task. On a fresh memory, recall returns only the files whose
 words match (often just the state file) or nothing at all; that is normal until lessons exist. Open the
@@ -62,9 +68,11 @@ router then.
 number) with what happened, why, and how to apply it, and add one line to the matching index. Facts about the
 project go in the project's own records (a `brain/` vault or docs), with memory holding only the pointer.
 
-**End (checkpoint).** Overwrite the state block (never append a second one); run the generators the project
-has (`node scripts/memory/memory-rotate.mjs log --write`, `node scripts/memory/brain-index.mjs --write`,
-`node scripts/memory/roadmap-overview.mjs --write`; each is a no-op when its file does not exist); run
+**End (checkpoint).** Overwrite the state block (never append a second one); run a generator only for a file
+the project already has (`node scripts/memory/memory-rotate.mjs log --write` for `brain/00-system/log.md`,
+`node scripts/memory/brain-index.mjs --write` for `brain/00-system/index.md`,
+`node scripts/memory/roadmap-overview.mjs --write` for `docs/ROADMAP.md`; without the file, a generator fails
+or creates files nobody asked for); run
 `node scripts/memory/memory-check.mjs` and fix or report every FAIL; commit the memory repo (its pre-commit
 runs the gate) and push; commit the project by name. Never raise a pin or an allow ceiling to pass the gate;
 move detail down a layer instead.

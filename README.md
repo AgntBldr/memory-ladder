@@ -1,20 +1,204 @@
-# Memory ladder kit — install in a minute, first checkpoint in about twenty
+# Memory ladder kit
 
-Node 22 or newer and Git are required; there are no package dependencies.
-The engine is 3.1.0.
-The kit repository is the original; installed engines and skills are copies.
+Long-term memory for a coding agent (Claude Code, Codex or Cursor) that stays small enough to trust. The kit
+installs three things into your project: a gate that checks the memory at every session start and every memory
+commit, a recall command that finds the right note before the agent opens anything, and a routine that ends each
+session with one short handover. It is plain Node with no package dependencies, and it makes no network calls.
 
-Acquire the kit with `git clone --branch <tag> <KIT_REPOSITORY_URL> memory-ladder-kit`,
-or copy the kit folder. Replace `<tag>` with a release tag and
-`<KIT_REPOSITORY_URL>` with this repository's clone URL.
+[WHY](WHY.md) explains the idea behind the ladder. Figures in WHY are measured on one private project in October 2026; not shipped as evidence.
 
-From the kit folder, with `<PROJECT>` replaced by your project root:
+## How it fits together
+
+- **The memory** is a folder of Markdown files outside your project, with its own Git repository. The install
+  creates it. It holds `MEMORY.md` (the router: hard rules, active work and links to the indexes), index files that
+  list lessons, one file per lesson, and `current-state.md` with a single `## CURRENT` block that says where the
+  work stands.
+- **The gate** is `scripts/memory/memory-check.mjs` in your project. It checks the memory's size and structure and
+  reports each problem as a FAIL or a WARN.
+- **Recall** is `scripts/memory/memory-recall.mjs`. Given a question, it returns the memory files to open.
+- **The routine** is in `.claude/skills/memory-ladder/SKILL.md`: what to do at session start, while working and
+  at a checkpoint (the end-of-session save).
+
+## What you need
+
+- Node 22 or newer, and Git with a name and email set (`git config --global user.name` and `user.email`).
+  On Windows, use Git for Windows: the session-start hook runs in its Git Bash shell.
+- A project folder that is a Git repository. If it is not one yet, run `git init` in it.
+- A private Git remote for the memory, such as an empty private GitHub repository. The memory holds your notes, so
+  it gets its own private backup, even when the project itself is public.
+
+## Get started (first time, about ten minutes)
+
+In these steps, `<PROJECT>` is the full path of your project folder. The engine is 3.1.0.
+
+1. Get the kit next to your project, not inside it. From the folder that holds your project:
+
+   ```sh
+   git clone https://github.com/AgntBldr/memory-ladder.git memory-ladder-kit
+   cd memory-ladder-kit
+   node scripts/install.mjs --help
+   ```
+
+   The last command lists the install options and changes nothing. To pin a release, add `--branch <tag>` to
+   the clone with a tag from the repository's tags page.
+
+2. Preview the install. It prints every file it would write and changes nothing:
+
+   ```sh
+   node scripts/install.mjs --target <PROJECT> --dry-run
+   ```
+
+3. Install:
+
+   ```sh
+   node scripts/install.mjs --target <PROJECT>
+   ```
+
+   Two lines of the output matter:
+   - The `memory:` line names the folder that holds your private memory. The steps below call it `<MEMORY>`.
+     By default it is `~/.claude/projects/<slug>/memory`, where `<slug>` is the absolute project path with every
+     character that is not a letter or a digit replaced by `-`. On Windows, `~` is your `%USERPROFILE%` folder,
+     and a project at `C:\code\my-app` gets the slug `C--code-my-app`. The label in brackets after the path says
+     how the folder was chosen; on a first install it can read `(--memory-dir)` even when you passed no flag.
+   - The last line looks like `memory-check 3.1.0 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
+     install worked.** The one WARN is `repo.remote`: the new memory repository has no remote yet. Step 4 adds it.
+
+4. Back up the memory. Replace `<PRIVATE_REMOTE>` with the clone URL of your private remote:
+
+   ```sh
+   git -C <MEMORY> remote add origin <PRIVATE_REMOTE>
+   git -C <MEMORY> push -u origin HEAD
+   ```
+
+   Then run the gate from the project folder: `node scripts/memory/memory-check.mjs`. The last line now reads
+   `0 FAIL, 0 WARN`.
+
+5. Commit the files the install added to your project. Run `git status` in the project folder to see them, then
+   add them by name. For a project that had no `AGENTS.md` or `CLAUDE.md` before, the list is:
+
+   ```sh
+   git add scripts/memory .claude/skills/memory-ladder .claude/skills/memory-review .claude/settings.json AGENTS.md CLAUDE.md
+   git commit -m "Add the memory ladder"
+   ```
+
+   Add files by name rather than with `git add -A`, so nothing unrelated slips into the commit. If your
+   `.gitignore` ignores `.claude/`, `git add` refuses those paths; add them with `git add -f`.
+
+6. Start the first session. Start your agent in the project folder, or restart it if it was already open, so it
+   loads the new hook and skills. Paste this prompt:
+
+   > Read AGENTS.md and follow its `## Memory gate` section, and read `.claude/skills/memory-ladder/SKILL.md`.
+   > Run `node scripts/memory/memory-check.mjs` and report the last line. Open `MEMORY.md` in the memory folder
+   > the gate names, then `current-state.md`. Write the first state block: what this project is, what is being
+   > built first, what waits on me. Add one hard-rule file only if I have given you a rule that must fire before
+   > you know the task. Commit the memory repo and push it. Tell me which commands you will run at session start
+   > and at a checkpoint.
+
+   The agent replies with the gate's last line and the commands: the gate and recall at session start, the gate
+   and the memory commit at a checkpoint. If it replies with anything else, it has not read the files. Paste the
+   prompt again.
+
+Where the agent reads its rules:
+- Claude Code reads `CLAUDE.md`. When the install creates `CLAUDE.md`, it contains `@AGENTS.md`, which pulls in
+  `AGENTS.md`. If your project already had both files, add the line `@AGENTS.md` to `CLAUDE.md` yourself;
+  otherwise Claude Code never sees the gate section.
+- Codex and Cursor read `AGENTS.md` directly.
+- The `## Memory gate` section in `AGENTS.md` holds the gate rules. The full routine, including the lesson file
+  format, is in `.claude/skills/memory-ladder/SKILL.md`. Claude Code loads it as a skill; point Codex and Cursor at
+  it.
+
+## Every session after
+
+**At the start.** In Claude Code the session-start hook runs the gate and prints one line: `memory gate: ok`
+followed by counts, or the FAIL findings and the command to run. Codex and Cursor do not run the hook, so ask the
+agent to run `node scripts/memory/memory-check.mjs` first. Before the agent opens any memory index, it asks recall
+and opens only the files recall returns:
 
 ```sh
-node scripts/install.mjs --help
-node scripts/install.mjs --target <PROJECT> --dry-run
-node scripts/install.mjs --target <PROJECT>
+node scripts/memory/memory-recall.mjs "<what you are about to do>"
 ```
+
+On a new memory, recall often returns only the state file or nothing at all. That is normal until lessons exist.
+When recall returns nothing, the agent opens `MEMORY.md` instead. Either way, it reads the router's hard rules
+that match the task before it starts.
+
+**While you work.** When the agent learns something the hard way, it writes one lesson file,
+`lesson-NNN-<slug>.md` with the next number, saying what happened, why, and how to apply it. Each lesson file
+starts with front matter (`name`, `description`, `metadata.type`) and gets one line in the matching index; without
+them the gate reports `desc.missing` or `link.orphan`. The skill file shows the format. Facts about the project
+belong in the project's own docs; memory keeps a pointer to them.
+
+**At the end, run a checkpoint.** Ask the agent: "Run a memory checkpoint." It does five things:
+
+1. Overwrites the single `## CURRENT` block in `current-state.md` with where the work stands and what is next. It
+   never adds a second block.
+2. Runs a generator only for a file your project already has: `node scripts/memory/memory-rotate.mjs log --write`
+   when `brain/00-system/log.md` exists, `node scripts/memory/brain-index.mjs --write` when
+   `brain/00-system/index.md` exists, and `node scripts/memory/roadmap-overview.mjs --write` when
+   `docs/ROADMAP.md` exists. A project without those files skips this step. Running a generator anyway fails or
+   creates files you did not ask for.
+3. Runs `node scripts/memory/memory-check.mjs` and fixes or reports every FAIL.
+4. Commits the memory repository and pushes it. The memory repository's pre-commit hook runs the gate again.
+5. Commits the project's own changes, by name.
+
+**Before you compact or switch agents.** The `## CURRENT` block is the handover. Make it current and push the
+memory first. The next session starts from it.
+
+**When the gate fails.** Each finding names the check and the file. Fix the cause, usually by moving detail out
+of an oversized file into a new file one layer down. Never raise a pin or an allowlist ceiling to make the gate
+pass.
+
+**Check that recall works.** Once you have a few lessons, replace the example probes in
+`scripts/memory/recall-probes.json` with questions from your project and the files that should answer them. Each
+probe has an `id`, a question `q` and `expect`, the file names recall should return; `minPass` is the share of
+probes that must pass.
+The example probe is intentionally small; it is not a claim about your recall quality. Then run:
+
+```sh
+node scripts/memory/memory-recall.mjs --probe
+node scripts/memory/memory-measure.mjs --write first
+```
+
+The measure command writes `docs/evidence/memory/<date>-first.json` and `.md` into your project; commit them.
+Run `memory-measure.mjs --write <name>` again later and compare the two `.md` files.
+
+**On another computer.** Clone the memory's private remote into the folder the gate expects
+(`git clone <PRIVATE_REMOTE> <MEMORY>`), then run the gate. Until the memory is there, the session-start hook
+prints `memory gate: memory dir not found`. A teammate who clones the project sees the same line until they set up
+their own memory.
+
+## Update to a new release
+
+Update the kit folder (`git pull`, or `git fetch --tags` and check out the new tag), then from the kit folder:
+
+```sh
+node scripts/upgrade.mjs --target <PROJECT> --check
+node scripts/upgrade.mjs --target <PROJECT>
+```
+
+`--check` exits 0 when the project is current. It exits 1 when an update is available, a kit-owned file was edited
+locally, or the check failed; the lines it prints say which. The upgrade backs up to a timestamped folder,
+replaces only kit-owned files, and keeps your config, probes, hooks and instruction blocks. If the upgrade causes a
+new FAIL, it rolls back. Run the gate afterwards. [UPGRADE](docs/UPGRADE.md) has the details and the restore
+command.
+
+## If you already have memory files
+
+A large `MEMORY.md`, journals or one big lessons file can be converted with [CONVERT](docs/CONVERT.md), a scripted
+conversion with proofs. Do it in a session of its own.
+
+## More guides
+
+- [STARTER](docs/STARTER.md): this guide in more detail, including where each installed file lives.
+- [WHY](WHY.md): the idea behind the ladder.
+- [CONVERT](docs/CONVERT.md): converting existing memory.
+- [UPGRADE](docs/UPGRADE.md): upgrades and recovery.
+- [Engine reference](engine/README.md): every command, check and config key.
+
+
+## Reference
+
+### Where the memory lives
 
 Use `--memory-dir <MEMORY>` for an existing private memory directory. Otherwise
 selection is `CLAUDE_MEMORY_DIR`, an existing directory recorded in `KIT.local.json`,
@@ -23,12 +207,7 @@ then `<home>/.claude/projects/<absolute-project-path-slug>/memory`. Home is
 The git-ignored local record remembers custom paths for later unflagged gates and hooks.
 `KIT.json` contains no machine path; missing local directories fall through to the default.
 
-The final line resembles `memory-check 3.1.0 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`.
-**Green for a fresh install means 0 FAIL.** The expected first-run WARN is
-`repo.remote`: the newly initialized memory repository has no remote. Clear it with
-`git -C <MEMORY> remote add origin <PRIVATE_REMOTE>` and
-`git -C <MEMORY> push -u origin HEAD`. Existing memory may have other findings;
-read those files and repair the reported cause before adoption.
+### What install writes
 
 Install writes the engine, two skills, a hash manifest and receipt, merges a
 SessionStart hook without removing other settings, appends the AGENTS memory gate
@@ -46,24 +225,13 @@ writing; `--backup` moves their original bytes into a timestamped
 `scripts/memory/.kit-backup-<UTC>/` directory before proceeding. Dry run prints
 planned writes without performing them.
 
-The first checkpoint needs project-specific probes, the single CURRENT block,
-and a private remote for the memory repo. From the project root, run:
+Existing memory may have findings beyond the `repo.remote` WARN; read those files and repair the reported
+cause before adoption. For an existing brain log or index or a roadmap, run the applicable checkpoint generators
+described in the [engine reference](engine/README.md), then the gate.
 
-```sh
-node scripts/memory/memory-check.mjs
-node scripts/memory/memory-recall.mjs "current task"
-node scripts/memory/memory-recall.mjs --probe
-node scripts/memory/memory-measure.mjs --write first
-```
+### Undo
 
-Write the current task and next action into the single `## CURRENT` block.
-Replace example probes with questions and expected file paths from your project.
-The example probe is intentionally small; it is not a claim about your recall quality.
-For an existing brain log/index or roadmap, run the applicable checkpoint generators
-described in the [engine reference](engine/README.md), then the gate. Review the
-memory diff, commit authorized changes and push to the private remote.
-
-Undo: retain the memory repository and its history. Remove only the kit hook with
+Retain the memory repository and its history. Remove only the kit hook with
 `node scripts/memory/install-hooks.mjs --uninstall --memory-dir <MEMORY> --repo <PROJECT>`.
 Remove the exact kit SessionStart command from settings, the installed Memory gate
 block if it was newly added, and only installed kit-owned files listed in
@@ -71,8 +239,7 @@ block if it was newly added, and only installed kit-owned files listed in
 Review against your pre-install diff before removing anything. There is no destructive
 uninstaller. Upgrade recovery is described in [UPGRADE](docs/UPGRADE.md).
 
-[STARTER](docs/STARTER.md) is the sheet for a new project: the first setup once, then every session.
-[WHY](WHY.md) explains the ladder. [CONVERT](docs/CONVERT.md) handles existing memory.
+### Tests
 
 Proofs: `npm test` runs isolated engine, install, conversion, upgrade and kit tests.
 Install and conversion tests isolate both home variables and all temporary data.
@@ -80,8 +247,6 @@ Install and conversion tests isolate both home variables and all temporary data.
 `tests/kit.test.mjs` proves manifest, encoding, first checkpoint and hook removal;
 `tests/convert.test.mjs` proves conversion mechanics; `tests/upgrade.test.mjs` proves
 preservation and rollback. Human decisions and semantic review remain human work.
-
-Figures in WHY are measured on one private project in October 2026; not shipped as evidence.
 
 ## What runs automatically after install
 
