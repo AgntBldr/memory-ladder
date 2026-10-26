@@ -243,7 +243,7 @@ export function memoryFiles(dir) {
   const hard = new Set(hardRuleTargets(read(path.join(dir, 'MEMORY.md'))).map(p => pathKey(dir, p)));
   return listMd(dir).map(file => {
     const text = read(path.join(dir, file)), fm = parseFrontmatter(text);
-    const special = /^MEMORY\.md$/i.test(file) ? 'router' : /^INDEX-.*\.md$/i.test(file) ? 'index' : /^ARCHIVE\.md$/i.test(file) ? 'archive' : null;
+    const special = /^MEMORY\.md$/i.test(file) ? 'router' : /^INDEX-.*\.md$/i.test(file) && !/^index-notes-/.test(file) ? 'index' : /^ARCHIVE\.md$/i.test(file) ? 'archive' : null;
     const stub = fmGet(fm.data, 'moved_to') !== undefined;
     const state = fmGet(fm.data, 'state') === true;
     const hardRule = hard.has(pathKey(dir, file));
@@ -254,7 +254,7 @@ export function memoryFiles(dir) {
 
 export function args(argv = process.argv.slice(2)) {
   const out = { _: [] };
-  const values = new Set(['memory-dir', 'repo', 'scope', 'k', 'write', 'out', 'baseline', 'accepted', 'write-allowlist', 'config', 'today', 'keep']);
+  const values = new Set(['memory-dir', 'repo', 'scope', 'k', 'write', 'out', 'baseline', 'accepted', 'write-allowlist', 'config', 'today', 'keep', 'route']);
   for (let i = 0; i < argv.length; i++) {
     if (!argv[i].startsWith('--')) { out._.push(argv[i]); continue; }
     const key = argv[i].slice(2);
@@ -276,4 +276,27 @@ export function locations(opts) {
 }
 export function requireMemory(dir) {
   if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error('memory dir not found');
+}
+
+export const secretSources = {
+  anthropic: /sk-ant-[A-Za-z0-9_-]{20,}/,
+  openai: /(?<![A-Za-z0-9_-])sk-(?:proj-)?[A-Za-z0-9_-]{32,}/,
+  aws: /AKIA[0-9A-Z]{16}/,
+  github: /gh[pousr]_[A-Za-z0-9]{36,}/,
+  slack: /xox[baprs]-[A-Za-z0-9-]{10,}/,
+  'private-key': /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+  google: /AIza[0-9A-Za-z_-]{35}/,
+  jwt: /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/,
+  resend: /re_[A-Za-z0-9]{20,}/,
+  stripe: /(?:sk|rk)_live_[A-Za-z0-9]{20,}/,
+  'github-pat': /github_pat_[A-Za-z0-9_]{40,}/,
+  supabase: /sbp_[a-f0-9]{40}/,
+  webhook: /whsec_[A-Za-z0-9]{20,}/,
+};
+const secrets = secretSources;
+const redactions = Object.entries(secrets).map(([name, pattern]) => [name, new RegExp(pattern.source, 'g')]);
+export function redact(text) {
+  text = String(text);
+  for (const [name, pattern] of redactions) text = text.replace(pattern, `[REDACTED:${name}]`);
+  return text;
 }

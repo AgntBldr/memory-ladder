@@ -32,18 +32,17 @@ Commands use the installed engine from the project root. Do not operate on anoth
    Command: `git -C <COPY> diff --stat`. Proof: the reviewer checks the move map
    against the originals before edits and the resulting file count afterwards.
    Brain nodes receive current canonical facts, not dumps of dated memory history.
-4. **SCRIPTED — split lessons and pin their indexes.** Run
-   `node scripts/memory/memory-migrate.mjs lessons --repo <PROJECT> --memory-dir <COPY> --source <SOURCE> --tag <name>`;
+4. **SCRIPTED — split lessons and generate their indexes.** Run
+   `node scripts/memory/memory-migrate.mjs convert --repo <PROJECT> --memory-dir <COPY> --source <SOURCE> --tag <name>`;
    review the JSON report, then repeat with `--write`. Optional `--classes <JSON>`
    maps every assigned id to verification, shipping, orchestration, specs or sessions.
    The parser accepts bold `**N`/`**#N` and `##`–`######` headings with optional `#`,
-   one to three digits and optional lowercase suffix. Ordinary numbered lists are
+   any number of digits and optional lowercase suffix. Ordinary numbered lists are
    not lessons. Unnumbered preamble/date blocks get extra `000a…` files, reported
    explicitly; duplicates get free suffixes. Fences protect embedded headings.
    Bodies are copied byte-for-byte, including CRLF. The original source filename
-   becomes a `moved_to` stub pointing to craft indexes. Run
-   `node scripts/memory/memory-check.mjs --repo <PROJECT> --memory-dir <COPY> --ratchet-pins`.
-   Without this, new craft indexes fail `index.missing-pin`. Proof: counts, ids,
+   becomes a `moved_to` stub pointing to craft indexes. The same run migrates routes
+   and generates hot pages and catalogs. Proof: counts, ids,
    exception files, index lines, resolving stub and concatenated body bytes match
    the original. A second migration of a stub is a no-op.
 5. **AGENT-DRIVEN — replace state.** Keep one `current-state.md` block with
@@ -100,3 +99,8 @@ stub, link or pin findings, and **exactly three expected FAILs** after the scrip
 steps: `state.headings` once and `hardrule.size` twice. Those deliberately remain
 for manual steps 5 and 6; the fixture does not claim automated semantic repair.
 Separate whole-file block tests prove detection and reasoned acceptance.
+
+For existing hand-kept indexes run `node scripts/memory/memory-migrate.mjs routes --memory-dir <COPY> --dry-run`,
+then `--write`. The report proves payload equality per family and nondecreasing recall probes, preserves
+CRLF bodies and prose in routed notes, merges split router triggers, and retains redirect stubs.
+Orphan lessons, note-name collisions and merged router lines over 600 characters stop before writes.

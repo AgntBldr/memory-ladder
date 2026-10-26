@@ -1,7 +1,7 @@
 ---
 name: memory-review
 description: Audit this project's v3 memory with the Node gate and repair only reported FAIL or WARN findings. Use for memory review, checkpoint checks, or fixing stale, oversized, or broken memory.
-engine_version: "3.1.0"
+engine_version: "3.2.2"
 ---
 
 # Review v3 memory
@@ -27,7 +27,8 @@ Repair the reported class:
 - `router.*`, `index.*`, `archive.*`, `topic.size`, `state.size`, and
   `hardrule.size`: move detail into atomic files or linked backgrounds. Preserve
   hooks and every operational value in hard rules. Keep hard-rule files at most
-  2 KB. Split an index by activity/domain when necessary. Never raise a pin or allow ceiling;
+  2 KB. For hand-written indexes only, `index.pin` and `index.missing-pin`
+  require moving detail or splitting by activity. Never raise a pin or allow ceiling;
   move detail down a layer.
 - `state.headings`: keep one current block; recover old state from git. Move
   durable facts to their proper homes before replacing stale state.
@@ -41,8 +42,10 @@ Repair the reported class:
 - `name.*`, `fm.parse`, `brain.frontmatter`, and `brain.duplicate-id`: repair
   identity/frontmatter, or consolidate duplicate facts in one home and retarget
   pointers. Keep recoverable history in git.
-- `lessons.count` and `lessons.cite`: reconcile numbered lesson files, cited
-  numbers, and router/index counts. Give each distinct lesson one file.
+- `lessons.duplicate` and `lessons.cite`: reconcile full lesson identities and citations.
+- `index.stale`: run `node scripts/memory/memory-index.mjs --write`.
+  `index.hot-budget` warns when mandatory topics and pins exceed the hot budget.
+- `route.missing`, `route.unknown`, `lesson.unfilled`: fill the lesson metadata and description.
 - `repo.brain-log`, `repo.roadmap`, `repo.agents`, `repo.brain-index`, and
   `brain.length`: move durable detail down a layer, retain navigation, and rotate
   history only under an authorized migration with token and block proofs.
@@ -62,7 +65,7 @@ Repair the reported class:
 Rerun the gate after repairs and report remaining findings. Use absolute dates,
 keep one fact per file, and update rather than duplicate the same idea. Commit
 and push authorized memory changes at the checkpoint. Respect task fences.
-Delete memories that are obsolete or superseded. Merge files that hold the same fact;
+Keep superseded lessons in the catalog; name them in the new lesson's `supersedes` list. Merge files that hold the same fact;
 retarget their links and keep history in git.
 
 Treat `scripts/memory-health.ps1` in this skill's directory

@@ -68,14 +68,10 @@ router then.
 number) with what happened, why, and how to apply it, and add one line to the matching index. Facts about the
 project go in the project's own records (a `brain/` vault or docs), with memory holding only the pointer.
 
-**End (checkpoint).** Overwrite the state block (never append a second one); run a generator only for a file
-the project already has (`node scripts/memory/memory-rotate.mjs log --write` for `brain/00-system/log.md`,
-`node scripts/memory/brain-index.mjs --write` for `brain/00-system/index.md`,
-`node scripts/memory/roadmap-overview.mjs --write` for `docs/ROADMAP.md`; without the file, a generator fails
-or creates files nobody asked for); run
-`node scripts/memory/memory-check.mjs` and fix or report every FAIL; commit the memory repo (its pre-commit
-runs the gate) and push; commit the project by name. Never raise a pin or an allow ceiling to pass the gate;
-move detail down a layer instead.
+**End (checkpoint).** Overwrite the state block, then run `node scripts/memory/memory-checkpoint.mjs`.
+It generates memory indexes, rotates existing history, refreshes project navigation, checks the gate,
+commits memory and pushes. Fix every FAIL; a refused push is reported. Use `--no-push` or `--dry-run`
+when appropriate. Commit the project by name.
 
 **Compacting or handing over.** The state block is the handover. Before a compaction or a switch of agent,
 make it current and push the memory; the next session starts from it.
@@ -100,3 +96,6 @@ active work and routing lines; every lesson is one file with one index line; the
 the memory repo has one commit per checkpoint on its private remote; the measurement command
 (`node scripts/memory/memory-measure.mjs --probe scripts/memory/recall-probes.json --write <name>`) shows
 recall still finds what the probes ask for.
+
+Capture a lesson with `node scripts/memory/memory-lesson.mjs new --route <family> "<title>"`.
+Fill the TODO description and body; indexes and catalogs are generated from routes.

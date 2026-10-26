@@ -33,10 +33,15 @@ Run commands from the new kit folder. Replace `<PROJECT>` with the installed pro
    `node scripts/upgrade.mjs --target <PROJECT> --restore <dir>`, where `<dir>` is
    the printed backup directory. This reads `restore.json`, restores existing files
    and removes files that were absent; no new receipt or working gate is required.
-8. Same-version upgrades are no-ops except `--force-skills`, which refreshes skills
-   and their manifest entries with the same backup and gate checks. Downgrades refuse.
+8. Equal versions are no-ops only when engine hashes also match. Engine drift triggers
+   replacement. `--force-skills` refreshes edited skills. Downgrades refuse.
+9. For 3.2.0 and later, hand-written indexes migrate to routes under the same lock
+   and backup as the engine copy. Any copy, migration, proof or new gate failure
+   restores both engine and memory. The backup includes memory files and the restore map.
 
 Tests in `tests/upgrade.test.mjs` and `tests/fixes.test.mjs` cover semantic versions,
 pre-existing/new FAILs, unique backups, removed files, restore, interrupted copying,
 EPERM recovery, config preservation and skipped/forced skills. Fault injection is
 an importable test callback; the CLI has no fault-injection switch.
+
+After every vendored kit update, run `memory-index.mjs --write` before the gate. Older generated pages report `index.stale` until regenerated. The upgrade script regenerates generated pages under its lock and includes them in backup/restore.

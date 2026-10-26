@@ -6,6 +6,10 @@ import { spawnSync } from 'node:child_process';
 import { kitRoot, files, hash } from '../scripts/manifest.mjs';
 export { kitRoot, files, hash };
 export const read = f => fs.readFileSync(f,'utf8');
+export const currentVersion = read(path.join(kitRoot,'VERSION')).trim();
+export const nextVersion = currentVersion.replace(/^(\d+\.\d+\.)(\d+)(?:[-+].*)?$/, (_, prefix, patch) => prefix + (Number(patch) + 1));
+export const versionPattern = currentVersion.replaceAll('.', '\\.');
+export const nextVersionPattern = nextVersion.replaceAll('.', '\\.');
 export const json = f => JSON.parse(read(f));
 export function put(f,s) { fs.mkdirSync(path.dirname(f),{recursive:true}); fs.writeFileSync(f,s); return f; }
 export function tree(root,{git=false,previous=false}={}) {
@@ -30,12 +34,18 @@ export function fixture(t) {
 }
 export function ok(r) { assert.equal(r.status,0,r.stdout+r.stderr); return r; }
 export function bump(f) {
-  const root=path.join(f.root,'new-kit'); fs.cpSync(kitRoot,root,{recursive:true});
-  put(path.join(root,'VERSION'),'3.1.1\n');
-  const config=json(path.join(root,'engine/memory.config.json'));config.engine_version='3.1.1';config.newDefault={enabled:true};
+  const root=path.join(f.root,'new-kit'); fs.mkdirSync(root);
+  // Permit workspace-local temporary fixtures without copying the fixtures into themselves.
+  for(const entry of fs.readdirSync(kitRoot)) {
+    const source=path.join(kitRoot,entry),relative=path.relative(source,f.root);
+    if(relative===''||(!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative))) continue;
+    fs.cpSync(source,path.join(root,entry),{recursive:true});
+  }
+  put(path.join(root,'VERSION'),nextVersion+'\n');
+  const config=json(path.join(root,'engine/memory.config.json'));config.engine_version=nextVersion;config.newDefault={enabled:true};
   put(path.join(root,'engine/memory.config.json'),JSON.stringify(config,null,2)+'\n');
   for(const name of ['memory-ladder','memory-review']) {
-    const p=path.join(root,'skills',name,'SKILL.md');put(p,read(p).replace('engine_version: "3.1.0"','engine_version: "3.1.1"'));
+    const p=path.join(root,'skills',name,'SKILL.md');put(p,read(p).replace('engine_version: "'+currentVersion+'"','engine_version: "'+nextVersion+'"'));
   }
   const engine=path.join(root,'engine/lib.mjs');put(engine,read(engine)+'\n// New release fixture.\n');
   ok(f.cli('scripts/manifest.mjs',[],root));return root;

@@ -1,7 +1,7 @@
 ---
 name: memory-ladder
 description: Use the v3 memory ladder for capture, recall, the gate, converting old memory, and installation in this project.
-engine_version: "3.1.0"
+engine_version: "3.2.2"
 ---
 
 # Memory ladder v3
@@ -42,11 +42,11 @@ into linked backgrounds.
 
 ## Capture at the moment of learning
 
-Run recall before writing. Update the same idea; do not duplicate it. Give a new
-lesson a `lesson-NNN-<slug>.md` file, numbered highest existing number plus one.
-Use three digits and an optional lowercase suffix: `lesson-054b-<slug>.md`.
-Match the gate's `lesson-\d{3}[a-z]?-.+\.md` pattern.
-Add one line to its matching `INDEX-craft-*`. Bump router/index lesson counts.
+Run recall before writing. Update the same idea; do not duplicate it. Capture with
+`node scripts/memory/memory-lesson.mjs new --route <family> "<title>"`.
+Fill the TODO description and the why/how body before the gate. Routes may name
+several families. Optional pin, hook (at most 200 characters), and supersedes
+fields live in metadata. Generated indexes need no manual count or split.
 Keep distinct lessons out of journals.
 
 Do not duplicate repo records. Capture durable knowledge when learned.
@@ -59,12 +59,10 @@ verify it before asserting it.
 At every checkpoint, update memory, write a lesson with the why, refresh the
 roadmap's Open work and the decision board, copy specs/evidence still in a temp folder into `docs/`,
 run the gate, and commit and push the memory repo. Say that you did it.
-At checkpoints also run:
+At checkpoints run:
 
 ```sh
-node scripts/memory/memory-rotate.mjs log --write
-node scripts/memory/brain-index.mjs --write
-node scripts/memory/roadmap-overview.mjs --write
+node scripts/memory/memory-checkpoint.mjs
 ```
 
 Shelf programs in `docs/shelf/<name>.md` with `shelved`/`review`; the gate warns on the review date.
@@ -149,12 +147,12 @@ Create the directory, router and linked files; take a baseline commit:
 ```
 
 Use resolving triggers, topic descriptions and state frontmatter `state: true`
-with one `## CURRENT` block. Initialize pins with the ratchet; never raise them.
+with one `## CURRENT` block. Generate the activity indexes.
 Run from the project repository:
 
 ```sh
 git -C MEMORY_PATH init
-node scripts/memory/memory-check.mjs --memory-dir MEMORY_PATH --ratchet-pins
+node scripts/memory/memory-index.mjs --memory-dir MEMORY_PATH --write
 node scripts/memory/memory-check.mjs --memory-dir MEMORY_PATH
 git -C MEMORY_PATH add .
 git -C MEMORY_PATH commit -m "Baseline memory"

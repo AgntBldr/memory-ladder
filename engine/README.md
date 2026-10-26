@@ -14,7 +14,7 @@
 
 ## Commands, ladder and caps
 
-Stage 2: `memory-migrate.mjs lessons --memory-dir D [--source FILE]
+Stage 2: `memory-migrate.mjs convert --memory-dir D [--source FILE]
 [--classes FILE] [--tag NAME] [--write]` splits original lesson blocks without changing their
 body bytes (including CRLF). The default is a JSON dry run. A classes JSON object
 maps every assigned id, including unnumbered/duplicate ids, to one craft activity.
@@ -45,11 +45,11 @@ fallback; home from `USERPROFILE` then `HOME`). Explicit paths are recommended f
 
 | Tool | Purpose and example |
 | --- | --- |
-| `memory-check.mjs` | Size, links, descriptions, secrets, lesson counts, git health and brain integrity. `node scripts/memory/memory-check.mjs --scope memory` |
+| `memory-check.mjs` | Size, links, descriptions, secrets, lesson identities, git health and brain integrity. `node scripts/memory/memory-check.mjs --scope memory` |
 | `memory-recall.mjs` | Weighted BM25 search. `node scripts/memory/memory-recall.mjs "model routing" --k 5` |
 | `memory-measure.mjs` | Session bytes, hard-rule trigger bytes, ladder/search recall cost, gate counts and correction proxy. `node scripts/memory/memory-measure.mjs --probe path/to/probes.json --json` |
 | `memory-conserve.mjs` | Prove token presence or exact block conservation. `node scripts/memory/memory-conserve.mjs snapshot --out baseline.json`; then `node scripts/memory/memory-conserve.mjs verify --baseline baseline.json`. See block mode below. |
-| `memory-migrate.mjs` | Split numbered lessons; dry run by default. `node scripts/memory/memory-migrate.mjs lessons --repo PATH --memory-dir COPY --source lessons.md`. `--source` is one Markdown filename inside memory; `--write` applies the migration. |
+| `memory-migrate.mjs` | Split numbered lessons; dry run by default. `node scripts/memory/memory-migrate.mjs convert --repo PATH --memory-dir COPY --source lessons.md`. `--source` is one Markdown filename inside memory; `--write` applies the migration. |
 | `install-hooks.mjs` | Install the memory repo's pre-commit gate; `--uninstall` removes only this tool's hook. Foreign hooks are preserved. |
 | `lib.mjs` | Paths, restricted frontmatter parsing, links, file discovery and common CLI helpers. |
 
@@ -62,7 +62,7 @@ commits, pushes, installs dependencies or invokes a model.
 Keep snapshots, tags and review evidence in durable project storage before deleting a migration work copy.
 
 `memory.config.json` controls caps, pins and allow entries. `--ratchet-pins` sets
-each index pin to the smaller of its old pin and current bytes plus slack; it
+each hand-written index pin to the smaller of its old pin and current bytes plus slack; it
 never raises an existing pin and removes obsolete pins. `--config FILE` lets the
 gate operate on a fixture config instead. `--write-allowlist "reason"` appends
 current findings, deduplicated by check and file. Both options write the config.
@@ -84,15 +84,15 @@ Every finding message is passed through redaction: a secret is shown as
 `[REDACTED:<pattern>]`, never as text.
 
 `--hook` is what the memory repo's pre-commit runs (`--hook --scope memory`): it
-skips git-state checks that are meaningless inside a commit and, on an internal
-error, prints `memory gate: internal error, commit allowed` and exits 0. A stub
+checks a staged snapshot extracted with git checkout-index. Snapshot errors block
+the commit. SessionStart alone remains nonblocking. A stub
 is a file with `moved_to:` (a filename or a list); each target must be an existing
 file inside the memory directory, or a `brain/...` path inside the repo.
 
 `repo.skill-version` warns in `--scope all` and `--session-start` when an existing
 `.claude/skills/memory-ladder/SKILL.md` or `.claude/skills/memory-review/SKILL.md`
 has a missing or mismatched frontmatter `engine_version`. Compare against
-`memory.config.json` (currently `3.1.0`). Absent files produce no finding.
+`memory.config.json` (currently `3.2.0`). Absent files produce no finding.
 `--hook` and memory-only scope skip this check and its allowlist-staleness check.
 Update the instructions and version together; do not merely stamp stale prose.
 
@@ -253,3 +253,32 @@ Normal text gate runs print `memory: <dir> (<source>)`; JSON output remains JSON
 and SessionStart stays compact. Custom paths live only in ignored `KIT.local.json`.
 Manifest hashes normalize CRLF to LF. Missing, unreadable or malformed manifest
 content yields WARNs. Generated brain/roadmap checks run whenever their source exists.
+
+## Generated memory indexes (3.2.0)
+
+Capture: `node scripts/memory/memory-lesson.mjs new --route <family>[,<family>] [--pin] [--today YYYY-MM-DD] "<title>"`.
+`--today` sets the lesson date and dated heading; omitted, it uses the current UTC date.
+The installed template is `scripts/memory/templates/lesson.md`. Fill TODO before the gate.
+Lesson identities have at least three digits and optional lowercase letters; capture allocates the next numeric part.
+Metadata route, pin, hook (at most 200 characters), and supersedes override top-level fallback values.
+
+Rows and hot-page sentences use `caps.index.warnLineChars` (default 300), shortening descriptions with …. Immutable link prefixes can exceed the cap.
+
+`memory-index.mjs --write` generates hot pages and catalogs; `--check` rejects drift.
+`caps.index.hotBytes` defaults to 8192. Topics and pins always remain, with index.hot-budget WARN
+for overflow. Catalogs paginate at 24576 bytes. Superseded lessons remain in the catalog.
+Generated pages skip hand-written pin rules; index.stale requires regeneration.
+lessons.duplicate, route.missing, route.unknown and lesson.unfilled are FAIL checks.
+Staleness applies to state and caps.stale.types (project and reference by default).
+kit.version fails same-version engine drift; kit.manifest still warns on local edits.
+
+`memory-rotate.mjs roadmap --write` preserves dated Open work blocks in roadmapHistory.path,
+keeping six by default (caps.roadmap.keepBlocks), or at least two under size pressure.
+The printed proof compares moved payload bytes and verifies every block in history.
+
+`node scripts/memory/memory-checkpoint.mjs` runs indexes, log rotation, roadmap rotation, brain index,
+roadmap overview, gate, memory commit, and push in order. Missing optional project files are skipped.
+A failed or timed-out push is reported and exits 2; the commit remains. --no-push skips it; --dry-run writes nothing.
+`--today YYYY-MM-DD` sets the checkpoint date, including the gate's stale checks and rotation checks.
+One .memory.lock covers all in-process steps. Writers wait up to 30 seconds; stale locks break
+only after ten minutes with a dead pid on this host. Foreign-host locks require manual inspection.

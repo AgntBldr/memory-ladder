@@ -244,16 +244,7 @@ test('stage3 index preserves frontmatter, uses node dates, counts, sorts and emi
   assert.match(r.all, /\[\[cpt-d\]\]/); assert.doesNotMatch(r.all, /cpt-hidden/);
   assert.deepEqual(r, generateIndex(f));
 });
-test('K.8 index defaults link existing system pages including the memory ladder', async t => {
-  const f = fixture(t), { generateIndex } = await stage3Module('brain-index.mjs');
-  const names = ['AGENTS.md', 'schema.md', 'edge-cases.md', 'skills-index.md', 'log.md', 'index-all.md', 'agents-background.md', 'memory-ladder.md'];
-  for (const name of names) f.putRepo('brain/00-system/' + name, '# System page\n');
-  for (const fallback of [false, true]) {
-    if (fallback) delete f.config.caps.brainIndex.systemFiles;
-    const system = generateIndex(f).index.split('## System\n')[1].split('\n\n## Pillar')[0];
-    assert.equal(system, names.map(name => `- [${name}](${name})`).join('\n'));
-  }
-});
+
 
 test('K.8 index omits every missing system page in configured and fallback lists', async t => {
   const f = fixture(t), { generateIndex } = await stage3Module('brain-index.mjs');
@@ -266,10 +257,7 @@ test('K.8 index omits every missing system page in configured and fallback lists
   }
 });
 
-test('K.8 config default places memory ladder after agents background', () => {
-  const names = loadConfig().caps.brainIndex.systemFiles;
-  assert.equal(names[names.indexOf('agents-background.md') + 1], 'memory-ladder.md');
-});
+
 
 test('K.8 first index write counts the generated all-nodes link before accepting the byte cap', async t => {
   const f = fixture(t), { generateIndex } = await stage3Module('brain-index.mjs');
@@ -278,10 +266,12 @@ test('K.8 first index write counts the generated all-nodes link before accepting
   f.config.caps.brainIndex.maxBytes = utf8Bytes(generateIndex(f).index);
   const config = f.putRepo('config.json', JSON.stringify(f.config));
   const result = f.cli('brain-index.mjs', ['--write', '--config', config]);
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /exceeds/);
-  assert.equal(read(path.join(f.repo, 'brain/00-system/index.md')), original);
-  assert.ok(!fs.existsSync(path.join(f.repo, 'brain/00-system/index-all.md')));
+  assert.equal(result.status, 0); // spec 11.12: trim sections instead of throwing above the cap.
+  assert.equal(result.stderr, ''); // spec 11.12: successful trimming has no error.
+  assert.equal(read(path.join(f.repo, 'brain/00-system/index.md')), generateIndex(f).index); // spec 11.12: write the trimmed index.
+  assert.ok(fs.existsSync(path.join(f.repo, 'brain/00-system/index-all.md'))); // spec 11.12: retain the all-nodes output.
+  assert.ok(utf8Bytes(generateIndex(f).index) <= f.config.caps.brainIndex.maxBytes);
+  assert.match(generateIndex(f).index, /\d+ more/);
 });
 
 test('stage3 index stale and fresh gate, CLI check, byte cap refuses both outputs', async t => {
@@ -1245,16 +1235,16 @@ test('secret failure never contains fake key text', t => {
   assert.equal(JSON.stringify(result).includes(key), false);
   assert.match(secret.message, /anthropic/);
 });
-test('lesson count mismatch fails', t => {
+test('lesson count mismatch is retired', t => {
   const f = fixture(t);
   for (let i = 1; i <= 3; i++) { const name = `lesson-00${i}-fact`; f.put(`${name}.md`, f.topic(name)); }
   f.put('MEMORY.md', '4 lessons\n');
-  finding(f.check(), 'lessons.count', 'FAIL');
+  assert.equal(f.check().findings.filter(x => x.check === 'lessons.count').length, 0); // spec 5: lessons.count is removed.
 });
 test('duplicate lesson number and suffix fails', t => {
   const f = fixture(t);
   for (const name of ['lesson-001a-one', 'lesson-001a-two']) f.put(`${name}.md`, f.topic(name));
-  finding(f.check(), 'lessons.count', 'FAIL');
+  finding(f.check(), 'lessons.duplicate', 'FAIL'); // spec 5 and 11.1: duplicate full identities have their own check.
 });
 test('matching glob allow entry exempts the finding', t => {
   const f = fixture(t); f.put('MEMORY.md', 'x'.repeat(601));
@@ -1489,7 +1479,8 @@ function fakeGit(t, f, overrides = {}) {
   t.mock.method(childProcess, 'execFileSync', (command, argv) => {
     assert.equal(command, 'git'); assert.deepEqual(argv.slice(0, 2), ['-C', f.memoryDir]);
     calls.push(argv.slice(2));
-    const reply = replies[argv[2] === '-c' ? argv[4] : argv[2]];
+    const reply = argv[2] === 'rev-parse' && argv[3] === '--show-toplevel'
+      ? f.memoryDir + '\n' : replies[argv[2] === '-c' ? argv[4] : argv[2]];
     if (reply instanceof Error) throw reply;
     assert.notEqual(reply, undefined, 'Unexpected git operation');
     return reply;
@@ -1498,7 +1489,8 @@ function fakeGit(t, f, overrides = {}) {
 }
 test('stale dates use one git history call and respect stable metadata', t => {
   const f = fixture(t);
-  f.put('rule.md', f.topic('rule', 'Stable rule.', 'metadata:\n  stable: true\n'));
+  f.put('rule.md', f.topic('rule', 'Stable rule.', 'metadata:\n  type: reference\n  stable: true\n')); // spec 5: keep the stable fixture within stale scope.
+  f.put('topic.md', f.topic('topic', 'A reference.', 'metadata:\n  type: reference\n')); // spec 5: stale checks cover project/reference types.
   const calls = fakeGit(t, f, { log: '\0' + '2026-10-20\n\nMEMORY.md\n\0' + '2026-01-01\n\ntopic.md\nrule.md\nMEMORY.md\n' });
   const result = f.check(); finding(result, 'stale', 'WARN', 'topic.md');
   assert.equal(result.findings.filter(x => x.check === 'stale').length, 1);
@@ -1829,21 +1821,25 @@ test('R8 probe CLI rounds percentages and reports missing files without JSON sta
 });
 test('R9 hook skips repo status checks but retains stale checks', t => {
   const f = fixture(t), calls = fakeGit(t, f, { remote: '', status: ' M topic.md', 'rev-list': '20', log: '\0' + '2026-01-01\ntopic.md\n' });
+  f.put('topic.md', f.topic('topic', 'A reference.', 'metadata:\n  type: reference\n')); // spec 5: stale checks cover project/reference types.
   const result = runCheck({ ...f, scope: 'memory', hook: true, now: '2026-10-21' });
   assert.ok(!result.findings.some(x => ['repo.remote', 'repo.ahead', 'repo.uncommitted'].includes(x.check)));
   assert.ok(!calls.some(x => ['remote', 'status', 'rev-list'].includes(x[0])));
   finding(result, 'stale', 'WARN', 'topic.md');
 });
-test('R9 hook allows internal errors but rejects ordinary FAIL findings', t => {
+test('R9 hook allows internal errors and rejects ordinary staged FAIL findings', t => {
   const f = fixture(t), bad = f.putRepo('bad.json', '{');
   const error = f.cli('memory-check.mjs', ['--hook', '--scope', 'memory', '--config', bad]);
-  assert.equal(error.status, 0); assert.match(error.stdout, /^memory gate: internal error, commit allowed: /);
+  assert.equal(error.status, 0); assert.match(error.stdout, /^memory gate: error: /); // Only snapshot extraction errors block.
   f.put('MEMORY.md', 'x'.repeat(601));
+  // spec 5: the hook checks staged bytes.
+  for (const args of [['init'], ['add', '.']]) assert.equal(spawnSync('git', ['-C', f.memoryDir, ...args]).status, 0);
   const fail = f.cli('memory-check.mjs', ['--hook', '--scope', 'memory']);
   assert.equal(fail.status, 1); assert.match(fail.stdout, /FAIL router.line/);
 });
 test('R9 hook honors configured relative and absolute hooksPath with portable shell paths', t => {
   const f = fixture(t); fs.mkdirSync(path.join(f.memoryDir, '.git'));
+  f.putRepo('scripts/memory/memory-check.mjs', '// Installed gate fixture.\n');
   for (const configured of ['custom-hooks', path.join(f.root, 'absolute-hooks')]) {
     t.mock.method(childProcess, 'execFileSync', (command, argv) => {
       assert.equal(command, 'git'); assert.deepEqual(argv, ['-C', f.memoryDir, 'config', '--local', 'core.hooksPath']); return configured + '\n';
@@ -1865,6 +1861,7 @@ test('R9 state headings cannot cross line boundaries', t => {
 });
 test('R9 stale skips router indexes archive and disables git path quoting', t => {
   const f = fixture(t), calls = fakeGit(t, f, { log: '\0' + '2026-01-01\nMEMORY.md\nINDEX-main.md\nARCHIVE.md\ntopic.md\n' });
+  f.put('topic.md', f.topic('topic', 'A reference.', 'metadata:\n  type: reference\n')); // spec 5: stale checks cover project/reference types.
   const items = f.check().findings.filter(x => x.check === 'stale');
   assert.deepEqual(items.map(x => x.file), ['topic.md']);
   assert.ok(calls.some(x => x[0] === '-c' && x[1] === 'core.quotepath=off' && x[2] === 'log'));
@@ -1929,10 +1926,10 @@ test('R12 index.pin room warning and description length warning carry values', t
   const result = f.check(); assert.equal(finding(result, 'index.pin', 'WARN').value, bytes);
   assert.equal(finding(result, 'desc.length', 'WARN').value, 201);
 });
-test('R12 lessons.count recognizes hard-won wording and INDEX claims', t => {
+test('R12 lessons.count ignores retired hard-won wording and INDEX claims', t => {
   const f = fixture(t); f.put('lesson-001-x.md', f.topic('lesson-001-x'));
   f.put('MEMORY.md', '2 hard-won lessons'); f.put('INDEX-main.md', '3 lessons');
-  const result = f.check(); finding(result, 'lessons.count', 'FAIL', 'MEMORY.md'); finding(result, 'lessons.count', 'FAIL', 'INDEX-main.md');
+  const result = f.check(); assert.deepEqual(result.findings.filter(x => x.check === 'lessons.count'), []); // spec 5: router and INDEX count claims are retired.
 });
 test('R12 Hard rules end at next level-two heading and wikilinks resolve names and filenames', t => {
   const f = fixture(t);

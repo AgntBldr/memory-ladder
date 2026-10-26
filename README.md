@@ -29,7 +29,7 @@ session with one short handover. It is plain Node with no package dependencies, 
 
 ## Get started (first time, about ten minutes)
 
-In these steps, `<PROJECT>` is the full path of your project folder. The engine is 3.1.0.
+In these steps, `<PROJECT>` is the full path of your project folder. The engine is 3.2.0.
 
 1. Get the kit next to your project, not inside it. From the folder that holds your project:
 
@@ -60,7 +60,7 @@ In these steps, `<PROJECT>` is the full path of your project folder. The engine 
      character that is not a letter or a digit replaced by `-`. On Windows, `~` is your `%USERPROFILE%` folder,
      and a project at `C:\code\my-app` gets the slug `C--code-my-app`. The label in brackets after the path says
      how the folder was chosen; on a first install it can read `(--memory-dir)` even when you passed no flag.
-   - The last line looks like `memory-check 3.1.0 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
+   - The last line looks like `memory-check 3.2.0 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
      install worked.** The one WARN is `repo.remote`: the new memory repository has no remote yet. Step 4 adds it.
 
 4. Back up the memory. Replace `<PRIVATE_REMOTE>` with the clone URL of your private remote:
@@ -122,24 +122,16 @@ On a new memory, recall often returns only the state file or nothing at all. Tha
 When recall returns nothing, the agent opens `MEMORY.md` instead. Either way, it reads the router's hard rules
 that match the task before it starts.
 
-**While you work.** When the agent learns something the hard way, it writes one lesson file,
-`lesson-NNN-<slug>.md` with the next number, saying what happened, why, and how to apply it. Each lesson file
-starts with front matter (`name`, `description`, `metadata.type`) and gets one line in the matching index; without
-them the gate reports `desc.missing` or `link.orphan`. The skill file shows the format. Facts about the project
-belong in the project's own docs; memory keeps a pointer to them.
+**While you work.** Capture with `node scripts/memory/memory-lesson.mjs new --route <family> "<title>"`.
+Fill the TODO description and why/how body. Metadata routes determine generated index membership; optional
+`pin`, `hook` (at most 200 characters), and `supersedes` control the hot page. No count or split is hand-edited.
 
-**At the end, run a checkpoint.** Ask the agent: "Run a memory checkpoint." It does five things:
-
-1. Overwrites the single `## CURRENT` block in `current-state.md` with where the work stands and what is next. It
-   never adds a second block.
-2. Runs a generator only for a file your project already has: `node scripts/memory/memory-rotate.mjs log --write`
-   when `brain/00-system/log.md` exists, `node scripts/memory/brain-index.mjs --write` when
-   `brain/00-system/index.md` exists, and `node scripts/memory/roadmap-overview.mjs --write` when
-   `docs/ROADMAP.md` exists. A project without those files skips this step. Running a generator anyway fails or
-   creates files you did not ask for.
-3. Runs `node scripts/memory/memory-check.mjs` and fixes or reports every FAIL.
-4. Commits the memory repository and pushes it. The memory repository's pre-commit hook runs the gate again.
-5. Commits the project's own changes, by name.
+**At the end, run a checkpoint.** Update the single current-state block, then run
+`node scripts/memory/memory-checkpoint.mjs`. It generates hot pages and catalogs, rotates the brain log and
+roadmap, refreshes the brain index and roadmap overview, runs the gate, commits the memory repo, and pushes.
+A gate FAIL stops the commit; a failed or timed-out push exits 2 and keeps the commit. `--no-push` skips
+push; `--dry-run` writes nothing. Capture and checkpoint accept `--today YYYY-MM-DD` for a simulated
+lesson date or checkpoint gate/rotation date; the default is today. Commit the project's own changes separately, by name.
 
 **Before you compact or switch agents.** The `## CURRENT` block is the handover. Make it current and push the
 memory first. The next session starts from it.
@@ -216,7 +208,7 @@ only if absent. Malformed or non-object settings stop before writes; an existing
 leaves settings bytes unchanged, including a UTF-8 BOM.
 Project config and probes are created only when absent. The starter router, session
 index and current-state file are created when no router exists; existing memory
-files are preserved. Missing pins are initialized without raising existing pins.
+files are preserved. New installs generate hot pages and catalogs; hand-written indexes retain their existing pin rules.
 A memory repository with no HEAD gets one baseline commit, including a previously
 initialized repository whose first commit failed. Repositories with history get none. If Git has no identity, the baseline alone uses the reported kit identity.
 A foreign pre-commit is preserved and reported. Repeat installation refuses with `already installed (kit X); run scripts/upgrade.mjs`

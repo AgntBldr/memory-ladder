@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {fixture,ok,tree,json,read,put,bump,hash,kitRoot} from './helpers.mjs';
+import {fixture,ok,tree,json,read,put,bump,hash,kitRoot,nextVersion,versionPattern} from './helpers.mjs';
 import * as updater from '../scripts/upgrade.mjs';
 import {memorySlug} from '../engine/lib.mjs';
 const engine = f => path.join(f.target,'scripts/memory');
@@ -28,7 +28,7 @@ test('F1 installed skill links and section locators resolve',t=>{
 });
 test('F2 reinstall refuses without any writes',t=>{
   const f=fixture(t);ok(f.install());const before=tree(f.root,{git:true});
-  const r=f.install();assert.equal(r.status,1);assert.match(r.stderr,/already installed \(kit 3\.1\.0\); run scripts\/upgrade\.mjs/);
+  const r=f.install();assert.equal(r.status,1);assert.match(r.stderr,new RegExp('already installed \\(kit '+versionPattern+'\\); run scripts/upgrade\\.mjs')); // 3.2.1: version from VERSION
   assert.deepEqual(tree(f.root,{git:true}),before);
 });
 test('F2 foreign owned bytes require backup before install',t=>{
@@ -50,8 +50,8 @@ test('F4 differently cased installer and upgrader paths execute',{skip:process.p
   };
   assert.match(ok(load('install.mjs',['--target',f.target,'--dry-run'])).stdout,/WRITE/);
   const r=ok(f.exec(process.execPath,[path.join(kitRoot,'scripts/install.mjs').toUpperCase().replace(/\.MJS$/,'.mjs'),'--target',f.target]));assert.match(r.stdout,/install wall time/);
-  const u=ok(f.exec(process.execPath,[path.join(kitRoot,'scripts/upgrade.mjs').toUpperCase().replace(/\.MJS$/,'.mjs'),'--target',f.target,'--check']));assert.match(u.stdout,/kit 3\.1\.0/);
-  assert.match(ok(load('upgrade.mjs',['--target',f.target,'--check'])).stdout,/kit 3\.1\.0/);
+  const u=ok(f.exec(process.execPath,[path.join(kitRoot,'scripts/upgrade.mjs').toUpperCase().replace(/\.MJS$/,'.mjs'),'--target',f.target,'--check']));assert.match(u.stdout,new RegExp('kit '+versionPattern+'(?=\\s|$)')); // 3.2.1: version from VERSION
+  assert.match(ok(load('upgrade.mjs',['--target',f.target,'--check'])).stdout,new RegExp('kit '+versionPattern+'(?=\\s|$)')); // 3.2.1: version from VERSION
 });
 test('F5 empty initialized memory repo receives exactly one baseline',t=>{
   const f=fixture(t);fs.mkdirSync(f.memory,{recursive:true});f.git(f.memory,'init');ok(f.install());assert.equal(f.git(f.memory,'rev-list','--count','HEAD'),'1');
@@ -65,7 +65,7 @@ test('F5 failed baseline can retry install and create its first commit',t=>{
 });
 test('F6 pre-existing FAIL is reported and does not roll back upgrade',t=>{
   const f=fixture(t);ok(f.install());const next=bump(f);put(path.join(f.memory,'current-state.md'),read(path.join(f.memory,'current-state.md'))+'\n## RESUME old\nHistory\n');
-  const r=ok(f.cli('scripts/upgrade.mjs',['--target',f.target],next));assert.match(r.stdout,/pre-existing FAIL.*state.headings/);assert.equal(json(path.join(engine(f),'KIT.json')).version,'3.1.1');
+  const r=ok(f.cli('scripts/upgrade.mjs',['--target',f.target],next));assert.match(r.stdout,/pre-existing FAIL.*state.headings/);assert.equal(json(path.join(engine(f),'KIT.json')).version,nextVersion); // 3.2.1: version from VERSION
 });
 test('F6 NEW FAIL rolls back despite existing failures',t=>{
   const f=fixture(t);ok(f.install());put(path.join(f.memory,'current-state.md'),read(path.join(f.memory,'current-state.md'))+'\n## RESUME old\nHistory\n');

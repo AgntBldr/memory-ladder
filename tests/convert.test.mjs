@@ -21,9 +21,10 @@ test('K.3 scripted conversion preserves 40 lessons plus preamble and leaves exac
   const engine='scripts/memory/';const cli=(name,args=[])=>f.cli(engine+name,['--repo',f.target,'--memory-dir',mem,...args],f.target);
   f.git(mem,'add','.');f.git(mem,'-c','core.hooksPath='+path.join(f.root,'baseline-hooks'),'commit','-m','Conversion fixture baseline');f.git(mem,'tag','pre-v3-2026-10-21');
   const baseline=path.join(f.root,'tokens.json');ok(cli('memory-conserve.mjs',['snapshot','--out',baseline]));
-  const before=tree(mem),dry=ok(f.cli(engine+'memory-migrate.mjs',['lessons','--source','lessons.md','--repo',f.target,'--memory-dir',mem],f.target));assert.deepEqual(tree(mem),before);
+  const before=tree(mem),dry=ok(f.cli(engine+'memory-migrate.mjs',['convert','--source','lessons.md','--repo',f.target,'--memory-dir',mem],f.target));assert.deepEqual(tree(mem),before);
   const dryReport=JSON.parse(dry.stdout);assert.equal(dryReport.numbered,40);assert.equal(dryReport.unnumbered.length,1);
-  const report=JSON.parse(ok(f.cli(engine+'memory-migrate.mjs',['lessons','--source','lessons.md','--repo',f.target,'--memory-dir',mem,'--write'],f.target)).stdout);
+  // spec 11.5: conversion includes route migration; retain all conservation assertions.
+  const report=JSON.parse(ok(f.cli(engine+'memory-migrate.mjs',['convert','--source','lessons.md','--repo',f.target,'--memory-dir',mem,'--write'],f.target)).stdout);
   assert.equal(report.files.length,41);assert.equal(report.numbered,40);assert.ok(report.files.some(n=>n.startsWith('lesson-000a-')));
   const restored=report.files.map(n=>rawBody(read(path.join(mem,n)))).join('');assert.deepEqual(Buffer.from(restored),Buffer.from(source));
   assert.deepEqual(report.ids,splitLessons(source).report.ids);

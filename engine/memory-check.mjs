@@ -1,35 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import childProcess from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { validDate } from './memory-rotate.mjs';
 import { generateOverview } from './roadmap-overview.mjs';
 import { generateIndex } from './brain-index.mjs';
+import {generateMemoryIndex, isGenerated, lessonIdentity, lessonField, routes, routerFamilies} from './memory-index.mjs';
 import { args, locations, requireMemory, isDirect, toolDir, loadConfig, memoryFiles,
   brainPaths, walkMd, listMd, parseFrontmatter, fmGet, read, mdLinks, wikilinks, utf8Bytes, pathKey, pathSpelling } from './lib.mjs';
 
-const secretSources = {
-  anthropic: /sk-ant-[A-Za-z0-9_-]{20,}/,
-  openai: /(?<![A-Za-z0-9_-])sk-(?:proj-)?[A-Za-z0-9_-]{32,}/,
-  aws: /AKIA[0-9A-Z]{16}/,
-  github: /gh[pousr]_[A-Za-z0-9]{36,}/,
-  slack: /xox[baprs]-[A-Za-z0-9-]{10,}/,
-  'private-key': /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-  google: /AIza[0-9A-Za-z_-]{35}/,
-  jwt: /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/,
-  resend: /re_[A-Za-z0-9]{20,}/,
-  stripe: /(?:sk|rk)_live_[A-Za-z0-9]{20,}/,
-  'github-pat': /github_pat_[A-Za-z0-9_]{40,}/,
-  supabase: /sbp_[a-f0-9]{40}/,
-  webhook: /whsec_[A-Za-z0-9]{20,}/,
-};
-const secrets = secretSources;
-const redactions = Object.entries(secrets).map(([name, pattern]) => [name, new RegExp(pattern.source, 'g')]);
-export function redact(text) {
-  text = String(text);
-  for (const [name, pattern] of redactions) text = text.replace(pattern, `[REDACTED:${name}]`);
-  return text;
-}
+import {secretSources as secrets, redact} from './lib.mjs';
+export {redact} from './lib.mjs';
 const edgeFields = ['supports', 'contradicts', 'depends_on', 'derived_from', 'related_to',
   'part_of', 'preceded_by', 'followed_by', 'authored_by', 'tagged_with'];
 const stem = p => path.basename(p).replace(/\.md$/i, '');
@@ -63,20 +45,23 @@ function gitState(dir, files, caps, now, add, hook) {
     try { return childProcess.execFileSync('git', ['-C', dir, ...argv], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000, maxBuffer: 32 * 1024 * 1024 }); }
     catch { return null; }
   };
-  // Avoid discovering an unrelated parent repository when the memory directory is not a repo.
-  if (!fs.existsSync(path.join(dir, '.git')) || git('rev-parse', '--is-inside-work-tree')?.trim() !== 'true') {
+  const top = git('rev-parse', '--show-toplevel')?.trim();
+  const atTop = Boolean(top && pathKey(fs.realpathSync(dir)) === pathKey(fs.realpathSync(top)));
+  if (git('rev-parse', '--is-inside-work-tree')?.trim() !== 'true' ||
+      (!atTop && !git('ls-files', '--', '.')?.trim())) {
     add('WARN', 'repo.not-git', '.', null, 'memory dir is not a git repo');
     return;
   }
   if (!hook) {
     const remote = git('remote');
     if (remote !== null && !remote.trim()) add('WARN', 'repo.remote', '.', null, 'memory repo has no remote');
-    const status = git('status', '--porcelain');
+    const status = git('status', '--porcelain', ...(atTop ? [] : ['--', '.']));
     if (status?.trim()) add('WARN', 'repo.uncommitted', '.', null, 'memory repo has uncommitted changes');
     const ahead = git('rev-list', '--count', '@{upstream}..HEAD');
     if (ahead !== null && Number(ahead) >= caps.repoAhead.warn) add(Number(ahead) >= caps.repoAhead.fail ? 'FAIL' : 'WARN', 'repo.ahead', '.', null, `${Number(ahead)} commits ahead of upstream`, Number(ahead));
   }
-  const log = git('-c', 'core.quotepath=off', 'log', '--format=%x00%cs', '--name-only');
+  const subtree = fs.existsSync(path.join(dir, '.git')) ? [] : ['--relative', '--', '.'];
+  const log = git('-c', 'core.quotepath=off', 'log', '--format=%x00%cs', '--name-only', ...subtree);
   if (log === null) return;
   const dates = new Map();
   let date = null;
@@ -85,7 +70,7 @@ function gitState(dir, files, caps, now, add, hook) {
     else if (date && line && !dates.has(pathKey(dir, line))) dates.set(pathKey(dir, line), date);
   }
   for (const f of files) {
-    if (f.special || fmGet(f.data, 'stable') === true || !dates.has(pathKey(dir, f.file))) continue;
+    if (f.special || (!f.state && !(caps.stale?.types ?? ['project', 'reference']).includes(fmGet(f.data, 'type'))) || fmGet(f.data, 'stable') === true || !dates.has(pathKey(dir, f.file))) continue;
     const days = (new Date(now).getTime() - Date.parse(dates.get(pathKey(dir, f.file)))) / 86400000;
     if (days > caps.staleDays) add('WARN', 'stale', f.file, null, `last committed ${Math.floor(days)} days ago`, Math.floor(days));
   }
@@ -181,11 +166,13 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
   for (const f of files) {
     if (f.special === 'router') { size('router.size', f.file, f.bytes, caps.router); lineCaps(f, 'router.line', caps.router); }
     if (f.special === 'index') {
+      if (!isGenerated(f.text) && !f.stub) {
       const pin = config.pins[pinKey(config.pins, f.file)];
       if (pin === undefined) add('FAIL', 'index.missing-pin', f.file, null, 'index has no pin');
       else if (f.bytes > pin) add('FAIL', 'index.pin', f.file, null, `${f.bytes} bytes exceeds pin ${pin}`, f.bytes);
       else if (pin - f.bytes < caps.index.pinWarnRoomBytes) add('WARN', 'index.pin', f.file, null, `${pin - f.bytes} bytes of pin room remain`, f.bytes);
-      if (f.bytes > caps.index.failBytesAbsolute) add('FAIL', 'index.size', f.file, null, `${f.bytes} bytes (max ${caps.index.failBytesAbsolute})`, f.bytes);
+      }
+      if ((!isGenerated(f.text) || /-all(?:-\d+)?\.md$/.test(f.file)) && f.bytes > caps.index.failBytesAbsolute) add('FAIL', 'index.size', f.file, null, `${f.bytes} bytes (max ${caps.index.failBytesAbsolute})`, f.bytes);
       lineCaps(f, 'index.line', caps.index);
     }
     if (f.special === 'archive') lineCaps(f, 'archive.line', caps.archive);
@@ -225,28 +212,45 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     parseCheck(f);
     scanSecrets(f);
   }
-  const lessons = files.filter(f => /^lesson-(\d{3})([a-z]?)-.+\.md$/.test(f.file));
+  const generated = files.some(f => isGenerated(f.text));
+  const families = routerFamilies(read(path.join(memoryDir, 'MEMORY.md')));
+  for (const f of files.filter(f => !f.special && !f.stub)) {
+    if (/^lesson-.*\.md$/.test(f.file)) {
+      if (generated && !routes(f.data).length) add('FAIL', 'route.missing', f.file, null, 'lesson has no route');
+      if (fmGet(f.data, 'description') === 'TODO') add('FAIL', 'lesson.unfilled', f.file, null, 'fill the TODO description');
+    }
+    for (const route of routes(f.data)) if (!families.has(route)) add('FAIL', 'route.unknown', f.file, null, `unknown route ${route}; known families: ${[...families.keys()].join(', ')}`);
+    const hookText = lessonField(f.data, 'hook');
+    if (hookText !== undefined && (typeof hookText !== 'string' || hookText.length > 200)) add('FAIL', 'lesson.hook', f.file, null, 'hook must be a string of at most 200 characters');
+  }
+  if (generated) {
+    try {
+      const expected = generateMemoryIndex({memoryDir, config});
+      for (const [file, text] of Object.entries(expected.pages)) if (read(path.join(memoryDir, file)).replace(/\r\n/g, '\n') !== text)
+        add('FAIL', 'index.stale', file, null, 'regenerate with memory-index.mjs --write');
+      for (const file of expected.removed) add('FAIL', 'index.stale', file, null, 'obsolete generated page; run memory-index.mjs --write');
+      for (const family of expected.overflow) add('WARN', 'index.hot-budget', `INDEX-${family}.md`, null, 'topics and pins exceed hot budget');
+    } catch (error) { add('FAIL', 'index.stale', 'MEMORY.md', null, error.message + '; run memory-index.mjs --write'); }
+  }
+  const lessons = files.filter(f => lessonIdentity(f.file));
   if (lessons.length) {
     const seen = new Set();
     for (const f of lessons) {
-      const number = /^lesson-(\d{3}[a-z]?)-/.exec(f.file)[1];
-      if (seen.has(number)) add('FAIL', 'lessons.count', f.file, null, `duplicate lesson number ${number}`, lessons.filter(item => item.file.startsWith(`lesson-${number}-`)).length);
+      const number = lessonIdentity(f.file);
+      if (seen.has(number)) add('FAIL', 'lessons.duplicate', f.file, null, `duplicate lesson number ${number}`, lessons.filter(item => lessonIdentity(item.file) === number).length);
       seen.add(number);
     }
     for (const f of files.filter(f => ['router', 'index'].includes(f.special))) {
       if (f.special === 'router' || /^INDEX-craft-/.test(f.file)) {
-        for (const m of f.text.matchAll(/#(\d{1,3}[a-z]?)\b/g)) {
+        for (const m of f.text.matchAll(/#(\d+[a-z]*)\b/g)) {
           const id = m[1].replace(/^\d+/, n => n.padStart(3, '0'));
           if (!seen.has(id)) add('FAIL', 'lessons.cite', f.file, f.text.slice(0, m.index).split('\n').length, `#${m[1]} has no matching lesson file`);
         }
       }
-      for (const m of f.text.matchAll(/\b(\d+) (?:hard-won )?lessons\b/gi)) {
-        if (Number(m[1]) !== lessons.length) add('FAIL', 'lessons.count', f.file, f.text.slice(0, m.index).split('\n').length, `claims ${m[1]} lessons, found ${lessons.length}`, lessons.length);
-      }
     }
   }
   if (noGit) add('WARN', 'repo.git-skipped', '.', null, 'git health and committed-age checks skipped (--no-git)');
-  else gitState(memoryDir, files, caps, now, add, hook);
+  else gitState(memoryDir, files, caps, today, add, hook);
   if (scope === 'all') {
     const receiptFile = path.join(repo, 'scripts/memory/KIT.json');
     const manifestFile = path.join(repo, 'scripts/memory/MANIFEST.json');
@@ -260,7 +264,10 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
         const absolute = path.resolve(repo, file), relative = path.relative(repo, absolute);
         if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('manifest path escapes repository');
         const actual = createHash('sha256').update(fs.readFileSync(absolute, 'utf8').replace(/\r\n/g, '\n')).digest('hex');
-        if (actual !== expected) add('WARN', 'kit.manifest', file, null, 'edited locally: ' + file);
+        if (actual !== expected) {
+          add('WARN', 'kit.manifest', file, null, 'edited locally: ' + file);
+          if (receipt.version === manifest.version && /^scripts\/memory\/.*\.mjs$/.test(file)) add('FAIL', 'kit.version', file, null, 'same version, different engine');
+        }
         } catch (error) { warn(file, error); }
       }
       for (const name of ['memory-ladder', 'memory-review']) {
@@ -388,7 +395,7 @@ export function counts(result) {
 export const findingLine = f => redact(`${f.severity} ${f.check} ${f.file}${f.line ? `:${f.line}` : ''} ${f.message}`);
 export function ratchetPins({ memoryDir, config, configFile = path.join(toolDir, 'memory.config.json') }) {
   const changes = [], next = {};
-  for (const f of memoryFiles(memoryDir).filter(f => f.special === 'index')) {
+  for (const f of memoryFiles(memoryDir).filter(f => f.special === 'index' && !isGenerated(f.text))) {
     const old = config.pins[pinKey(config.pins, f.file)], limit = f.bytes + config.caps.index.pinSlackBytes;
     next[f.file] = old === undefined ? limit : Math.min(old, limit);
     if (old !== next[f.file]) changes.push(`${f.file}: ${old ?? 'missing'} -> ${next[f.file]}`);
@@ -439,7 +446,8 @@ export function main(argv = process.argv.slice(2)) {
       for (const change of ratchetPins({ ...loc, config, configFile })) console.log(change);
       return 0;
     }
-    const result = runCheck({ ...loc, config, hook, today: opts.today, noGit: Boolean(opts['no-git']), scope: session ? 'all' : opts.scope || 'all' });
+    const options = {...loc, config, hook, today: opts.today, noGit: Boolean(opts['no-git']), scope: session ? 'all' : opts.scope || 'all'};
+    const result = hook && !session ? stagedCheck(options) : runCheck(options);
     if (opts['write-allowlist'] && !session) {
       console.log(`allowlist: ${writeAllowlist({ result, config, configFile, reason: opts['write-allowlist'] })} entries added`);
       return 0;
@@ -462,9 +470,32 @@ export function main(argv = process.argv.slice(2)) {
     return c.FAIL ? 1 : 0;
   } catch (error) {
     const message = redact(String(error.message).replace(/[\r\n]+/g, ' '));
-    if (hook) { console.log(`memory gate: internal error, commit allowed: ${message}`); return 0; }
+    if (hook && !session) {
+      const blocked = error.code === 'SNAPSHOT_EXTRACTION';
+      console.log(`memory gate: ${blocked ? 'commit blocked' : 'error'}: ${message}`); return blocked ? 1 : 0;
+    }
     console.log(session ? (message === 'memory dir not found' ? 'memory gate: memory dir not found' : `memory gate: error ${message}`) : `memory-check: error ${message}`);
     return session ? 0 : 1;
   }
+}
+export function stagedCheck(options) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-stage-'));
+  let snapshot = temp;
+  try {
+    try {
+      const memoryDir = fs.realpathSync(options.memoryDir);
+      const root = fs.realpathSync(childProcess.execFileSync('git', ['-C', memoryDir, 'rev-parse', '--show-toplevel'], {encoding: 'utf8', stdio: 'pipe', timeout: 30000}).trim());
+      const relative = path.relative(root, memoryDir);
+      if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('memory directory outside git root');
+      snapshot = path.join(temp, relative);
+      const entries = childProcess.execFileSync('git', ['-C', memoryDir, 'ls-files', '--cached', '--full-name', '-z', '--', '.'], {stdio: 'pipe', timeout: 30000, maxBuffer: 32 * 1024 * 1024});
+      childProcess.execFileSync('git', ['-C', root, 'checkout-index', '--force', '-z', '--stdin', '--prefix=' + temp.replace(/\\/g, '/') + '/'], {input: entries, stdio: 'pipe', timeout: 30000});
+      fs.mkdirSync(snapshot, {recursive: true});
+    } catch (error) { throw Object.assign(new Error('staged snapshot extraction failed: ' + error.message), {code: 'SNAPSHOT_EXTRACTION'}); }
+    const result = runCheck({...options, memoryDir: snapshot, noGit: true});
+    result.findings = result.findings.filter(f => f.check !== 'repo.git-skipped');
+    if (!options.noGit) gitState(fs.realpathSync(options.memoryDir), memoryFiles(snapshot), options.config.caps, options.today ?? options.now ?? new Date(), (severity, check, file, line, message, value) => result.findings.push({severity, check, file, line, message, value}), true);
+    return result;
+  } finally { fs.rmSync(temp, {recursive: true, force: true}); }
 }
 if (isDirect(import.meta.url)) process.exitCode = main();

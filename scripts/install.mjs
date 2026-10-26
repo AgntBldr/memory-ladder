@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { isDirect, memorySlug, memoryLocation } from '../engine/lib.mjs';
+import {writeMemoryIndex, isGenerated} from '../engine/memory-index.mjs';
 import { kitRoot, installedManifest, installedPath, ownedFiles } from './manifest.mjs';
 export function readJSON(f) {
   try { return JSON.parse(fs.readFileSync(f,'utf8').replace(/^\uFEFF/,'')); }
@@ -96,7 +97,8 @@ export function install(opts, root = kitRoot) {
   const ignoreFile=path.join(engine,'.gitignore');
   const ignored=fs.existsSync(ignoreFile)?fs.readFileSync(ignoreFile,'utf8'):'';
   if(withIgnores(ignored)!==ignored) planned.push([ignoreFile,withIgnores(ignored)]);
-  if(!fs.existsSync(path.join(memory.dir,'MEMORY.md'))) for(const file of ['MEMORY.md','INDEX-craft-sessions.md','current-state.md']) {
+  const freshMemory=!fs.existsSync(path.join(memory.dir,'MEMORY.md'));
+  if(freshMemory) for(const file of ['MEMORY.md','current-state.md']) {
     if(!fs.existsSync(path.join(memory.dir,file))) planned.push([path.join(memory.dir,file),fs.readFileSync(path.join(root,'templates',file))]);
   }
   const claudeFile=path.join(target,'CLAUDE.md');
@@ -128,7 +130,14 @@ export function install(opts, root = kitRoot) {
   if(newRepo) run('git',['-C',memory.dir,'init']);
   const needsBaseline=spawnSync('git',['-C',memory.dir,'rev-parse','--verify','HEAD'],{encoding:'utf8'}).status!==0;
   const config=readJSON(configFile);
-  const indexes=fs.readdirSync(memory.dir).filter(f=>/^INDEX-.*\.md$/i.test(f));
+  if(freshMemory) {
+    writeMemoryIndex({memoryDir:memory.dir,config});
+  }
+  {
+    const ignore=path.join(memory.dir,'.gitignore'),text=fs.existsSync(ignore)?fs.readFileSync(ignore,'utf8'):'';
+    if(!text.split(/\r?\n/).includes('.memory.lock*')) write(ignore,text+(text&&!text.endsWith('\n')?'\n':'')+'.memory.lock*\n');
+  }
+  const indexes=fs.readdirSync(memory.dir).filter(f=>/^INDEX-.*\.md$/i.test(f)&&!isGenerated(fs.readFileSync(path.join(memory.dir,f),'utf8')));
   if(indexes.some(f=>!Object.keys(config.pins||{}).some(k=>k.toLowerCase()===f.toLowerCase()))) {
     if(!config.pins) { config.pins={};writeJSON(configFile,config); }
     run(process.execPath,[path.join(engine,'memory-check.mjs'),'--repo',target,'--memory-dir',memory.dir,'--ratchet-pins']);

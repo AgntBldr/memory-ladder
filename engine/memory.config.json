@@ -1,5 +1,5 @@
 {
-  "engine_version": "3.1.0",
+  "engine_version": "3.2.2",
   "caps": {
     "router": {
       "warnBytes": 12288,
@@ -11,7 +11,8 @@
       "pinWarnRoomBytes": 400,
       "warnLineChars": 300,
       "failLineChars": 450,
-      "failBytesAbsolute": 24576
+      "failBytesAbsolute": 24576,
+      "hotBytes": 8192
     },
     "archive": {
       "failLineChars": 300
@@ -62,7 +63,8 @@
     "roadmap": {
       "path": "docs/ROADMAP.md",
       "warnBytes": 61440,
-      "failBytes": 81920
+      "failBytes": 81920,
+      "keepBlocks": 6
     },
     "agents": {
       "path": "AGENTS.md",
@@ -87,6 +89,12 @@
     },
     "roadmapHistory": {
       "path": "docs/ROADMAP-HISTORY.md"
+    },
+    "stale": {
+      "types": [
+        "project",
+        "reference"
+      ]
     }
   },
   "measure": {

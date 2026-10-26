@@ -33,10 +33,10 @@ function document(file, text, fm, source) {
   return { path: file, source, bytes: utf8Bytes(text), hook: hook.slice(0, 160), terms, length,
     stub: fmGet(fm.data, 'moved_to') !== undefined };
 }
-export function buildCorpus({ memoryDir, repo }) {
+export function buildCorpus({ memoryDir, repo, files }) {
   const corpus = [];
   if (memoryDir) {
-    for (const f of memoryFiles(memoryDir)) {
+    for (const f of files ?? memoryFiles(memoryDir)) {
       if (!f.special && !f.stub) corpus.push(document(f.file, f.text, f, 'memory'));
     }
   }

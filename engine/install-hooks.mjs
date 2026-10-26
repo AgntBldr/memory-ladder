@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import childProcess from 'node:child_process';
-import { args, locations, isDirect, slash, read } from './lib.mjs';
+import { args, locations, isDirect, slash, read, toolDir } from './lib.mjs';
 
 export const marker = '# memory-v3-gate (installed by scripts/memory/install-hooks.mjs; edit there)';
 const shellQuoted = value => `"${slash(path.resolve(value)).replace(/["$`\\]/g, '\\$&')}"`;
@@ -21,8 +21,12 @@ export function install({ memoryDir, repo, uninstall = false }) {
     if (owned) fs.unlinkSync(hook);
     return { ok: true, message: owned ? 'memory gate hook removed' : 'memory gate hook is not installed' };
   }
+  const installedGate = path.join(repo, 'scripts/memory/memory-check.mjs');
+  const gate = fs.existsSync(installedGate) ? installedGate : path.join(toolDir, 'memory-check.mjs');
+  if (!fs.existsSync(gate)) return { ok: false, message: 'memory-check.mjs not found in installed or running tool directory; hook not changed' };
   fs.mkdirSync(path.dirname(hook), { recursive: true });
-  const text = `#!/bin/sh\n${marker}\nif ! command -v node >/dev/null 2>&1; then\n  echo "memory gate skipped: node not found"\n  exit 0\nfi\nnode ${shellQuoted(path.join(repo, 'scripts/memory/memory-check.mjs'))} --hook --scope memory --memory-dir ${shellQuoted(memoryDir)} || {\n  echo "memory gate failed: fix the FAIL lines above (or add a dated allow entry) and commit again"; exit 1; }\n`;
+  const missingGate = gate === installedGate ? '' : `if [ ! -f ${shellQuoted(gate)} ]; then\n  echo "memory gate not found at "${shellQuoted(gate)}"; reinstall the hook with install-hooks.mjs"\n  exit 1\nfi\n`;
+  const text = `#!/bin/sh\n${marker}\nif ! command -v node >/dev/null 2>&1; then\n  echo "memory gate skipped: node not found"\n  exit 0\nfi\n${missingGate}node ${shellQuoted(gate)} --hook --scope memory --memory-dir ${shellQuoted(memoryDir)}${gate === installedGate ? '' : ` --repo ${shellQuoted(repo)}`} || {\n  echo "memory gate failed: fix the FAIL lines above (or add a dated allow entry) and commit again"; exit 1; }\n`;
   fs.writeFileSync(hook, text);
   if (process.platform !== 'win32') fs.chmodSync(hook, 0o755);
   return { ok: true, message: `memory gate hook installed: ${hook}` };
