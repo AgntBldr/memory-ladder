@@ -1,0 +1,185 @@
+{
+  "schema_version": 3,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Project records: rotate history and review paused work",
+    "output": "diagrams/records-lifecycle.html",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "mainPath": [
+    "open",
+    "paused",
+    "shelf",
+    "due",
+    "resumed"
+  ],
+  "states": [
+    {
+      "id": "open",
+      "type": "start",
+      "label": "Roadmap Open work",
+      "sources": [
+        {
+          "path": "engine/memory-rotate.mjs"
+        }
+      ]
+    },
+    {
+      "id": "paused",
+      "type": "waiting",
+      "label": "Program paused",
+      "sources": [
+        {
+          "path": "skills/memory-ladder/SKILL.md"
+        }
+      ]
+    },
+    {
+      "id": "shelf",
+      "type": "waiting",
+      "label": "Shelved record",
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "due",
+      "type": "decision",
+      "label": "Review due: WARN",
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "resumed",
+      "type": "active",
+      "label": "Resume work",
+      "sources": [
+        {
+          "path": "skills/memory-ladder/SKILL.md"
+        }
+      ]
+    },
+    {
+      "id": "closed",
+      "type": "neutral",
+      "label": "Close program",
+      "sources": [
+        {
+          "path": "skills/memory-ladder/SKILL.md"
+        }
+      ]
+    },
+    {
+      "id": "history",
+      "type": "neutral",
+      "label": "Roadmap history",
+      "sources": [
+        {
+          "path": "engine/memory-rotate.mjs"
+        }
+      ]
+    },
+    {
+      "id": "log",
+      "type": "active",
+      "label": "Brain log entry",
+      "sources": [
+        {
+          "path": "engine/memory-rotate.mjs"
+        }
+      ]
+    },
+    {
+      "id": "monthly",
+      "type": "neutral",
+      "label": "Monthly log file",
+      "sources": [
+        {
+          "path": "engine/memory-rotate.mjs"
+        }
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "id": "transition0",
+      "from": "open",
+      "to": "paused",
+      "label": "pause"
+    },
+    {
+      "id": "transition1",
+      "from": "paused",
+      "to": "shelf",
+      "label": "record dates"
+    },
+    {
+      "id": "transition2",
+      "from": "shelf",
+      "to": "due",
+      "label": "today >= review"
+    },
+    {
+      "id": "transition3",
+      "from": "due",
+      "to": "resumed",
+      "label": "human choice"
+    },
+    {
+      "id": "transition4",
+      "from": "due",
+      "to": "closed",
+      "label": "human choice"
+    },
+    {
+      "id": "transition5",
+      "from": "open",
+      "to": "history",
+      "label": "rotate old blocks"
+    },
+    {
+      "id": "transition6",
+      "from": "open",
+      "to": "log",
+      "label": "record operation"
+    },
+    {
+      "id": "transition7",
+      "from": "log",
+      "to": "monthly",
+      "label": "rotate old entries"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Three related records",
+      "items": [
+        "Primary path shows manual shelving and review. Resume/close are decisions, not commands implemented by the gate.",
+        "The log branch illustrates recording an operation; rotation does not copy roadmap blocks into the brain log."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Conserve history",
+      "items": [
+        "Roadmap: keep six dated Open work blocks by default; under size pressure keep at least two. Older blocks move unchanged into ROADMAP-HISTORY.md.",
+        "Brain log: keep the last 20 entries by file position. Older entries append to log-YYYY-MM.md using their own dates. Source: engine/memory-rotate.mjs."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Review contract",
+      "items": [
+        "Shelf needs status: shelved, shelved and review dates. Review must be no more than 90 days after shelving. WARN begins on the review date.",
+        "Source: engine/memory-check.mjs. No automatic resumption or closure is implemented; move a resolved record out of docs/shelf/."
+      ]
+    }
+  ]
+}

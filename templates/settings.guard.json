@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/scripts/memory/memory-guard.mjs\" pretooluse",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/scripts/memory/memory-guard.mjs\" prompt",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

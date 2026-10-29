@@ -29,7 +29,7 @@ Commands use the installed engine from the project root. Do not operate on anoth
    path, command, id, quota and account a rule needs inside the rule. Move history
    verbatim to the fewest `<parent>-background[-N].md` files, aiming at 8 KB each;
    a single indivisible block can stand alone up to the 20 KB topic fail cap.
-   Command: `git -C <COPY> diff --stat`. Proof: the reviewer checks the move map
+   Command: `git -C <COPY> diff --stat`. Proof: a second reader checks the move map
    against the originals before edits and the resulting file count afterwards.
    Brain nodes receive current canonical facts, not dumps of dated memory history.
 4. **SCRIPTED — split lessons and generate their indexes.** Run
@@ -104,3 +104,53 @@ For existing hand-kept indexes run `node scripts/memory/memory-migrate.mjs route
 then `--write`. The report proves payload equality per family and nondecreasing recall probes, preserves
 CRLF bodies and prose in routed notes, merges split router triggers, and retains redirect stubs.
 Orphan lessons, note-name collisions and merged router lines over 600 characters stop before writes.
+
+Conversions must end with 0 `desc.slug` findings. Write descriptions that add useful
+context beyond the filename or name; do not shorten them to filename restatements.
+Keep quick notes under the brain's `99-inbox/` folder (including subfolders) untyped
+until graduation; do not invent ids or types to clear `brain.frontmatter`.
+
+## Move root memory into a dedicated folder
+
+This is a separate conversion session before installation. The repo root is never a memory
+directory: it also contains source, instructions and project Git metadata.
+
+1. Inventory the root router, INDEX pages, their topic targets and any existing memory/
+   files. Record source bytes and ordered hand lines; keep a recovery copy outside the
+   destination. Select `memory/` or `.claude/memory/`; reject filename collisions instead
+   of overwriting. Do not copy the project .git folder.
+2. Copy first. Copy the router and its reachable memory files into the dedicated folder,
+   keeping originals intact. Preserve subdirectories where needed. If memory/ already
+   holds topics, reuse those files only after proving their bytes match the inventory.
+3. Build an explicit old-path to new-path mapping. Rewrite relative Markdown destinations
+   from each source file's new location, including links back to brain/ and project docs.
+   Rewrite qualified wikilinks and inbound project links that name moved files; leave
+   external URLs and fragments intact. Record each intended link-only replacement.
+4. Prove conservation: compare every copied body with its source after only the recorded
+   link replacements; verify every kept line in source order, every local link target and
+   the complete source-to-destination inventory. Run recall probes before and after and
+   require no regression. Run the gate with explicit `--repo` and `--memory-dir` against
+   the destination, and inspect router, headings, wrapped items and nested lists. A failed
+   proof leaves originals in place; fix the copy and repeat. Keep the proof report.
+5. Update AGENTS.md, CLAUDE.md, imported instructions, hooks and scripts to point to the new
+   router. Install using the dedicated folder and verify SessionStart and recall resolve
+   it without an override. Only after conservation and link checks pass, remove the old
+   memory copies, check inbound links again, and review the project diff. Commit through
+   the host's branch policy; this procedure does not authorize a commit or push.
+
+Route migration separately checks ORDER before and after writing and rolls back if the
+kept hand lines have changed relative order. Its report's router.before is literal source
+text; router.after is the replacement, including line endings.
+
+## Character and chain checks after conversion
+
+Run the full gate before adoption. `chars.*` can indicate a copy through a code page: preview
+`node scripts/memory/memory-chars.mjs repair`, allow deliberate examples, then run with `--write` and hand-fix
+report-only residues. A part's `parent:` wins, including a stub parent; otherwise the first matching name decides:
+`<base>-background-N`, `<base>-background`, `<base>-part-NN`, `<base>-N`, with an existing base. Lessons, state files,
+hard-rule cards and generated pages are not parts. Every part starts `Part N of [parent](parent.md).`, with integer N;
+the parent links parts in order. Run `memory-chains.mjs scan`, then `repair --write`; hand-review numbering and order.
+For future conversions, wrap prose only at sentence ends (`memory-chains.mjs lines --write`); preserve fenced blocks,
+tables, verbatim payload blocks, procedures, exact recipes and incident cause chains whole. List/indented lines are
+report-only. Do not split an application-critical unit to satisfy a preferred line count; move oversized units into
+linked docs or brain nodes instead.

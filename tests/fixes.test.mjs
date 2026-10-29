@@ -107,7 +107,7 @@ test('F7 malformed and missing manifest and unreadable entry warn without crash'
 });
 test('F8 generated checks key on source existence, including missing and stale outputs',t=>{
   const f=fixture(t);ok(f.install());const ids=['repo.brain-index','repo.roadmap-overview'];assert.ok(!findings(f).some(x=>ids.includes(x.check)));
-  fs.mkdirSync(path.join(f.target,'brain'));put(path.join(f.target,'docs/ROADMAP.md'),'# Roadmap\n\n## Open work\n- Work\n');
+  put(path.join(f.target,'brain/03-knowledge/fct-example.md'),'---\nid: fct-example\ntype: fact\n---\n');fs.mkdirSync(path.join(f.target,'brain/00-system'),{recursive:true});put(path.join(f.target,'docs/ROADMAP.md'),'# Roadmap\n\n## Open work\n- Work\n');
   for(const id of ids) assert.ok(findings(f).some(x=>x.check===id),id);
   put(path.join(f.target,'brain/00-system/index.md'),'stale');put(path.join(f.target,'docs/ROADMAP-OVERVIEW.md'),'stale');
   for(const id of ids) assert.ok(findings(f).some(x=>x.check===id),id);
@@ -137,7 +137,11 @@ for(const name of ['KIT.json','KIT.local.json']) test('F10 malformed '+name+' gi
   assert.match(r.stdout+r.stderr,new RegExp(name.replaceAll('.','\\.')));assert.doesNotMatch(r.stdout+r.stderr,/SyntaxError|at JSON.parse/);assert.equal((r.stdout+r.stderr).trim().split(/\r?\n/).length,1);
 });
 test('F11 BOM settings read; existing hook preserves exact bytes',t=>{
-  const f=fixture(t),p=path.join(f.target,'.claude/settings.json'),bytes='\uFEFF'+JSON.stringify(json(path.join(kitRoot,'templates/settings.sessionstart.json')))+'\r\n';put(p,bytes);ok(f.install());assert.equal(read(p),bytes);
+  // Install preserves bytes when all shipped hooks already exist, including the guard hooks.
+  const f=fixture(t),p=path.join(f.target,'.claude/settings.json'),settings=json(path.join(kitRoot,'templates/settings.sessionstart.json'));
+  Object.assign(settings.hooks,json(path.join(kitRoot,'templates/settings.guard.json')).hooks);
+  const bytes='\uFEFF'+JSON.stringify(settings)+'\r\n';put(p,bytes);const result=ok(f.install());assert.equal(read(p),bytes);
+  assert.ok(result.stdout.split(/\r?\n/).includes('settings: present'));
 });
 for(const value of [[],42,null,'scalar']) test('F11 non-object settings '+JSON.stringify(value)+' refuses before writes',t=>{
   const f=fixture(t);put(path.join(f.target,'.claude/settings.json'),JSON.stringify(value));const before=tree(f.root,{git:true});const r=f.install();assert.equal(r.status,1);assert.match(r.stderr,/settings.json.*object/);assert.deepEqual(tree(f.root,{git:true}),before);

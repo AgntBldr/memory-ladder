@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { args, locations, repoRoot, requireMemory, isDirect, listMd, walkMd, read, readRequired, utf8Bytes, parseFrontmatter, pathKey } from './lib.mjs';
+import { args, locations, repoRoot, requireMemory, isDirect, listMd, walkMd, read, readRequired, utf8Bytes, parseFrontmatter, pathKey, loadConfig } from './lib.mjs';
 
 const patterns = {
   sha: /\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g,
@@ -17,8 +17,8 @@ export function distinctiveTokens(text) {
   if (fm.raw) text = fm.raw.split(/\r?\n/).filter(line => !/^\s*(?:originSessionId|modified):/.test(line)).join('\n') + '\n' + fm.body;
   const tokens = new Set();
   for (const part of text.split(/[\s\x60()\[\]<>"'*,;]+/)) {
-    const token = part.replace(/:\d+$/, '').replace(/#.*$/, '').replace(/^[.(]+/, '').replace(/[.,;:!?]+$/, '');
-    if (/^[\w./-]{1,200}\.(?:ts|tsx|mjs|cjs|js|json|md|toml|ps1|sql|yml|yaml)$/.test(token)) tokens.add(token);
+    const candidate = part.replace(/:\d+$/, '').replace(/#.*$/, '').replace(/^[.(]+/, '').replace(/[.,;:!?]+$/, '');
+    if (/^[\w./-]{1,200}\.(?:ts|tsx|mjs|cjs|js|json|md|toml|ps1|sql|yml|yaml)$/.test(candidate)) tokens.add(candidate);
   }
   for (const [name, pattern] of Object.entries(patterns)) {
     for (const match of text.matchAll(pattern)) tokens.add(name === 'url' ? match[0].replace(/[.,;:!?*)\]>"']+$/, '') : match[0]);
@@ -40,7 +40,7 @@ export function snapshot({ memoryDir, repo = repoRoot(), extraFiles = [] }) {
   }
   return { takenAt: new Date().toISOString(), extraFiles, files, union: [...union].sort() };
 }
-export function verify({ baseline, memoryDir, repo, accepted, extraFiles = [] }) {
+export function verify({ baseline, memoryDir, repo, accepted, extraFiles = [], config = loadConfig() }) {
   requireMemory(memoryDir);
   const base = typeof baseline === 'string' ? JSON.parse(readRequired(baseline)) : baseline;
   if (!base || !Array.isArray(base.union) || !base.files) throw new Error('Invalid baseline');
@@ -50,7 +50,7 @@ export function verify({ baseline, memoryDir, repo, accepted, extraFiles = [] })
   const paths = [
     ...new Set([...(base.extraFiles || []), ...extraFiles].map(file => path.join(repo, file))),
     ...listMd(memoryDir).map(file => path.join(memoryDir, file)),
-    ...walkMd(path.join(repo, 'brain')).map(file => path.join(repo, 'brain', file)),
+    ...walkMd(path.join(repo, config.brain?.dir ?? 'brain')).map(file => path.join(repo, config.brain?.dir ?? 'brain', file)),
     ...walkMd(path.join(repo, 'docs/shelf')).map(file => path.join(repo, 'docs/shelf', file)),
     ...listMd(path.join(repo, 'docs')).filter(file => /^ROADMAP.*\.md$/.test(file)).map(file => path.join(repo, 'docs', file)),
   ];

@@ -11,10 +11,22 @@ test('3.2.1 installed engine accepts an older project systemFiles list', t => {
   fs.cpSync(path.join(kitRoot, 'engine'), engine, {recursive: true});
   const file = path.join(engine, 'memory.config.json'), config = json(file);
   config.caps.brainIndex.systemFiles = config.caps.brainIndex.systemFiles.filter(name => name !== 'memory-ladder.md');
+  config.caps.router.failBytes = 1;
+  config.caps.roadmap.path = 'roadmap.md';
   put(file, JSON.stringify(config, null, 2) + '\n');
   const env = {...f.env}; delete env.NODE_TEST_CONTEXT;
-  const result = ok(f.exec(process.execPath, ['--test', '--test-reporter=tap', path.join(engine, 'memory.test.mjs')], {env}));
+  const args = ['--test', '--test-reporter=tap', '--test-name-pattern=K\\.8 index omits every missing system page|F7 index discovers pillar by type and uses configured system files|R12 router\\.size warning branch carries bytes', path.join(engine, 'memory.test.mjs')];
+  const result = ok(f.exec(process.execPath, args, {env}));
   assert.match(result.stdout, /^# fail 0\r?$/m);
+  assert.ok(Number(result.stdout.match(/^# pass (\d+)/m)?.[1]) >= 3);
+  // Redirect the copy to HOST config, rather than deleting the runtime config.
+  const entry = path.join(engine, 'memory.test.mjs');
+  put(entry, read(entry).replace('JSON.stringify(config)', "fs.readFileSync(path.join(source,'memory.config.json'))"));
+  const broken = f.exec(process.execPath, args, {env});
+  assert.equal(broken.status, 1); assert.match(broken.stdout, /not ok .*R12 router\.size warning branch carries bytes/);
+  assert.doesNotMatch(broken.stderr, /ENOENT/);
+  console.log('Hostile host-config copy: '+broken.stdout.match(/^not ok .*R12 router\.size warning branch carries bytes/m)[0]);
+  console.log('Isolated copy: '+result.stdout.match(/^# pass \d+/m)[0]+', # fail 0');
 });
 
 test('S8 install generates starter pages and owns the installed capture template', t => {
@@ -22,7 +34,7 @@ test('S8 install generates starter pages and owns the installed capture template
   assert.match(read(path.join(f.memory, 'INDEX-craft-sessions.md')), /^<!-- generated/);
   assert.ok(fs.existsSync(path.join(f.memory, 'INDEX-craft-sessions-all.md')));
   assert.ok(json(path.join(f.target, 'scripts/memory/MANIFEST.json')).files['scripts/memory/templates/lesson.md']);
-  const result = ok(f.cli('scripts/memory/memory-lesson.mjs', ['new', '--route', 'craft-sessions', 'Installed capture'], f.target));
+  const result = ok(f.cli('scripts/memory/memory-lesson.mjs', ['new', '--kind', 'mistake', '--route', 'craft-sessions', 'Installed capture'], f.target));
   assert.match(read(result.stdout.trim()), /description: "TODO"/);
 });
 
@@ -50,7 +62,7 @@ test('S8 upgrade and route migration share a backup and restore both on forced f
 
 test('S9 release defaults and documentation use generated capture and checkpoint', () => {
   const config = json(path.join(kitRoot, 'engine/memory.config.json'));
-  assert.equal(config.engine_version, '3.2.2'); // Deliberate release pin: update only for a release.
+  assert.equal(config.engine_version, '3.2.9'); // Deliberate release pin: update only for a release.
   assert.equal(config.engine_version, read(path.join(kitRoot, 'VERSION')).trim());
   assert.equal(config.caps.index.hotBytes, 8192); assert.equal(config.caps.roadmap.keepBlocks, 6);
   assert.deepEqual(config.caps.stale.types, ['project', 'reference']);
@@ -80,7 +92,7 @@ test('K.8 config default places memory ladder after agents background', () => {
 });
 
 test('K8 release retains a literal pin', () => {
-  assert.match(read(path.join(kitRoot, 'tests/release32.test.mjs')), /assert\.equal\(config\.engine_version, '3\.2\.2'\)/);
+  assert.match(read(path.join(kitRoot, 'tests/release32.test.mjs')), /assert\.equal\(config\.engine_version, '3\.2\.9'\)/);
 });
 test('K9 index documentation explains shortening', () => {
   const text = read(path.join(kitRoot, 'engine/README.md'));

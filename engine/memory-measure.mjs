@@ -4,6 +4,9 @@ import { args, locations, requireMemory, isDirect, toolDir, loadConfig, memoryFi
   read, mdLinks, utf8Bytes, pathKey, fmGet, pathIncludes } from './lib.mjs';
 import { buildCorpus, search, humanResults, loadProbes } from './memory-recall.mjs';
 import { runCheck, counts } from './memory-check.mjs';
+import { ladderWalk, lessonField, REPEAT_ENTRY } from './memory-index.mjs';
+import {validDate} from './memory-rotate.mjs';
+import {loadUpgrades, evaluateUpgrades, triggerTable} from './memory-fleet.mjs';
 
 const median = values => {
   if (!values.length) return null;
@@ -27,7 +30,21 @@ function forgetting(files) {
     const date = lesson.date ?? /\b\d{4}-\d{2}-\d{2}\b/.exec(lesson.body)?.[0];
     if (date) perMonth[String(date).slice(0, 7)] = (perMonth[String(date).slice(0, 7)] || 0) + 1;
   }
-  return { proxy: true, lessonsParsed: lessons.length, corrections, correctionsPerMonth: perMonth };
+  let repeats = 0;
+  const repeatsPerMonth = {}, repeatsByCause = {};
+  for (const f of files.filter(f => !f.special && !f.stub)) {
+    const entries = lessonField(f.data, 'repeats');
+    if (!Array.isArray(entries)) continue;
+    repeats += entries.length;
+    for (const entry of entries) {
+      const match = typeof entry === 'string' && REPEAT_ENTRY.exec(entry);
+      if (!match || !validDate(match[1])) continue;
+      const month = match[1].slice(0, 7);
+      repeatsPerMonth[month] = (repeatsPerMonth[month] ?? 0) + 1;
+      repeatsByCause[match[2]] = (repeatsByCause[match[2]] ?? 0) + 1;
+    }
+  }
+  return { proxy: true, lessonsParsed: lessons.length, corrections, correctionsPerMonth: perMonth, repeats, repeatsPerMonth, repeatsByCause };
 }
 export function measure({ memoryDir, repo, config = loadConfig(), probesFile = path.join(toolDir, 'recall-probes.json'), noGit = false }) {
   for (const key of ['startLogTailEntries', 'startLogTailLines']) {
@@ -35,7 +52,7 @@ export function measure({ memoryDir, repo, config = loadConfig(), probesFile = p
       throw new Error(`measure.${key} must be a positive integer`);
   }
   requireMemory(memoryDir);
-  const files = memoryFiles(memoryDir), corpus = buildCorpus({ memoryDir, repo });
+  const files = memoryFiles(memoryDir), corpus = buildCorpus({ memoryDir, repo, config });
   const router = files.find(f => f.special === 'router');
   const log = read(path.join(repo, config.caps.brainLog.path));
   // A terminal newline terminates the last line; it is not an extra empty line.
@@ -54,20 +71,19 @@ export function measure({ memoryDir, repo, config = loadConfig(), probesFile = p
   const sessionStartLegacy = { files: legacyFiles, totalBytes: legacyTotal, tokens: Math.round(legacyTotal / config.measure.bytesPerToken), brainLogFullBytes: utf8Bytes(log) };
   const hard = files.filter(f => f.hardRule).map(f => ({ file: f.file, bytes: f.bytes }));
   const triggers = { files: hard, total: sum(hard.map(f => f.bytes)), max: hard.reduce((a, b) => b.bytes > a.bytes ? b : a, { file: null, bytes: 0 }) };
-  const direct = new Set(mdLinks(router?.body || '').map(p => pathKey(memoryDir, p)));
-  const indexes = files.filter(f => f.special === 'index' && direct.has(pathKey(memoryDir, f.file)))
-    .map(f => ({ ...f, links: new Set(mdLinks(f.text).map(p => pathKey(memoryDir, p))) }));
+  const reachable = ladderWalk(memoryDir, files);
   const probes = loadProbes(probesFile).probes;
   const rows = probes.map(p => {
-    let ladderFile = null, ladderBytes = null;
+    let ladderFile = null, ladderBytes = null, ladderHop = null;
     for (const pattern of p.expect) {
       for (const doc of corpus) {
         if (doc.stub || !pathIncludes(doc.path, pattern)) continue;
         const absolute = pathKey(doc.source === 'memory' ? memoryDir : repo, doc.path);
-        const index = indexes.find(f => f.links.has(absolute));
-        if (direct.has(absolute) || index) {
+        const route = reachable.get(absolute);
+        if (route) {
           ladderFile = doc.path;
-          ladderBytes = (router?.bytes || 0) + (direct.has(absolute) ? 0 : index.bytes) + doc.bytes;
+          ladderBytes = route.bytes + doc.bytes;
+          ladderHop = route.hop;
           break;
         }
       }
@@ -75,7 +91,7 @@ export function measure({ memoryDir, repo, config = loadConfig(), probesFile = p
     }
     const results = search(corpus, p.q, 3);
     const hit = results.find(r => p.expect.some(pattern => pathIncludes(r.path, pattern)));
-    return { id: p.id, ladderBytes, ladderFile, searchHit: Boolean(hit), searchRank: hit?.rank ?? null,
+    return { id: p.id, ladderBytes, ladderFile, ladderHop, searchHit: Boolean(hit), searchRank: hit?.rank ?? null,
       searchBytes: hit ? utf8Bytes(humanResults(results) + (results.length ? '\n' : '')) + hit.bytes : null };
   });
   const ladder = rows.map(r => r.ladderBytes).filter(n => n !== null);
@@ -101,15 +117,15 @@ export function readable(result) {
     `| Recall search | ${Math.round(r.searchHitRate * 100)}% hit; median ${cell(r.medianSearchBytes)}; total ${r.totalSearchBytes} bytes |`,
     `| Gate | ${g.FAIL} FAIL; ${g.WARN} WARN; ${g.allowed} allowed; ${g.totalMemoryBytes} memory bytes |`,
     `| Largest memory file | ${cell(g.largest.file)} (${g.largest.bytes} bytes); ${g.topicsOverWarn} topics over warning cap |`,
-    `| Forgetting (proxy) | ${f.lessonsParsed} lessons; ${f.corrections} corrections |`, '',
+    `| Forgetting (proxy) | ${f.lessonsParsed} lessons; ${f.corrections} corrections; ${f.repeats} repeats |`, '',
     '## Session inputs', '', '| File | Bytes |', '| --- | ---: |',
     ...Object.entries(s.files).map(([file, bytes]) => `| ${cell(file)} | ${bytes} |`), '',
     '## Hard-rule triggers', '', '| File | Bytes |', '| --- | ---: |',
     ...t.files.map(file => `| ${cell(file.file)} | ${file.bytes} |`), '',
-    '## Recall probes', '', '| Probe | Ladder file | Ladder bytes | Search hit | Rank | Search bytes |', '| --- | --- | ---: | --- | ---: | ---: |',
-    ...result.recall.probes.map(p => `| ${cell(p.id)} | ${cell(p.ladderFile)} | ${cell(p.ladderBytes)} | ${p.searchHit} | ${cell(p.searchRank)} | ${cell(p.searchBytes)} |`), '',
+    '## Recall probes', '', '| Probe | Ladder file | Hop | Ladder bytes | Search hit | Rank | Search bytes |', '| --- | --- | --- | ---: | --- | ---: | ---: |',
+    ...result.recall.probes.map(p => `| ${cell(p.id)} | ${cell(p.ladderFile)} | ${cell(p.ladderHop)} | ${cell(p.ladderBytes)} | ${p.searchHit} | ${cell(p.searchRank)} | ${cell(p.searchBytes)} |`), '',
     '## Corrections by month (proxy)', '', '| Month | Corrections |', '| --- | ---: |',
-    ...Object.entries(f.correctionsPerMonth).sort().map(([month, count]) => `| ${month} | ${count} |`), ''];
+    ...Object.entries(f.correctionsPerMonth).sort().map(([month, count]) => `| ${month} | ${count} |`), '', triggerTable(result.upgrades ?? [])];
   return lines.join('\n');
 }
 export function main(argv = process.argv.slice(2)) {
@@ -129,6 +145,13 @@ export function main(argv = process.argv.slice(2)) {
       if (!inside(fs.realpathSync(loc.repo), fs.realpathSync(existing))) throw new Error('measure.evidenceDir resolves outside the repo');
     }
     const result = measure({ ...loc, config, probesFile: typeof opts.probe === 'string' ? opts.probe : undefined, noGit: Boolean(opts['no-git']) });
+    const evidence = path.resolve(loc.repo, config.measure?.evidenceDir || 'docs/evidence/memory');
+    const history = fs.existsSync(evidence) ? fs.readdirSync(evidence).filter(f => f.endsWith('.json'))
+      .map(file => ({file, time: fs.statSync(path.join(evidence, file)).mtimeMs}))
+      .sort((a, b) => b.time - a.time || b.file.localeCompare(a.file))
+      .map(({file}) => { try { return JSON.parse(read(path.join(evidence, file))); } catch { return {}; } }) : [];
+    try { result.upgrades = evaluateUpgrades(loadUpgrades(), 'project', result, history); }
+    catch { result.upgrades = []; }
     if (opts.write) {
       if (!/^[a-zA-Z0-9_-]+$/.test(opts.write)) throw new Error('label must contain only letters, digits, underscores or hyphens');
       fs.mkdirSync(dir, { recursive: true });

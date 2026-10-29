@@ -15,15 +15,15 @@ test('K.3 scripted conversion preserves 40 lessons plus preamble and leaves exac
   const source='Preamble context.\r\n\r\n'+bodies.join('');put(path.join(mem,'lessons.md'),source);
   put(path.join(mem,'current-state.md'),topic('current-state','## RESUME one\nOne.\n## RESUME two\nTwo.\n## CURRENT\nThree.\n','state: true\n'));
   for(const name of ['rule-one','rule-two']) { const header=topic(name,''); put(path.join(mem,name+'.md'),header+'x'.repeat(15360-Buffer.byteLength(header))); }
-  put(path.join(mem,'MEMORY.md'),'# Memory\n## Hard rules\n- [One](rule-one.md)\n- [Two](rule-two.md)\n## Craft\n- [Sessions](INDEX-craft-sessions.md)\n- [Lessons](lessons.md)\n## Active work\n- [Current](current-state.md)\n- [Fact](shared-fact.md)\n- [Copy](shared-fact-copy.md)\n');
+  put(path.join(mem,'MEMORY.md'),'# Memory\n## Hard rules\n- [One](rule-one.md)\n- [Two](rule-two.md)\n## Craft\n- [Sessions](INDEX-craft-sessions.md) OPEN BEFORE session work.\n- [Lessons](lessons.md)\n## Active work\n- [Current](current-state.md)\n- [Fact](shared-fact.md)\n- [Copy](shared-fact-copy.md)\n');
   put(path.join(f.target,'brain/03-knowledge/core/fct-shared-fact.md'),'---\nid: fct-shared-fact\ntype: fact\nsummary: Shared fixture fact\n---\nA durable fact has one home.\n');
   for(const name of ['shared-fact','shared-fact-copy']) put(path.join(mem,name+'.md'),topic(name,'A durable fact has one home.\n','metadata:\n  type: reference\n'));
   const engine='scripts/memory/';const cli=(name,args=[])=>f.cli(engine+name,['--repo',f.target,'--memory-dir',mem,...args],f.target);
-  f.git(mem,'add','.');f.git(mem,'-c','core.hooksPath='+path.join(f.root,'baseline-hooks'),'commit','-m','Conversion fixture baseline');f.git(mem,'tag','pre-v3-2026-10-21');
+  f.git(mem,'add','.');f.git(mem,'-c','core.hooksPath='+path.join(f.root,'baseline-hooks'),'commit','-m','Conversion fixture baseline');f.git(mem,'tag','synthetic-before-conversion');
   const baseline=path.join(f.root,'tokens.json');ok(cli('memory-conserve.mjs',['snapshot','--out',baseline]));
   const before=tree(mem),dry=ok(f.cli(engine+'memory-migrate.mjs',['convert','--source','lessons.md','--repo',f.target,'--memory-dir',mem],f.target));assert.deepEqual(tree(mem),before);
   const dryReport=JSON.parse(dry.stdout);assert.equal(dryReport.numbered,40);assert.equal(dryReport.unnumbered.length,1);
-  // spec 11.5: conversion includes route migration; retain all conservation assertions.
+  // conversion includes route migration; retain all conservation assertions.
   const report=JSON.parse(ok(f.cli(engine+'memory-migrate.mjs',['convert','--source','lessons.md','--repo',f.target,'--memory-dir',mem,'--write'],f.target)).stdout);
   assert.equal(report.files.length,41);assert.equal(report.numbered,40);assert.ok(report.files.some(n=>n.startsWith('lesson-000a-')));
   const restored=report.files.map(n=>rawBody(read(path.join(mem,n)))).join('');assert.deepEqual(Buffer.from(restored),Buffer.from(source));

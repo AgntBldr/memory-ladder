@@ -10,8 +10,8 @@ export function files(root, rel = '') {
     return e.isDirectory() ? files(root, p) : e.isFile() ? [p] : [];
   }).sort();
 }
-export const ownedFiles = root => files(root).filter(f => /^engine\/(?:[^/]+\.mjs|README\.md)$/.test(f) || f === 'templates/lesson.md' || /^docs\/(CONVERT|UPGRADE)\.md$/.test(f) || f.startsWith('skills/'));
-export const installedPath = f => f.startsWith('engine/') ? 'scripts/memory/' + f.slice(7) : f.startsWith('templates/') ? 'scripts/memory/' + f : f.startsWith('docs/') ? 'scripts/memory/' + f.slice(5) : '.claude/' + f;
+export const ownedFiles = root => files(root).filter(f => /^engine\/(?:[^/]+\.mjs|README\.md)$/.test(f) || f === 'engine/enforce-rules.kit.json' || f === 'templates/lesson.md' || f === 'templates/lesson-batch.md' || /^docs\/(CONVERT|UPGRADE|GLOSSARY|LESSON-KINDS|LABELLING)\.md$/.test(f) || f.startsWith('skills/'));
+export const installedPath = f => f === 'engine/memory.test.mjs' ? 'scripts/memory/memory.selftest.mjs' : f.startsWith('engine/') ? 'scripts/memory/' + f.slice(7) : f.startsWith('templates/') ? 'scripts/memory/' + f : f.startsWith('docs/') ? 'scripts/memory/' + f.slice(5) : '.claude/' + f;
 export function manifest(root = kitRoot) {
   return {version:fs.readFileSync(path.join(root,'VERSION'),'utf8').trim(),files:Object.fromEntries(ownedFiles(root).map(f=>[f,hash(path.join(root,f))]))};
 }

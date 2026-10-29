@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "inline-script-path",
+      "tools": [
+        "Bash"
+      ],
+      "action": "warn",
+      "pattern": "(?:\\bnode(?:\\.exe)?\\s+(?:--input-type=module\\s+)?(?:-e|--eval|-p|--print)|\\bpython[23]?(?:\\.exe)?\\s+-c)\\s+(?:\"(?:[^\"\\\\]|\\\\.)*?(?:(?<![A-Za-z0-9_])[A-Za-z]:\\\\|(?<![\\w.:\\/-])\\/[c-z]\\/[A-Za-z]|`)|'[^']*?(?:(?<![A-Za-z0-9_])[A-Za-z]:\\\\|(?<![\\w.:\\/-])\\/[c-z]\\/[A-Za-z]))",
+      "flags": "",
+      "message": "inline script carries a path or an unescaped backtick; write it to a file with the Write tool and run the file"
+    },
+    {
+      "id": "piped-gate",
+      "tools": [
+        "Bash"
+      ],
+      "action": "warn",
+      "pattern": "(?:^|&&|\\|\\||;|\\n)[ \\t]*(?![ \\t])(?!(?:[A-Za-z_]\\w*=\\$\\(\\s*)?(?:git|gh|cat|ls|echo|printf|sed|awk|grep|head|tail|wc|find|diff|jq|tr|sort|cut|uniq|stat|du)\\b)(?:[^&\\n;]|&(?!&))*?\\|\\s*(?:tail|head|grep|sed|awk|wc|cut|sort|uniq|tee)\\b[^\\n;]*?(?:&&|\\|\\|)\\s*(?:[^\\n;&|]*?\\s)?git\\s+(?:-\\S+\\s+(?:\"[^\"\\n]*\"\\s+|'[^'\\n]*'\\s+|[^-\\s\"']\\S*\\s+)?)*(?:push|commit)\\b",
+      "flags": "i",
+      "unless": "pipefail|PIPESTATUS",
+      "message": "a piped check cannot gate the git command after it; run the check unpiped and let its exit code decide"
+    },
+    {
+      "id": "piped-gate-ps",
+      "tools": [
+        "PowerShell"
+      ],
+      "action": "warn",
+      "pattern": "\\|\\s*(?:Select-Object|Select-String|Out-String|Tee-Object|Format-Table|select|sls|tee)\\b[^\\n;]*?(?:;|&&)\\s*(?:if\\s*\\(\\s*\\$\\?\\s*\\)\\s*\\{\\s*)?(?:&\\s*)?git(?:\\.exe)?\\s+(?:-\\S+\\s+(?:\"[^\"\\n]*\"\\s+|'[^'\\n]*'\\s+|[^-\\s\"']\\S*\\s+)?)*(?:push|commit)\\b",
+      "flags": "i",
+      "message": "a piped check cannot gate the git command after it; run the check unpiped and let its exit code decide"
+    }
+  ]
+}

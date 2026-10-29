@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "diagram_type": "tree",
+  "meta": {
+    "title": "Project files and separate private memory",
+    "output": "diagrams/where-things-live.html",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "layout": {
+    "direction": "right"
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "label": "Workspace",
+      "sublabel": "Logical grouping, not an installed folder",
+      "sources": [
+        {
+          "path": "README.md"
+        }
+      ]
+    },
+    {
+      "id": "memory",
+      "label": "Private memory/",
+      "parent": "root",
+      "sublabel": "Outside project; own .git/",
+      "sources": [
+        {
+          "path": "README.md"
+        }
+      ]
+    },
+    {
+      "id": "router",
+      "label": "MEMORY.md + current-state.md",
+      "parent": "memory",
+      "sublabel": "router and one CURRENT block",
+      "sources": [
+        {
+          "path": "templates/MEMORY.md"
+        }
+      ]
+    },
+    {
+      "id": "indexes",
+      "label": "INDEX-*.md + catalogs",
+      "parent": "memory",
+      "sublabel": "generated activity/domain pointers",
+      "sources": [
+        {
+          "path": "engine/memory-index.mjs"
+        }
+      ]
+    },
+    {
+      "id": "lessons",
+      "label": "lesson-*.md + topic files",
+      "parent": "memory",
+      "sublabel": "hard rules and ARCHIVE.md as needed",
+      "sources": [
+        {
+          "path": "skills/memory-ladder/SKILL.md"
+        }
+      ]
+    },
+    {
+      "id": "project",
+      "label": "Project repository/",
+      "parent": "root",
+      "sublabel": "separate from private memory",
+      "sources": [
+        {
+          "path": "README.md"
+        }
+      ]
+    },
+    {
+      "id": "engine",
+      "label": "scripts/memory/",
+      "parent": "project",
+      "sublabel": "engine, config, KIT.json, MANIFEST.json",
+      "sources": [
+        {
+          "path": "scripts/install.mjs"
+        }
+      ]
+    },
+    {
+      "id": "claude",
+      "label": ".claude/",
+      "parent": "project",
+      "sublabel": "skills/ and settings.json SessionStart",
+      "sources": [
+        {
+          "path": "scripts/install.mjs"
+        }
+      ]
+    },
+    {
+      "id": "agents",
+      "label": "AGENTS.md + CLAUDE.md",
+      "parent": "project",
+      "sublabel": "gate block and import",
+      "sources": [
+        {
+          "path": "scripts/install.mjs"
+        }
+      ]
+    },
+    {
+      "id": "brain",
+      "label": "brain/",
+      "parent": "project",
+      "sublabel": "optional pre-existing knowledge vault",
+      "sources": [
+        {
+          "path": "README.md"
+        }
+      ]
+    },
+    {
+      "id": "system",
+      "label": "00-system/",
+      "parent": "brain",
+      "sublabel": "project rules, log and index",
+      "sources": [
+        {
+          "path": "engine/memory.config.json"
+        }
+      ]
+    },
+    {
+      "id": "knowledge",
+      "label": "03-knowledge/<domain>/",
+      "parent": "brain",
+      "sublabel": "typed project knowledge",
+      "sources": [
+        {
+          "path": "skills/memory-ladder/SKILL.md"
+        }
+      ]
+    },
+    {
+      "id": "other",
+      "label": "Other brain folders",
+      "parent": "brain",
+      "sublabel": "01, 02, 04, 05, 06, 99 (see card)",
+      "sources": [
+        {
+          "path": "README.md"
+        }
+      ]
+    },
+    {
+      "id": "docs",
+      "label": "docs/",
+      "parent": "project",
+      "sublabel": "shelf/, ROADMAP.md and history",
+      "sources": [
+        {
+          "path": "engine/memory.config.json"
+        }
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Memory folder",
+      "items": [
+        "MEMORY.md, current-state.md, INDEX-craft-<activity>.md, INDEX-<domain>.md, INDEX-<family>-all.md (and numbered catalog pages), lesson-*.md, topic files and ARCHIVE.md.",
+        "The installer begins with the sessions family; additional families and hard-rule cards are authored as needed."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Brain convention, not installation",
+      "items": [
+        "Example project folders: 01-pillars, 02-projects, 04-playbooks, 05-sources, 06-people and 99-inbox.",
+        "These folder names illustrate a possible brain layout; the kit does not provision or require this complete layout. Source references on grouping nodes support the brain relationship only."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Project support files",
+      "items": [
+        ".claude/skills/memory-ladder/SKILL.md and memory-review/SKILL.md describe the routines. .claude/settings.json holds the hook.",
+        "docs/ includes shelf/<name>.md, ROADMAP.md, ROADMAP-HISTORY.md and generated ROADMAP-OVERVIEW.md when used."
+      ]
+    }
+  ]
+}

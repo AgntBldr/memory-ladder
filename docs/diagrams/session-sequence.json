@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "One session from gate to checkpoint",
+    "output": "diagrams/session-sequence.html",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "participants": [
+    {
+      "id": "hook",
+      "type": "backend",
+      "label": "Hook",
+      "sources": [
+        {
+          "path": "templates/settings.sessionstart.json"
+        }
+      ]
+    },
+    {
+      "id": "gate",
+      "type": "security",
+      "label": "Gate",
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "external",
+      "label": "Agent",
+      "sources": [
+        {
+          "path": "skills/memory-ladder/SKILL.md"
+        }
+      ]
+    },
+    {
+      "id": "router",
+      "type": "database",
+      "label": "Router + state",
+      "sources": [
+        {
+          "path": "templates/MEMORY.md"
+        }
+      ]
+    },
+    {
+      "id": "recall",
+      "type": "backend",
+      "label": "Recall",
+      "sources": [
+        {
+          "path": "engine/memory-recall.mjs"
+        }
+      ]
+    },
+    {
+      "id": "notes",
+      "type": "database",
+      "label": "Index + lesson",
+      "sources": [
+        {
+          "path": "engine/memory-index.mjs"
+        }
+      ]
+    },
+    {
+      "id": "checkpoint",
+      "type": "backend",
+      "label": "Checkpoint",
+      "sources": [
+        {
+          "path": "engine/memory-checkpoint.mjs"
+        }
+      ]
+    },
+    {
+      "id": "records",
+      "type": "database",
+      "label": "Project records",
+      "sources": [
+        {
+          "path": "engine/memory-checkpoint.mjs"
+        }
+      ]
+    },
+    {
+      "id": "git",
+      "type": "database",
+      "label": "Git + remote",
+      "sources": [
+        {
+          "path": "engine/memory-checkpoint.mjs"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "message0",
+      "from": "hook",
+      "to": "gate",
+      "label": "Run session-start gate",
+      "y": 170
+    },
+    {
+      "id": "message1",
+      "from": "gate",
+      "to": "agent",
+      "label": "Report; always exit zero",
+      "y": 218
+    },
+    {
+      "id": "message2",
+      "from": "agent",
+      "to": "router",
+      "label": "Read router and CURRENT",
+      "y": 266
+    },
+    {
+      "id": "message3",
+      "from": "agent",
+      "to": "recall",
+      "label": "Ask before opening an index",
+      "y": 314
+    },
+    {
+      "id": "message4",
+      "from": "agent",
+      "to": "notes",
+      "label": "Open routed index",
+      "y": 362
+    },
+    {
+      "id": "message5",
+      "from": "agent",
+      "to": "notes",
+      "label": "Open one lesson",
+      "y": 410
+    },
+    {
+      "id": "message6",
+      "from": "agent",
+      "to": "notes",
+      "label": "Work; capture and fill lesson",
+      "y": 458
+    },
+    {
+      "id": "message7",
+      "from": "agent",
+      "to": "checkpoint",
+      "label": "Overwrite state; checkpoint",
+      "y": 506
+    },
+    {
+      "id": "message8",
+      "from": "checkpoint",
+      "to": "notes",
+      "label": "1. Regenerate memory indexes",
+      "y": 554
+    },
+    {
+      "id": "message9",
+      "from": "checkpoint",
+      "to": "records",
+      "label": "2. Rotate log; 3. rotate roadmap",
+      "y": 602
+    },
+    {
+      "id": "message10",
+      "from": "checkpoint",
+      "to": "records",
+      "label": "4. Brain index; 5. overview",
+      "y": 650
+    },
+    {
+      "id": "message11",
+      "from": "checkpoint",
+      "to": "gate",
+      "label": "6. Gate; FAIL stops commit",
+      "y": 698
+    },
+    {
+      "id": "message12",
+      "from": "checkpoint",
+      "to": "git",
+      "label": "7. Commit memory",
+      "y": 746
+    },
+    {
+      "id": "message13",
+      "from": "git",
+      "to": "checkpoint",
+      "label": "8. Push result",
+      "y": 794
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Exact checkpoint order",
+      "items": [
+        "memory-index → rotate-log → rotate-roadmap → brain-index → roadmap-overview → gate → commit → push.",
+        "Steps 2–5 write project records only when their sources exist.",
+        "Source: engine/memory-checkpoint.mjs. The checkpoint invokes git push; the last arrow represents its result."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Demo boundary",
+      "items": [
+        "The example uses --dry-run to preview the checkpoint. It lists steps without executing them.",
+        "SessionStart reports FAIL but does not block the agent. The normal gate and memory pre-commit enforce FAIL."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Reading discipline",
+      "items": [
+        "Recall precedes index reading. Open the activity index required by the router, then only relevant lessons.",
+        "Source: skills/memory-ladder/SKILL.md and templates/AGENTS-memory-gate.md."
+      ]
+    }
+  ]
+}

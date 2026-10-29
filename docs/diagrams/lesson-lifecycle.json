@@ -1,0 +1,181 @@
+{
+  "schema_version": 3,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "A lesson stays small and remains findable",
+    "output": "diagrams/lesson-lifecycle.html",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "mainPath": [
+    "todo",
+    "filled",
+    "checked",
+    "hot",
+    "catalog"
+  ],
+  "states": [
+    {
+      "id": "todo",
+      "type": "start",
+      "label": "New TODO",
+      "sources": [
+        {
+          "path": "engine/memory-lesson.mjs"
+        }
+      ]
+    },
+    {
+      "id": "filled",
+      "type": "active",
+      "label": "Filled lesson",
+      "sources": [
+        {
+          "path": "templates/lesson.md"
+        }
+      ]
+    },
+    {
+      "id": "checked",
+      "type": "decision",
+      "label": "Gate passes",
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "hot",
+      "type": "active",
+      "label": "Newest on index",
+      "sources": [
+        {
+          "path": "engine/memory-index.mjs"
+        }
+      ]
+    },
+    {
+      "id": "catalog",
+      "type": "waiting",
+      "label": "Catalog only",
+      "sources": [
+        {
+          "path": "engine/memory-index.mjs"
+        }
+      ]
+    },
+    {
+      "id": "fail",
+      "type": "failure",
+      "label": "Over cap: FAIL",
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "superseded",
+      "type": "neutral",
+      "label": "Superseded",
+      "sources": [
+        {
+          "path": "engine/memory-index.mjs"
+        }
+      ]
+    },
+    {
+      "id": "deleted",
+      "type": "neutral",
+      "label": "Proven wrong: delete",
+      "sources": [
+        {
+          "path": "skills/memory-ladder/SKILL.md"
+        }
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "id": "transition0",
+      "from": "todo",
+      "to": "filled",
+      "label": "write why/how"
+    },
+    {
+      "id": "transition1",
+      "from": "filled",
+      "to": "checked",
+      "label": "check"
+    },
+    {
+      "id": "transition2",
+      "from": "checked",
+      "to": "hot",
+      "label": "regenerate"
+    },
+    {
+      "id": "transition3",
+      "from": "hot",
+      "to": "catalog",
+      "label": "newer entries fit"
+    },
+    {
+      "id": "transition4",
+      "from": "filled",
+      "to": "fail",
+      "label": "cap exceeded"
+    },
+    {
+      "id": "transition5",
+      "from": "fail",
+      "to": "filled",
+      "label": "shorten / move"
+    },
+    {
+      "id": "transition6",
+      "from": "catalog",
+      "to": "superseded",
+      "label": "new lesson replaces"
+    },
+    {
+      "id": "transition7",
+      "from": "hot",
+      "to": "superseded",
+      "label": "supersedes"
+    },
+    {
+      "id": "transition8",
+      "from": "catalog",
+      "to": "deleted",
+      "label": "disproved"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "No fixed lesson count",
+      "items": [
+        "The hot page has an 8192-byte budget. Topics and pinned active lessons stay; remaining room fills newest numeric lesson IDs first.",
+        "Every routed member is also in the catalog from its first generation. Aging removes a hot-page pointer; it does not move the lesson file. Catalog pages paginate at 24576 bytes."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Superseding and deleting",
+      "items": [
+        "A newer routed lesson can list old filenames in metadata.supersedes. Those old lessons leave that family hot page but remain in the catalog.",
+        "Deletion of a proven-wrong memory is a deliberate author action; regenerate indexes and repair references. Git retains committed history."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Check before and after generation",
+      "items": [
+        "A new or edited lesson can make generated pages stale. Regenerate before expecting a fully clean gate.",
+        "TODO descriptions fail; descriptions over 400 characters fail. Aim at or below 200. Source: engine/memory-check.mjs and memory-index.mjs."
+      ]
+    }
+  ]
+}

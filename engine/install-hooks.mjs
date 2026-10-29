@@ -1,11 +1,32 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import childProcess from 'node:child_process';
-import { args, locations, isDirect, slash, read, toolDir } from './lib.mjs';
+import { args, locations, isDirect, slash, read, toolDir, inRepoMemory } from './lib.mjs';
 
 export const marker = '# memory-v3-gate (installed by scripts/memory/install-hooks.mjs; edit there)';
 const shellQuoted = value => `"${slash(path.resolve(value)).replace(/["$`\\]/g, '\\$&')}"`;
 export function install({ memoryDir, repo, uninstall = false }) {
+  if (inRepoMemory(repo, memoryDir)) {
+    const quoted = value => "'" + value.replaceAll("'", "'\\''") + "'";
+    const rel = slash(path.relative(repo, memoryDir));
+    const command = `if git diff --cached --name-only -- ${quoted(rel + '/')} | grep -q .; then node scripts/memory/memory-check.mjs --hook --scope memory || exit $?; fi`;
+    let hooksPathSet = false;
+    try { childProcess.execFileSync('git',['-C',repo,'config','--get','core.hooksPath'],{encoding:'utf8',stdio:'pipe'}); hooksPathSet = true; } catch {}
+    const preserved = {ok:true,message:`project hook preserved; add this line from the repo root:\n${command}`};
+    if (hooksPathSet) return preserved;
+    const gitHook = childProcess.execFileSync('git',['-C',repo,'rev-parse','--git-path','hooks/pre-commit'],{encoding:'utf8',stdio:'pipe'}).trim();
+    const hook = path.resolve(repo,gitHook);
+    if (fs.existsSync(hook)) {
+      if (!read(hook).split(/\r?\n/).includes(marker)) return preserved;
+      if (uninstall) { fs.unlinkSync(hook); return {ok:true,message:'kit hook removed'}; }
+      return {ok:true,message:'kit hook present'};
+    }
+    if (uninstall) return {ok:true,message:'project hook is not installed'};
+    fs.mkdirSync(path.dirname(hook),{recursive:true});
+    fs.writeFileSync(hook,`#!/bin/sh\n${marker}\nif ! git diff --cached --name-only -- ${quoted(rel + '/')} | grep -q .; then exit 0; fi\nnode scripts/memory/memory-check.mjs --hook --scope memory\n`);
+    if(process.platform!=='win32') fs.chmodSync(hook,0o755);
+    return {ok:true,message:`in-repo memory gate hook installed: ${hook}`};
+  }
   if (!memoryDir || !fs.existsSync(path.join(memoryDir, '.git')) || !fs.statSync(path.join(memoryDir, '.git')).isDirectory()) {
     return { ok: false, message: 'memory dir has no .git folder; hook not changed' };
   }

@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Gate inputs, findings and enforcement",
+    "output": "diagrams/gate-dataflow.html",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "stages": [
+    {
+      "label": "Read"
+    },
+    {
+      "label": "Evaluate"
+    },
+    {
+      "label": "Classify"
+    },
+    {
+      "label": "Act"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "memory",
+      "type": "database",
+      "label": "Memory files",
+      "stage": 0,
+      "row": 0,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "config",
+      "type": "database",
+      "label": "Caps + pins",
+      "stage": 0,
+      "row": 1,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "brain",
+      "type": "database",
+      "label": "Brain nodes",
+      "stage": 0,
+      "row": 2,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "records",
+      "type": "database",
+      "label": "Project records",
+      "stage": 0,
+      "row": 3,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "kit",
+      "type": "database",
+      "label": "Kit manifests",
+      "stage": 0,
+      "row": 4,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "gate",
+      "type": "security",
+      "label": "Run checks",
+      "stage": 1,
+      "row": 2,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "fail",
+      "type": "security",
+      "label": "FAIL",
+      "stage": 2,
+      "row": 0,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "warn",
+      "type": "backend",
+      "label": "WARN",
+      "stage": 2,
+      "row": 2,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "allowed",
+      "type": "backend",
+      "label": "Allowed",
+      "stage": 2,
+      "row": 4,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "stop",
+      "type": "security",
+      "label": "Stop commit",
+      "stage": 3,
+      "row": 0,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "type": "backend",
+      "label": "Session report",
+      "stage": 3,
+      "row": 2,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "continue",
+      "type": "backend",
+      "label": "No FAIL exit 0",
+      "stage": 3,
+      "row": 4,
+      "sources": [
+        {
+          "path": "engine/memory-check.mjs"
+        }
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "id": "flow0",
+      "from": "memory",
+      "to": "gate",
+      "label": "text + links"
+    },
+    {
+      "id": "flow1",
+      "from": "config",
+      "to": "gate",
+      "label": "limits + allow"
+    },
+    {
+      "id": "flow2",
+      "from": "brain",
+      "to": "gate",
+      "label": "ids + edges"
+    },
+    {
+      "id": "flow3",
+      "from": "records",
+      "to": "gate",
+      "label": "dates + size"
+    },
+    {
+      "id": "flow4",
+      "from": "kit",
+      "to": "gate",
+      "label": "hashes"
+    },
+    {
+      "id": "flow5",
+      "from": "gate",
+      "to": "fail",
+      "label": "unallowed FAIL"
+    },
+    {
+      "id": "flow6",
+      "from": "gate",
+      "to": "warn",
+      "label": "unallowed WARN"
+    },
+    {
+      "id": "flow7",
+      "from": "gate",
+      "to": "allowed",
+      "label": "allow match"
+    },
+    {
+      "id": "flow8",
+      "from": "fail",
+      "to": "stop",
+      "label": "normal / hook"
+    },
+    {
+      "id": "flow9",
+      "from": "fail",
+      "to": "report",
+      "label": "session-start"
+    },
+    {
+      "id": "flow10",
+      "from": "warn",
+      "to": "report",
+      "label": "counts"
+    },
+    {
+      "id": "flow11",
+      "from": "allowed",
+      "to": "continue",
+      "label": "excluded counts"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "What is read",
+      "items": [
+        "Memory: router, indexes, archive, state, rules, topics and lessons; config: caps, pins and allow entries; git status/history for health.",
+        "Project records: AGENTS.md, CLAUDE.md, roadmap, shelf and brain logs/indexes. Kit: scripts/memory/KIT.json and MANIFEST.json; owned-file hashes and skill versions."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Where FAIL stops work",
+      "items": [
+        "Normal gate exits 1 on an unallowed FAIL. Checkpoint stops before commit. Memory pre-commit checks the staged snapshot with --hook --scope memory.",
+        "SessionStart reports failures and always exits 0. Agents must fix or report them; the hook alone does not stop work.",
+        "No-FAIL exit 0 still permits warnings. Allowed is a finding annotation, not proof that the underlying issue vanished."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Scope and exceptions",
+      "items": [
+        "Memory scope skips project record checks, while brain names remain available for resolving memory links.",
+        "Allow entries need reason and date and can have ceilings. Secrets, config errors and frontmatter parse FAIL cannot be allowed. Source: engine/memory-check.mjs."
+      ]
+    }
+  ]
+}

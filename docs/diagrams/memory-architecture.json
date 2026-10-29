@@ -1,0 +1,415 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Memory layers and their boundaries",
+    "output": "diagrams/memory-architecture.html",
+    "locale": "en",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "session",
+      "type": "external",
+      "label": "Agent session",
+      "sublabel": "starts with instructions",
+      "pos": [
+        40,
+        40
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "README.md"
+        }
+      ]
+    },
+    {
+      "id": "instructions",
+      "type": "security",
+      "label": "AGENTS.md",
+      "sublabel": "CLAUDE.md imports it",
+      "pos": [
+        300,
+        40
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "templates/AGENTS-memory-gate.md"
+        }
+      ]
+    },
+    {
+      "id": "hook",
+      "type": "backend",
+      "label": "SessionStart",
+      "sublabel": "reports gate findings",
+      "pos": [
+        300,
+        190
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "templates/settings.sessionstart.json"
+        }
+      ]
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "Memory engine",
+      "sublabel": "scripts/memory/",
+      "pos": [
+        300,
+        350
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "engine/memory-checkpoint.mjs"
+        }
+      ]
+    },
+    {
+      "id": "brain",
+      "type": "database",
+      "label": "Project brain",
+      "sublabel": "knowledge, log and index",
+      "pos": [
+        300,
+        510
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "engine/brain-index.mjs"
+        }
+      ]
+    },
+    {
+      "id": "router",
+      "type": "database",
+      "label": "MEMORY.md",
+      "sublabel": "rules, work, routing",
+      "pos": [
+        650,
+        40
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "templates/MEMORY.md"
+        }
+      ]
+    },
+    {
+      "id": "rules",
+      "type": "security",
+      "label": "Hard-rule cards",
+      "sublabel": "instructions on demand",
+      "pos": [
+        920,
+        40
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "skills/memory-ladder/SKILL.md"
+        }
+      ]
+    },
+    {
+      "id": "state",
+      "type": "database",
+      "label": "Current state",
+      "sublabel": "one CURRENT block",
+      "pos": [
+        650,
+        200
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "templates/current-state.md"
+        }
+      ]
+    },
+    {
+      "id": "indexes",
+      "type": "database",
+      "label": "Generated indexes",
+      "sublabel": "craft and domains",
+      "pos": [
+        920,
+        200
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "engine/memory-index.mjs"
+        }
+      ]
+    },
+    {
+      "id": "lessons",
+      "type": "database",
+      "label": "Lessons and topics",
+      "sublabel": "one idea per file",
+      "pos": [
+        920,
+        360
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "engine/memory-lesson.mjs"
+        }
+      ]
+    },
+    {
+      "id": "catalog",
+      "type": "database",
+      "label": "Older catalog",
+      "sublabel": "all routed entries",
+      "pos": [
+        650,
+        360
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "engine/memory-index.mjs"
+        }
+      ]
+    },
+    {
+      "id": "archive",
+      "type": "database",
+      "label": "ARCHIVE.md",
+      "sublabel": "shipped pointers",
+      "pos": [
+        650,
+        520
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "skills/memory-ladder/SKILL.md"
+        }
+      ]
+    },
+    {
+      "id": "git",
+      "type": "database",
+      "label": "Memory git repo",
+      "sublabel": "separate history",
+      "pos": [
+        920,
+        520
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "scripts/install.mjs"
+        }
+      ]
+    },
+    {
+      "id": "remote",
+      "type": "cloud",
+      "label": "Private remote",
+      "sublabel": "configured separately",
+      "pos": [
+        920,
+        720
+      ],
+      "size": [
+        180,
+        68
+      ],
+      "sources": [
+        {
+          "path": "README.md"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Project repository",
+      "wraps": [
+        "instructions",
+        "hook",
+        "engine",
+        "brain"
+      ],
+      "pad": 24
+    },
+    {
+      "kind": "region",
+      "label": "Private memory folder outside project",
+      "wraps": [
+        "router",
+        "rules",
+        "state",
+        "indexes",
+        "lessons",
+        "catalog",
+        "archive",
+        "git"
+      ],
+      "pad": 24
+    },
+    {
+      "kind": "region",
+      "label": "Remote backup",
+      "wraps": [
+        "remote"
+      ],
+      "pad": 20
+    }
+  ],
+  "connections": [
+    {
+      "id": "edge0",
+      "from": "session",
+      "to": "instructions",
+      "label": "read"
+    },
+    {
+      "id": "edge1",
+      "from": "instructions",
+      "to": "router",
+      "label": "route"
+    },
+    {
+      "id": "edge2",
+      "from": "hook",
+      "to": "engine",
+      "label": "gate"
+    },
+    {
+      "id": "edge3",
+      "from": "engine",
+      "to": "brain",
+      "label": "refresh"
+    },
+    {
+      "id": "edge4",
+      "from": "router",
+      "to": "rules",
+      "label": "triggers"
+    },
+    {
+      "id": "edge5",
+      "from": "router",
+      "to": "state",
+      "label": "resume"
+    },
+    {
+      "id": "edge7",
+      "from": "indexes",
+      "to": "lessons",
+      "label": "open"
+    },
+    {
+      "id": "edge8",
+      "from": "indexes",
+      "to": "catalog",
+      "label": "older"
+    },
+    {
+      "id": "edge10",
+      "from": "lessons",
+      "to": "git",
+      "label": "version"
+    },
+    {
+      "id": "edge11",
+      "from": "git",
+      "to": "remote",
+      "label": "push"
+    },
+    {
+      "id": "route-index",
+      "from": "router",
+      "to": "indexes",
+      "label": "activity"
+    },
+    {
+      "id": "archive-read",
+      "from": "session",
+      "to": "archive",
+      "label": "as needed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Reading the layers",
+      "items": [
+        "Arrows between Markdown files show agent navigation, not executable calls.",
+        "Router: hard-rule triggers, active work, craft activity and domain routes. Catalog contains all routed entries; archive holds shipped pointers."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Project and privacy",
+      "items": [
+        "The engine lives in scripts/memory/. Its checkpoint refreshes optional project records.",
+        "Project facts live in the project's own knowledge folder, under that folder's own rules. The engine can maintain configured indexes and logs.",
+        "Install creates a memory git repo; a private remote must be configured separately. No remote is used in the demo."
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Sources and limits",
+      "items": [
+        "Source: templates, skills/memory-ladder/SKILL.md, engine/memory-index.mjs, engine/memory-checkpoint.mjs and README.md.",
+        "The installer does not create a full brain. The tree shows the conventional brain layout, not an installed fixture."
+      ]
+    }
+  ]
+}

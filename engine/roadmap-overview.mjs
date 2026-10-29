@@ -1,3 +1,4 @@
+import {normalizeEol, writeText} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { args, isDirect, loadConfig, repoRoot, read, parseFrontmatter, walkMd } from './lib.mjs';
@@ -48,10 +49,12 @@ export function main(argv = process.argv.slice(2)) {
   try {
     const opts = args(argv.filter(arg => arg !== '--write'));
     if (argv.includes('--write') && opts.check) throw new Error('choose --write or --check');
-    const repo = path.resolve(opts.repo || repoRoot()), config = loadConfig(), output = generateOverview({ repo, config });
+    const repo = path.resolve(opts.repo || repoRoot()), config = loadConfig();
+    if (!fs.existsSync(path.join(repo, config.caps.roadmap.path))) { console.log('roadmap overview: no existing roadmap'); return 0; }
+    const output = generateOverview({ repo, config });
     const file = path.join(repo, config.caps.roadmapOverview.path);
-    if (opts.check) { const ok = fs.existsSync(file) && read(file) === output; console.log(ok ? 'roadmap overview: fresh' : 'roadmap overview: stale or missing'); return ok ? 0 : 1; }
-    if (argv.includes('--write')) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, output); }
+    if (opts.check) { const ok = fs.existsSync(file) && normalizeEol(read(file)) === normalizeEol(output); console.log(ok ? 'roadmap overview: fresh' : 'roadmap overview: stale or missing'); return ok ? 0 : 1; }
+    if (argv.includes('--write')) { fs.mkdirSync(path.dirname(file), { recursive: true }); writeText(file, output); }
     else process.stdout.write(output);
     return 0;
   } catch (error) { console.error(`roadmap-overview: ${error.message}`); return 1; }

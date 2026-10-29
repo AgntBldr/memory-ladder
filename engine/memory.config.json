@@ -1,10 +1,21 @@
 {
-  "engine_version": "3.2.2",
+  "engine_version": "3.2.9",
   "caps": {
+    "lesson": {
+      "enforceAfterRepeats": 2,
+      "failAfterRepeats": 4,
+      "lessonOnlyReturns": true
+    },
+    "guard": {
+      "kitRules": "scripts/memory/enforce-rules.kit.json",
+      "rules": "scripts/memory/enforce-rules.json"
+    },
     "router": {
       "warnBytes": 12288,
       "failBytes": 16384,
-      "failLineChars": 600
+      "failLineChars": 600,
+      "warnLines": 150,
+      "failLines": 200
     },
     "index": {
       "pinSlackBytes": 1024,
@@ -19,7 +30,8 @@
     },
     "topic": {
       "warnBytes": 8192,
-      "failBytes": 20480
+      "failBytes": 20480,
+      "warnLineChars": 2000
     },
     "state": {
       "warnBytes": 4096,
@@ -61,6 +73,7 @@
       ]
     },
     "roadmap": {
+      "order": "newest-first",
       "path": "docs/ROADMAP.md",
       "warnBytes": 61440,
       "failBytes": 81920,

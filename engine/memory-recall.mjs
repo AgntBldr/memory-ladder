@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {KINDS} from './memory-index.mjs';
 import { args, locations, isDirect, toolDir, requireMemory, memoryFiles, brainPaths,
-  parseFrontmatter, fmGet, read, utf8Bytes, pathIncludes } from './lib.mjs';
+  parseFrontmatter, fmGet, read, utf8Bytes, pathIncludes, loadConfig } from './lib.mjs';
 
 const stopwords = new Set(('how why where whom does did should would could a an and are as at be been but by can do for from had has have he her his i if in into is it its me my no not of on or our she so than that the their them then there these they this to too us was we were what when which who will with you your').split(' '));
 export function tokenize(text) {
@@ -22,27 +23,30 @@ const firstH1 = body => /^#\s+(.+)$/m.exec(body)?.[1] || '';
 function document(file, text, fm, source) {
   const get = key => fmGet(fm.data, key) ?? '';
   const hook = String(get(source === 'memory' ? 'description' : 'summary'));
+  const kind = fm.data.metadata?.kind ?? fm.data.kind;
+  const takeaway = fm.data.metadata?.takeaway ?? fm.data.takeaway;
+  const trigger = fm.data.metadata?.trigger ?? fm.data.trigger;
   const fields = source === 'memory'
-    ? [[get('name'), 3], [hook, 2], [firstH1(fm.body), 2], [fm.body.slice(0, 400), 1]]
+    ? [[get('name'), 3], [hook, 2], [firstH1(fm.body), 2], [fm.body.slice(0, 400), 1], [kind ?? '', 1], [takeaway ?? '', 1], [trigger ?? '', 2]]
     : [[get('id'), 3], [hook, 2], [Array.isArray(get('tags')) ? get('tags').join(' ') : get('tags'), 2], [firstH1(fm.body), 2], [fm.body.slice(0, 400), 1]];
   const terms = new Map();
   let length = 0;
   for (const [value, weight] of fields) {
     for (const term of tokenize(value)) { terms.set(term, (terms.get(term) || 0) + weight); length += weight; }
   }
-  return { path: file, source, bytes: utf8Bytes(text), hook: hook.slice(0, 160), terms, length,
+  return { path: file, source, kind, takeaway, bytes: utf8Bytes(text), hook: hook.slice(0, 160), terms, length,
     stub: fmGet(fm.data, 'moved_to') !== undefined };
 }
-export function buildCorpus({ memoryDir, repo, files }) {
+export function buildCorpus({ memoryDir, repo, files, config = loadConfig(), memoryOnly = false }) {
   const corpus = [];
   if (memoryDir) {
     for (const f of files ?? memoryFiles(memoryDir)) {
       if (!f.special && !f.stub) corpus.push(document(f.file, f.text, f, 'memory'));
     }
   }
-  for (const file of brainPaths(repo)) {
-    const text = read(path.join(repo, 'brain', file));
-    corpus.push(document(`brain/${file}`, text, parseFrontmatter(text), 'brain'));
+  for (const file of memoryOnly ? [] : brainPaths(repo, config)) {
+    const text = read(path.join(repo, config.brain?.dir ?? 'brain', file));
+    corpus.push(document(`${config.brain?.dir ?? 'brain'}/${file}`, text, parseFrontmatter(text), 'brain'));
   }
   return corpus;
 }
@@ -60,11 +64,11 @@ export function search(corpus, query, k = 5) {
       const idf = Math.log(1 + (corpus.length - df.get(term) + 0.5) / (df.get(term) + 0.5));
       score += idf * tf * 2.2 / (tf + 1.2 * (0.25 + 0.75 * d.length / avgLength));
     }
-    return { score, path: d.path, hook: d.hook, bytes: d.bytes };
+    return { score, path: d.path, hook: d.hook, bytes: d.bytes, ...(d.takeaway === undefined ? {} : {takeaway: d.takeaway}) };
   }).filter(r => r.score > 0).sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
     .slice(0, k).map((r, i) => ({ rank: i + 1, ...r }));
 }
-export const humanResults = results => results.map(r => `${r.rank}. ${r.score.toFixed(1)}  ${r.path} - ${r.hook.replace(/[\r\n]+/g, ' ')}`).join('\n');
+export const humanResults = results => results.map(r => `${r.rank}. ${r.score.toFixed(1)}  ${r.path} - ${r.hook.replace(/[\r\n]+/g, ' ')}${!['fix', 'method', 'know'].includes(r.takeaway) ? '' : '\n   takeaway: ' + r.takeaway}`).join('\n');
 export function loadProbes(probesFile) {
   if (!fs.existsSync(probesFile)) throw new Error(`recall probes: file not found: ${probesFile}`);
   const spec = JSON.parse(read(probesFile));
@@ -74,8 +78,8 @@ export function loadProbes(probesFile) {
   }
   return spec;
 }
-export function runProbes({ corpus, memoryDir, repo, probesFile = path.join(toolDir, 'recall-probes.json'), probes }) {
-  const docs = corpus ?? buildCorpus({ memoryDir, repo });
+export function runProbes({ corpus, memoryDir, repo, config = loadConfig(), probesFile = path.join(toolDir, 'recall-probes.json'), probes }) {
+  const docs = corpus ?? buildCorpus({ memoryDir, repo, config });
   const spec = probes ?? loadProbes(probesFile);
   return spec.probes.map(p => {
     const results = search(docs, p.q, 3);
@@ -86,11 +90,15 @@ export function runProbes({ corpus, memoryDir, repo, probesFile = path.join(tool
 export function main(argv = process.argv.slice(2)) {
   try {
     const opts = args(argv);
-    if (opts.help) { console.log('Usage: memory-recall.mjs "query" [--k 5] [--json] [--memory-only|--brain-only] [--probe [FILE]] [--memory-dir PATH] [--repo PATH]'); return 0; }
+    if (opts.help) { console.log('Usage: memory-recall.mjs "query" [--k 5] [--json] [--kind mistake|practice|observation] [--takeaway fix|method|know] [--memory-only|--brain-only] [--probe [FILE]] [--memory-dir PATH] [--repo PATH]'); return 0; }
     const loc = locations(opts);
     if (opts['memory-only'] && opts['brain-only']) throw new Error('Choose one source filter');
     if (opts['memory-only']) requireMemory(loc.memoryDir);
-    let corpus = buildCorpus(loc);
+    if (opts.kind !== undefined && !KINDS.includes(opts.kind)) throw new Error('kind must be mistake, practice or observation');
+    if (opts.takeaway !== undefined && !['fix', 'method', 'know'].includes(opts.takeaway)) throw new Error('takeaway must be fix, method or know');
+    let corpus = buildCorpus({...loc, memoryOnly: Boolean(opts['memory-only']), config: opts.config ? JSON.parse(read(opts.config)) : loadConfig()});
+    if (opts.takeaway !== undefined) corpus = corpus.filter(d => d.takeaway === opts.takeaway);
+    if (opts.kind !== undefined) corpus = corpus.filter(d => d.kind === opts.kind);
     if (opts['memory-only']) corpus = corpus.filter(d => d.source === 'memory');
     if (opts['brain-only']) corpus = corpus.filter(d => d.source === 'brain');
     if (opts.probe) {

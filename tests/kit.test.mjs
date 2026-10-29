@@ -5,10 +5,11 @@ import path from 'node:path';
 import {manifest,ownedFiles} from '../scripts/manifest.mjs';
 import {fixture,ok,read,json,put,kitRoot,files} from './helpers.mjs';
 
-test('K.8 README documents help and the three unreleased follow-ups',()=>{
+test('K.8 README documents help and CHANGELOG records the three shipped follow-ups',()=>{
   const readme=read(path.join(kitRoot,'README.md'));
   assert.match(readme.split('```')[1],/node scripts\/install\.mjs --help/);
-  const section=readme.split('## Unreleased (after v3.1.0-beta)\n')[1];
+  assert.doesNotMatch(readme, /## Unreleased \(after v3\.1\.0-beta\)/);
+  const section=read(path.join(kitRoot,'CHANGELOG.md')).split('## 3.2.0\n\n')[1]?.split('\n\n')[0];
   assert.ok(section);
   const bullets=section.trim().split('\n').filter(line=>line.startsWith('- '));
   assert.equal(bullets.length,3);
@@ -20,7 +21,7 @@ test('K.1 VERSION equals engine version, manifest matches every owned file and e
   assert.equal(read(path.join(kitRoot,'VERSION')).trim(),json(path.join(kitRoot,'engine/memory.config.json')).engine_version);
   assert.deepEqual(json(path.join(kitRoot,'MANIFEST.json')),manifest());
   assert.ok(ownedFiles(kitRoot).includes('engine/memory.test.mjs'));assert.ok(!ownedFiles(kitRoot).includes('engine/memory.config.json'));
-  for(const file of files(kitRoot).filter(f=>!f.split('/').some(part=>part==='.git'||part==='node_modules'))) {const data=fs.readFileSync(path.join(kitRoot,file));assert.ok(!data.includes(Buffer.from([239,187,191])),file+' BOM');assert.ok(!data.includes(13),file+' CRLF');}
+  for(const file of files(kitRoot).filter(f=>!/^docs\/diagrams\/png\/[^/]+\.png$/.test(f)&&!f.split('/').some(part=>part==='.git'||part==='node_modules'))) {const data=fs.readFileSync(path.join(kitRoot,file));assert.ok(!data.includes(Buffer.from([239,187,191])),file+' BOM');assert.ok(!data.includes(13),file+' CRLF');}
 });
 test('fresh install supports documented first checkpoint, probes and undo hook',t=>{
   const f=fixture(t);ok(f.install());const args=['--repo',f.target,'--memory-dir',f.memory];

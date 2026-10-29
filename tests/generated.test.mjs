@@ -33,14 +33,14 @@ test('3.2.1 router merges continuation clauses without losing triggers', async t
   const f = fixture(t), {migrateRoutes} = await import('../engine/memory-migrate.mjs');
   const base = '- [INDEX-craft-sessions.md](INDEX-craft-sessions.md) — ';
   const texts = [
-    'OPEN BEFORE a checkpoint, a handoff, a memory write, git history surgery, live-account automation, shell scripting, disk/log cleanup or messaging the owner.',
-    'OPEN BEFORE a checkpoint, a handoff, a memory write, shell scripting or messaging the owner; continues INDEX-craft-sessions, #271–#278.',
-    'OPEN BEFORE a checkpoint, a handoff, a memory write, delegating a build with fences or messaging the owner; continues INDEX-craft-sessions-2, #279 onward.',
+    'OPEN BEFORE a checkpoint, a handoff, a memory write, sample history checks, fixture automation, shell scripting, sample cleanup or checking sample results.',
+    'OPEN BEFORE a checkpoint, a handoff, a memory write, shell scripting or checking sample results; continues INDEX-craft-sessions, #801–#808.',
+    'OPEN BEFORE a checkpoint, a handoff, a memory write, running a fenced sample build or checking sample results; continues INDEX-craft-sessions-2, #809 onward.',
   ];
   f.put('MEMORY.md', texts.map((text, i) => i ? `- [More](INDEX-craft-sessions-${i + 1}.md) — ${text}` : base + text).join('\n') + '\n');
   for (const suffix of ['', '-2', '-3']) f.put(`INDEX-craft-sessions${suffix}.md`, '# Sessions\n');
   migrateRoutes({...f, write: true});
-  assert.equal(fs.readFileSync(path.join(f.memoryDir, 'MEMORY.md'), 'utf8'), base + 'OPEN BEFORE a checkpoint, a handoff, a memory write, git history surgery, live-account automation, shell scripting, disk/log cleanup, delegating a build with fences or messaging the owner.\n');
+  assert.equal(fs.readFileSync(path.join(f.memoryDir, 'MEMORY.md'), 'utf8'), base + 'OPEN BEFORE a checkpoint, a handoff, a memory write, sample history checks, fixture automation, shell scripting, sample cleanup, running a fenced sample build or checking sample results.\n');
   const other = fixture(t);
   other.put('MEMORY.md', '- [Craft](INDEX-craft.md)  --  OPEN when tests, tests or shipping!\n- [More](INDEX-craft-2.md) — OPEN when TESTS, and fencing and shipping; OPEN BEFORE deployment. OPEN BEFORE deployment.\n');
   for (const suffix of ['', '-2']) other.put(`INDEX-craft${suffix}.md`, '# Craft\n');
@@ -58,10 +58,10 @@ test('3.2.1 unmerged router keeps its separator byte-for-byte', async t => {
 
 test('3.2.1 lesson count removal capitalizes the remaining sentence', async t => {
   const f = fixture(t), {migrateRoutes} = await import('../engine/memory-migrate.mjs');
-  f.put('MEMORY.md', '- [Craft](INDEX-craft.md) OPEN when checking how it works. 12 lessons about how proofs fail.\n');
+  f.put('MEMORY.md', '- [Craft](INDEX-craft.md) OPEN when checking how it works. 12 lessons about sample checks.\n');
   f.put('INDEX-craft.md', '# Craft\n');
   migrateRoutes({...f, write: true});
-  assert.match(fs.readFileSync(path.join(f.memoryDir, 'MEMORY.md'), 'utf8'), /works\. Lessons about how proofs fail\./);
+  assert.match(fs.readFileSync(path.join(f.memoryDir, 'MEMORY.md'), 'utf8'), /works\. Lessons about sample checks\./);
 });
 
 test('S7 checkpoint preserves an existing .checkpoint-config.json', async t => {
@@ -108,7 +108,7 @@ test('S2 concurrent capture allocates distinct numbers after a four-digit letter
       while (fs.readdirSync(root).filter(f => f.endsWith('.ready')).length < 2) { if (Date.now() > deadline) throw Error('barrier timeout'); sleep(10); }
       const read = fs.readdirSync;
       fs.readdirSync = (name, ...args) => { const result = read(name, ...args); if (name === dir) sleep(300); return result; };
-      console.log(newLesson({memoryDir: dir, route: 'craft', title}));`;
+      console.log(newLesson({kind: 'mistake', memoryDir: dir, route: 'craft', title}));`;
     const child = spawn(process.execPath, ['--input-type=module', '-e', script]);
     let out = '', err = ''; child.stdout.on('data', b => out += b); child.stderr.on('data', b => err += b);
     child.on('error', reject); child.on('close', code => resolve({code, out, err}));
@@ -125,7 +125,7 @@ test('S2 concurrent capture allocates distinct numbers after a four-digit letter
 
 test('S2 capture rejects unknown routes and lists known families without writes', t => {
   const f = fixture(t), before = fs.readdirSync(f.memoryDir);
-  const r = f.cli('memory-lesson.mjs', ['new', '--route', 'absent', 'Title']);
+  const r = f.cli('memory-lesson.mjs', ['new', '--kind', 'mistake', '--route', 'absent', 'Title']);
   assert.equal(r.status, 1); assert.match(r.stdout + r.stderr, /route\.unknown.*craft/);
   assert.deepEqual(fs.readdirSync(f.memoryDir), before);
 });
@@ -261,6 +261,51 @@ test('S6 roadmap rotation preserves dated block bytes, keeps newest six and inse
   assert.equal(rotateRoadmap({...f, write: true}).moved, 0);
 });
 
+test('S6 roadmap same-date newest-first moves the bottom block', async t => {
+  const f = fixture(t), {rotateRoadmap} = await import('../engine/memory-rotate.mjs');
+  delete f.config.caps.roadmap.order; // Cover the default newest-first order.
+  fs.mkdirSync(path.join(f.repo, 'docs')); delete f.config.caps.roadmap.keepBlocks;
+  const blocks = ['(~23:30)', '(review)', '(build)', '(test)', '(plan)', '(notes)', '(search)'].map(label => `**2026-10-26 ${label}**\nDetail ${label}.  \n\n`);
+  const file = path.join(f.repo, 'docs/ROADMAP.md'), history = path.join(f.repo, 'docs/ROADMAP-HISTORY.md');
+  const prefix = '# Roadmap\n## Open work\n', suffix = '### Active\nKeep.\n';
+  fs.writeFileSync(file, prefix + blocks.join('') + suffix);
+  const result = rotateRoadmap({...f, write: true, today: '2026-10-26'});
+  assert.equal(result.moved, 1); assert.equal(result.kept, 6);
+  assert.ok(fs.readFileSync(history, 'utf8').includes(blocks[6]), 'same-date rotation must move the bottom block byte for byte');
+  assert.equal(fs.readFileSync(file, 'utf8'), prefix + blocks.slice(0, 6).join('') + suffix);
+  assert.equal(fs.readFileSync(history, 'utf8'), '## Open work — dated blocks moved 2026-10-26\n\n' + blocks[6]);
+  assert.equal(result.bytesRemoved, Buffer.byteLength(blocks[6])); assert.equal(result.bytesAdded, result.bytesRemoved);
+});
+
+test('S6 roadmap mixed-date newest-first moves the bottom tied block', async t => {
+  const f = fixture(t), {rotateRoadmap} = await import('../engine/memory-rotate.mjs');
+  f.config.caps.roadmap.order = "newest-first";
+  fs.mkdirSync(path.join(f.repo, 'docs')); f.config.caps.roadmap.keepBlocks = 9;
+  const blocks = [9, 8, 7, 6, 5, 4, 3, 2, 1, 1].map((day, i) => `**2026-10-${String(day).padStart(2, '0')}** Note ${i}\nDetail ${i}.  \n\n`);
+  const file = path.join(f.repo, 'docs/ROADMAP.md'), history = path.join(f.repo, 'docs/ROADMAP-HISTORY.md');
+  const prefix = '# Roadmap\n## Open work\n';
+  fs.writeFileSync(file, prefix + blocks.join(''));
+  const result = rotateRoadmap({...f, write: true, today: '2026-10-26'});
+  assert.equal(result.moved, 1); assert.equal(result.kept, 9);
+  assert.ok(fs.readFileSync(history, 'utf8').includes(blocks[9]), 'newest-first rotation must move the bottom tied block byte for byte');
+  assert.equal(fs.readFileSync(file, 'utf8'), prefix + blocks.slice(0, 9).join(''));
+  assert.equal(fs.readFileSync(history, 'utf8'), '## Open work — dated blocks moved 2026-10-26\n\n' + blocks[9]);
+});
+
+test('S6 roadmap oldest-first moves the top tied block', async t => {
+  const f = fixture(t), {rotateRoadmap} = await import('../engine/memory-rotate.mjs');
+  f.config.caps.roadmap.order = "oldest-first";
+  fs.mkdirSync(path.join(f.repo, 'docs'));
+  const blocks = [1, 1, 2, 3, 4, 5, 6].map((day, i) => `**2026-10-0${day}** Note ${i}\nDetail ${i}.  \n\n`);
+  const file = path.join(f.repo, 'docs/ROADMAP.md'), history = path.join(f.repo, 'docs/ROADMAP-HISTORY.md');
+  const prefix = '# Roadmap\n## Open work\n';
+  fs.writeFileSync(file, prefix + blocks.join(''));
+  const result = rotateRoadmap({...f, write: true, today: '2026-10-26'});
+  assert.equal(result.moved, 1); assert.equal(result.kept, 6);
+  assert.equal(fs.readFileSync(file, 'utf8'), prefix + blocks.slice(1).join(''));
+  assert.equal(fs.readFileSync(history, 'utf8'), '## Open work — dated blocks moved 2026-10-26\n\n' + blocks[0]);
+});
+
 test('S6 roadmap size pressure keeps two blocks and absent Open work stays byte-identical', async t => {
   const f = fixture(t), {rotateRoadmap} = await import('../engine/memory-rotate.mjs');
   fs.mkdirSync(path.join(f.repo, 'docs')); f.config.caps.roadmap.warnBytes = 1;
@@ -325,7 +370,7 @@ test('S8 route migration conserves multi-family payload, wikilinks, CRLF bodies,
   assert.match(fs.readFileSync(path.join(f.memoryDir, 'index-notes-craft.md'), 'utf8'), /Keep this prose exactly\.\r\n/);
   assert.match(fs.readFileSync(path.join(f.memoryDir, 'INDEX-craft-2.md'), 'utf8'), /moved_to: INDEX-craft.md/);
   const router = fs.readFileSync(path.join(f.memoryDir, 'MEMORY.md'), 'utf8');
-  assert.doesNotMatch(router, /INDEX-craft-2|1 hard-won lessons/); assert.equal(router.split(/\r?\n/).find(line => line.startsWith('- [Craft](INDEX-craft.md)')), '- [Craft](INDEX-craft.md) OPEN BEFORE testing or release. testing.');
+  assert.doesNotMatch(router, /INDEX-craft-2/); assert.equal(router.split(/\r?\n/).find(line => line.startsWith('- [Craft](INDEX-craft.md)')), '- [Craft](INDEX-craft.md) OPEN BEFORE testing or release. testing.');
   assert.equal(fs.readFileSync(path.join(f.memoryDir, 'rule.md'), 'utf8'), before['rule.md']);
   assert.match(fs.readFileSync(path.join(f.memoryDir, '.gitignore'), 'utf8'), /\.memory\.lock/);
   assert.ok(report.router.length); assert.equal(migrateRoutes({...f, write: true}).noop, true);
@@ -340,7 +385,7 @@ for (const reason of ['orphan', 'notes collision', 'router cap']) test(`S8 migra
     f.put('INDEX-craft-2.md', `- [Lesson](${file})\n`);
   }
   const before = Object.fromEntries(fs.readdirSync(f.memoryDir).map(x => [x, fs.readFileSync(path.join(f.memoryDir, x), 'utf8')]));
-  // spec 11 / round-2 item 9: overflow spills to notes before the router cap check.
+  // Router overflow: overflow spills to notes before the router cap check.
   if (reason === 'router cap') {
     migrateRoutes({...f, write: true});
     assert.ok(fs.readFileSync(path.join(f.memoryDir, 'MEMORY.md'), 'utf8').includes('a'.repeat(350)));
@@ -479,8 +524,13 @@ test('K3 missing cap and long name', async t => {
   assert.match(fs.readFileSync(path.resolve('CHANGELOG.md'), 'utf8'), /prefix.*exceed/);
 });
 
-test('K round 3 empty description retains legacy row bytes', async t => {
+test('empty description retains legacy row bytes', async t => {
   const f = fixture(t); f.lesson('001', '', ''); f.config.caps.index.warnLineChars = 1;
   const {generateMemoryIndex} = await indexModule();
   assert.equal(generateMemoryIndex(f).pages['INDEX-craft.md'].split('\n').find(x => x.startsWith('- [')), '- [#001](lesson-001-example.md) \u2014 ');
+});
+
+
+test('installer shares index page classifier', () => {
+  assert.match(fs.readFileSync(new URL('../scripts/install.mjs', import.meta.url), 'utf8'), /filter\(f=>isIndexPage\(f\)/, 'installer must share index classification');
 });

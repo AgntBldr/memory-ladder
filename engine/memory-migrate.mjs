@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseFrontmatter, fmGet, isDirect, requireMemory, utf8Bytes, locations, memoryFiles, mdLinks, wikilinks, read, loadConfig, toolDir } from './lib.mjs';
-import { redact } from './lib.mjs';
+import { normalizeEol, matchEol, writeText, parseFrontmatter, fmGet, isDirect, requireMemory, utf8Bytes, locations, memoryFiles, brainNameSet, pathSpelling, isIndexPage, indexFamily, mdLinks, wikilinks, read, loadConfig, toolDir } from './lib.mjs';
+import { redact, memoryWikilink, memoryNameIndex } from './lib.mjs';
 import {withMemoryLock} from './memory-lock.mjs';
-import {generateMemoryIndex, isGenerated, routes, routerFamilies} from './memory-index.mjs';
+import {triggerVocabulary, hasTrigger, generateMemoryIndex, isGenerated, routes, routerFamilies, resolveRouter, isRoutingRow, lessonIdentity} from './memory-index.mjs';
 import {buildCorpus, runProbes} from './memory-recall.mjs';
 
 const sourceDefault = 'lessons.md';
@@ -99,13 +99,13 @@ function migrateLessonsUnlocked({ memoryDir, source = sourceDefault, classes, ta
     '\nLesson #N lives in `lesson-NNN-*.md`, zero-padded; letters as in #54b → `lesson-054b-*`.\n' +
     `Exceptions: ${exceptions.join('; ') || 'none'}.\n\nRecovery: \`git -C "${memoryDir}" show ${tag}:${source}\`.\n`;
   if (utf8Bytes(stub) > 4096) throw new Error('Stub exceeds 4 KB');
-  for (const l of lessons) fs.writeFileSync(path.join(memoryDir, l.file), lessonText(l, source));
+  for (const l of lessons) fs.writeFileSync(path.join(memoryDir, l.file), matchEol(lessonText(l, source), text));
   for (const [index, lines] of indexes) {
     const dest = path.join(memoryDir, index);
     const prior = fs.existsSync(dest) ? fs.readFileSync(dest, 'utf8') : `# INDEX — craft: ${index.slice(12, -3)}\n\nOPEN BEFORE ${index.slice(12, -3)} work.\n`;
-    fs.writeFileSync(dest, prior + '\n' + lines.join(''));
+    fs.writeFileSync(dest, matchEol(prior + '\n' + lines.join(''), prior));
   }
-  fs.writeFileSync(sourcePath, stub);
+  fs.writeFileSync(sourcePath, matchEol(stub, text));
   return result;
 }
 
@@ -162,6 +162,33 @@ function mergeRouterSentences(parts) {
   }
   return result.map(part => typeof part === 'string' ? part : part.text);
 }
+// Compare trigger alternatives only in MEMORY.md; notes cannot satisfy this invariant.
+export function checkRouterTriggers(before, after) {
+  const norm = text => withoutLessonCounts(text).replace(/\]\(INDEX-([^)]+)\.md\)/g, (_, name) => `](INDEX-${indexFamily('INDEX-' + name + '.md')}.md)`).toLowerCase().replace(/\s+/g, ' ').trim().replace(/[.!?;:,]+$/, '').trim();
+  const triggers = text => {
+    const lines = [];
+    text.split(/\r?\n/).forEach((line, i) => {
+      if (/^[ \t]+\S/.test(line) && lines.length && !isRoutingRow(line)) {
+        if (/^[ \t]+(?:[a-z,;]|(?:[Aa]nd|[Oo]r)\b)/.test(line)) lines.at(-1).text = lines.at(-1).text.replace(/[.!?]\s*$/, '');
+        lines.at(-1).text += ' ' + line.trim();
+      }
+      else lines.push({text: line, number: i + 1});
+    });
+    return lines.flatMap(({text: line, number}) => {
+    const i = number - 1;
+    const entries = [];
+    const cell = /^\s*\|\s*([^|]+)\|/.exec(line);
+    if (cell && /\]\(INDEX-/.test(line)) entries.push({key: 'cell:' + norm(cell[1]), line: i + 1});
+    for (const part of line.replace(/\[[^\]]*\]\([^)]*\)|`INDEX-[^`]*`/g, ' ').split(/;\s*|(?<=[.!?])\s+/)) for (const match of part.matchAll(new RegExp('(' + triggerVocabulary + ')(?:\\s+(BEFORE|WHEN)\\b)?\\s*:?\\s*([^|;]*?)(?=' + triggerVocabulary + '|$|[|;])', 'gi'))) {
+      const body = match[3];
+      for (const clause of body.split(/,\s*|\s+(?:or|and)\s+/i)) if (norm(clause.replace(/^(?:or|and)\s+/i, ''))) entries.push({key: norm(match[2] ?? match[1]) + ':' + norm(clause.replace(/^(?:or|and)\s+/i, '')), line: i + 1});
+    }
+    return entries;
+  });
+  };
+  const planned = new Set(triggers(after).map(entry => entry.key));
+  for (const entry of triggers(before)) if (!planned.has(entry.key)) throw new Error('migration router trigger loss: MEMORY.md line ' + entry.line);
+}
 export function migrateRoutes(options) {
   return options.write ? withMemoryLock(options.memoryDir, lock => migrateRoutesUnlocked({...options, lock}), {lock: options.lock}) : migrateRoutesUnlocked(options);
 }
@@ -169,12 +196,15 @@ function migrateRoutesUnlocked({memoryDir, repo, config = loadConfig(), write = 
   requireMemory(memoryDir);
   const files = memoryFiles(memoryDir), indexes = files.filter(f => f.special === 'index' && !f.stub && !isGenerated(f.text));
   if (!indexes.length) return {noop: true, families: [], router: [], navigation: []};
-  const hooks = new Map(), handText = [];
+  const hooks = new Map(), handText = [], keptPages = [], regenerated = [];
   const updates = new Map(), payload = new Map(), notes = new Map(), byFile = new Map(files.map(f => [f.file, f]));
-  const familyOf = file => file.slice(6, -3).replace(/-\d+$/, '');
-  const targets = text => [...mdLinks(text), ...wikilinks(text).map(link => {
-    const target = files.find(f => f.file === link || f.file === link + '.md' || fmGet(f.data, 'name') === link);
-    return target?.file ?? link;
+  const brainNames = repo ? brainNameSet(repo, config) : new Set();
+  const memoryNames = memoryNameIndex(files);
+  const resolve = link => memoryWikilink(link, memoryNames, brainNames);
+  const absoluteLink = text => /\[[^\]\n]*\]\(\s*<?[A-Za-z]:[\\/]/.test(text);
+  const targets = text => [...mdLinks(text).filter(link => !path.isAbsolute(link) && path.dirname(path.resolve(memoryDir, link)) === path.resolve(memoryDir)).map(link => path.basename(path.resolve(memoryDir, link))), ...wikilinks(text).flatMap(link => {
+    const target = resolve(link);
+    return target === 'brain' ? [] : [target?.file ?? link];
   })];
   const closure = (names, lookup, source = 'generated index') => {
     const found = new Set(), visit = name => {
@@ -184,36 +214,62 @@ function migrateRoutesUnlocked({memoryDir, repo, config = loadConfig(), write = 
       found.add(name);
       const moved = fmGet(f.data, 'moved_to');
       // Index destinations are navigation, never membership in the linking family.
-      for (const target of moved === undefined ? [] : Array.isArray(moved) ? moved : [moved]) if (!target.startsWith('INDEX-')) visit(target);
+      for (const target of moved === undefined ? [] : Array.isArray(moved) ? moved : [moved]) if (!isIndexPage(target)) visit(target);
     };
     for (const name of names) visit(name);
     return [...found].filter(name => !lookup.get(name).special);
   };
   for (const index of indexes) {
-    const family = familyOf(index.file);
+    const family = indexFamily(index.file);
     if (!payload.has(family)) payload.set(family, new Set());
-    for (const [i, line] of index.text.split(/\r?\n/).entries()) {
+    const kept = [], blocks = [];
+    const lines = rawBody(index.text).match(/[^\n]*\n|[^\n]+$/g) ?? [];
+    for (let i = 0; i < lines.length; i++) {
+      let text = lines[i];
+      // A list item owns all indented continuations, including nested lists.
+      if (/^\s*(?:[-*+]\s|\d+[.)]\s)/.test(text)) {
+        while (i + 1 < lines.length && /^[ \t]+\S/.test(lines[i + 1])) text += lines[++i];
+      }
+      blocks.push(text);
+    }
+    const keep = (text, source) => { kept.push(text); notes.set(family, (notes.get(family) ?? '') + text); handText.push({source,text}); };
+    for (const [i, block] of blocks.entries()) {
+      const line = block.replace(/\r?\n$/, '');
       const linked = targets(line), source = `${index.file}:${i + 1}`;
       for (const target of linked) for (const name of closure([target], byFile, source)) payload.get(family).add(name);
-      if (!linked.length) continue;
+      const wiki = wikilinks(line), brainOnly = wiki.filter(link => resolve(link) === 'brain');
+      const mdCount = mdLinks(line).length, allLinkCount = [...line.matchAll(/\[[^\]]*\]\([^)]*\)/g)].length;
+      const linkCount = mdCount + wiki.length - brainOnly.length;
+      if (line.includes('\n') || linkCount > linked.length || (!linked.length && brainOnly.length) || absoluteLink(line)) {
+        keep(block, source);
+        continue;
+      }
+      if (!linked.length) { keep(block, source); continue; }
       const row = line.replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)?/, '');
       const linkPattern = /\[[^\]]*\]\([^)]*\)|\[\[[^\]]+\]\]/g;
       const nonLink = row.replace(linkPattern, '').trim();
-      if (!nonLink) continue;
+      if (!nonLink && !brainOnly.length && allLinkCount === mdCount) {
+        const target = linked[0], f = byFile.get(target);
+        const label = /^\[([^\]]*)\]\([^)]*\)$/.exec(row)?.[1] ?? /^\[\[[^|\]]+\|([^\]]+)\]\]$/.exec(row)?.[1] ?? /^\[\[([^\]]+)\]\]$/.exec(row)?.[1];
+        const id = lessonIdentity(target);
+        const generatedLabel = id ? '#' + id : String(fmGet(f?.data ?? {}, 'name') ?? target).replace(/[\r\n]+/g, ' ');
+        if (linked.length === 1 && [generatedLabel, target, target.replace(/\.md$/, '')].includes(label)) regenerated.push({source,target,before:line,reason:'regenerated as an index row'});
+        else keep(block, source);
+        continue;
+      }
       const match = /^(?:\[[^\]]*\]\([^)]*\)|\[\[[^\]]+\]\])\s*[\u2014\u2013-]\s*(.+)$/.exec(row);
       if (!match || linked.length !== 1) {
-        handText.push({source, text: line});
-        notes.set(family, (notes.get(family) ?? '') + line + '\n');
+        keep(block, source);
         continue;
       }
       const target = linked[0], f = byFile.get(target);
       const hook = match[1].trim();
       handText.push({source, text: hook});
-      if (linked.length === 1 && /^lesson-.*\.md$/.test(target) && /^(?:\uFEFF)?---\r?\n/.test(f.text) && hook.length <= 200 && (!hooks.has(target) || hooks.get(target) === hook)) hooks.set(target, hook);
-      else notes.set(family, (notes.get(family) ?? '') + line + '\n');
+      if (linked.length === 1 && /^lesson-.*\.md$/.test(target) && /^(?:\uFEFF)?---\r?\n/.test(f.text) && hook.length <= 200 && (!hooks.has(target) || hooks.get(target) === hook)) {
+        hooks.set(target, hook); regenerated.push({source, target, before: line, reason: 'regenerated as an index row'});
+      } else keep(block, source);
     }
-    const prose = (rawBody(index.text).match(/[^\n]*\n|[^\n]+$/g) ?? []).filter(line => !mdLinks(line).length && !wikilinks(line).length).join('');
-    if (prose.trim()) { notes.set(family, (notes.get(family) ?? '') + prose); handText.push({source: index.file, text: prose}); }
+    keptPages.push({source:index.file, family, lines:kept.join('').split(/\r?\n/).filter(line=>line.trim())});
   }
   const memberships = new Map();
   for (const [family, names] of payload) for (const name of names) {
@@ -225,16 +281,40 @@ function migrateRoutesUnlocked({memoryDir, repo, config = loadConfig(), write = 
   for (const [name, families] of memberships) updates.set(name, spliceRoutes(byFile.get(name).text, [...new Set([...routes(byFile.get(name).data), ...families])].sort()));
   for (const [name, hook] of hooks) updates.set(name, spliceRoutes(updates.get(name) ?? byFile.get(name).text, hook, 'hook'));
   const navigation = [];
-  const routerText = read(path.join(memoryDir, 'MEMORY.md')), routerLines = routerText.match(/[^\n]*\n|[^\n]+$/g) ?? [], groups = new Map(), router = [];
+  const originalRouter = read(path.join(memoryDir, 'MEMORY.md'));
+  const protectedLines = new Set();
+  let wrapped = false;
+  originalRouter.split(/\r?\n/).forEach((line, i) => {
+    const next = originalRouter.split(/\r?\n/)[i + 1] ?? '';
+    const continues = /^[ \t]+(?:[a-z,;]|(?:[Aa]nd|[Oo]r)\b)/.test(next);
+    const triggerWrap = isRoutingRow(line) && /^[ \t]+\S/.test(next) && (continues || (hasTrigger(line) && !/[.!?]\s*$/.test(line)) || hasTrigger(next));
+    const converted = resolveRouter(line, memoryDir) !== line || triggerWrap;
+    wrapped = converted || (wrapped && /^[ \t]+\S/.test(line));
+    if (wrapped) protectedLines.add(i);
+  });
+  const routerText = resolveRouter(originalRouter, memoryDir), routerLines = routerText.match(/[^\n]*\n|[^\n]+$/g) ?? [], groups = new Map(), router = [];
   routerLines.forEach((line, i) => {
+    if (!isRoutingRow(line)) { protectedLines.add(i); return; }
     const m = /\[[^\]]*\]\((INDEX-([A-Za-z0-9-]+)\.md)\)([^\r\n]*)/.exec(line);
+    if (m && (/^\s*\|/.test(line) || line.slice(0, m.index).replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)?/, '').trim())) protectedLines.add(i);
     if (!m || /-all(?:-\d+)?$/.test(m[2])) return;
-    const family = m[2].replace(/-\d+$/, '');
+    const family = indexFamily(m[1]);
     if (!groups.has(family)) groups.set(family, []);
     groups.get(family).push({i, line, m});
   });
   for (const family of payload.keys()) if (!groups.has(family)) throw new Error('route.unknown: index family missing from router: ' + family);
   for (const [family, rows] of groups) {
+    // Table, pre-link and legacy backtick entries keep their exact text, including wrapping.
+    // Normalize destinations without folding prose or stripping lesson counts.
+    if (rows.some(row => protectedLines.has(row.i))) {
+      for (const row of rows) {
+        const after = row.line.replace(/\]\(INDEX-[^)]+\.md\)/, `](INDEX-${family}.md)`);
+        routerLines[row.i] = after;
+        protectedLines.add(row.i);
+        router.push({before: (originalRouter.match(/[^\n]*\n|[^\n]+$/g) ?? [])[row.i], after});
+      }
+      continue;
+    }
     const first = rows.find(r => r.m[2] === family) ?? rows[0], clauses = [];
     const separator = /^[\s\u2014\u2013-]*/.exec(first.m[3])[0];
     for (const row of [first, ...rows.filter(r => r !== first)]) for (const clause of row.m[3].replace(/^[\s\u2014\u2013-]*/, '').split(/;\s*|(?<=[.!?])\s+/)) {
@@ -245,35 +325,108 @@ function migrateRoutesUnlocked({memoryDir, repo, config = loadConfig(), write = 
     const eol = first.line.endsWith('\r\n') ? '\r\n' : first.line.endsWith('\n') ? '\n' : '';
     const prefix = first.line.slice(0, first.m.index) + first.m[0].slice(0, first.m[0].length - first.m[3].length).replace(/\]\(INDEX-[^)]+\.md\)$/, `](INDEX-${family}.md)`);
     const sentence = parts => parts.reduce((text, part) => text + (text ? /[.!?]$/.test(text) ? ' ' : '; ' : '') + part, '');
+    const limit = Math.min(config.caps.index.failLineChars, config.caps.router.failLineChars - prefix.length - separator.length);
+    const isTrigger = hasTrigger;
+    // An existing trigger row may already exceed the cap. Never move it to notes
+    // just to make a merged row fit: retain separate, normalized router rows.
+    if (rows.some(row => hasTrigger(row.m[3]) && row.m[3].length > limit) || withoutLessonCounts(sentence(mergeRouterSentences(clauses.filter(isTrigger)))).length > limit) {
+      const seenProse = new Set();
+      for (const row of rows) {
+        const parts = row.m[3].replace(/^[\s\u2014\u2013-]*/, '').split(/;\s*|(?<=[.!?])\s+/).filter(part => {
+          if (/^continues INDEX-/.test(part) && indexes.some(index => part.includes(index.file.slice(0, -3)))) return false;
+          if (isTrigger(part)) return true;
+          if (seenProse.has(part)) return false;
+          seenProse.add(part); return true;
+        });
+        const head = row.line.slice(0, row.m.index) + row.m[0].slice(0, row.m[0].length - row.m[3].length).replace(/\]\(INDEX-[^)]+\.md\)$/, `](INDEX-${family}.md)`);
+        const ending = row.line.endsWith('\r\n') ? '\r\n' : row.line.endsWith('\n') ? '\n' : '';
+        const after = head + /^[\s\u2014\u2013-]*/.exec(row.m[3])[0] + withoutLessonCounts(sentence(parts)) + ending;
+        routerLines[row.i] = after;
+        router.push({before: (originalRouter.match(/[^\n]*\n|[^\n]+$/g) ?? [])[row.i], after});
+      }
+      continue;
+    }
     const kept = [];
     for (const clause of clauses) {
-      if (sentence(mergeRouterSentences([...kept, clause])).length <= Math.min(config.caps.index.failLineChars, config.caps.router.failLineChars - prefix.length - separator.length)) kept.push(clause);
+      if (withoutLessonCounts(sentence(mergeRouterSentences([...kept, clause, ...clauses.filter(c => isTrigger(c) && !kept.includes(c) && c !== clause)]))).length <= limit) kept.push(clause);
       else notes.set(family, (notes.get(family) ?? '') + clause + '\n');
     }
     const after = prefix + separator + withoutLessonCounts(sentence(mergeRouterSentences(kept)));
     if (after.length > config.caps.router.failLineChars) throw new Error(`merged router line exceeds ${config.caps.router.failLineChars} characters: ${family}`);
     routerLines[first.i] = after + eol;
-    for (const row of rows) { router.push({before: row.line, after: row === first ? after + eol : ''}); if (row !== first) routerLines[row.i] = ''; }
+    for (const row of rows) {
+      router.push({before: (originalRouter.match(/[^\n]*\n|[^\n]+$/g) ?? [])[row.i], after: row === first ? after + eol : ''});
+      if (row !== first) {
+        notes.set(family, (notes.get(family) ?? '') + row.line);
+        routerLines[row.i] = '';
+        for(let i=row.i+1;i<routerLines.length&&/^[ \t]+\S/.test(routerLines[i])&&!isRoutingRow(routerLines[i]);i++) {
+          notes.set(family,notes.get(family)+routerLines[i]);routerLines[i]='';
+        }
+      }
+    }
   }
+  const notePages = new Map();
   for (const [family, prose] of notes) {
-    const name = `index-notes-${family}.md`;
-    if (byFile.has(name)) throw new Error('Target exists: ' + name);
-    updates.set(name, `---\nname: index-notes-${family}\ndescription: "Notes preserved from the ${family} indexes."\nmetadata:\n  type: reference\n  stable: true\n  route: ${JSON.stringify([family])}\n---\n` + prose);
-    navigation.push(name);
+    const source = (indexes.find(index => index.file === `INDEX-${family}.md`) ?? indexes.find(index => indexFamily(index.file) === family))?.text ?? originalRouter;
+    const crlf = (source.match(/\r\n/g) ?? []).length;
+    const eol = crlf > (source.match(/\n/g) ?? []).length - crlf ? '\r\n' : '\n';
+    const names = []; notePages.set(family, names);
+    let part = 1, body = '';
+    const stem = () => `index-notes-${family}${part === 1 ? '' : '-' + part}`;
+    const header = () => `---\nname: ${stem()}\ndescription: "Notes preserved from the ${family} indexes."\nmetadata:\n  type: reference\n  stable: true\n  route: ${JSON.stringify([family])}\n---\n`.replaceAll('\n', eol);
+    const flush = () => {
+      const name = stem() + '.md';
+      if (byFile.has(name)) throw new Error('Target exists: ' + name);
+      updates.set(name, header() + body); navigation.push(name); names.push(name); part++; body = '';
+    };
+    for (const line of normalizeEol(prose).replaceAll('\n', eol).match(/[^\n]*\n|[^\n]+$/g) ?? []) {
+      if (body && utf8Bytes(header() + body + line) > config.caps.topic.failBytes) flush();
+      if (utf8Bytes(header() + line) <= config.caps.topic.failBytes) { body += line; continue; }
+      // A single long line may span pages; join page bodies for conservation proofs.
+      // Iterate code points so UTF-8 characters are never cut in half.
+      let used = utf8Bytes(header() + body);
+      for (const character of line) {
+        const bytes = utf8Bytes(character);
+        if (used + bytes > config.caps.topic.failBytes) { if (body) flush(); used = utf8Bytes(header()); }
+        if (used + bytes > config.caps.topic.failBytes) throw new Error('topic cap cannot fit notes frontmatter: ' + family);
+        body += character; used += bytes;
+      }
+    }
+    if (body) flush();
   }
-  updates.set('MEMORY.md', withoutLessonCounts(routerLines.join('')));
-  for (const index of indexes) if (index.file !== `INDEX-${familyOf(index.file)}.md`) {
-    const target = `INDEX-${familyOf(index.file)}.md`;
+  updates.set('MEMORY.md', routerLines.map((line, i) => protectedLines.has(i) ? line : withoutLessonCounts(line)).join(''));
+  for (const index of indexes) if (index.file !== `INDEX-${indexFamily(index.file)}.md`) {
+    const target = `INDEX-${indexFamily(index.file)}.md`;
     updates.set(index.file, `---\nname: ${index.file.slice(0, -3)}\ndescription: "Index moved to ${target}."\nmoved_to: ${target}\n---\n\n[Open index](${target})\n`); navigation.push(index.file);
   }
-  const virtual = () => [...new Set([...byFile.keys(), ...updates.keys()])].filter(file => file.endsWith('.md')).map(file => {
+  const virtual = () => [...new Set([...byFile.keys(), ...updates.keys()])].filter(file => /\.md$/i.test(file)).map(file => {
     const text = updates.get(file) ?? byFile.get(file).text, fm = parseFrontmatter(text);
-    return {...byFile.get(file), file, text, ...fm, special: file === 'MEMORY.md' ? 'router' : file.startsWith('INDEX-') ? 'index' : null, stub: fmGet(fm.data, 'moved_to') !== undefined};
+    return {...byFile.get(file), file, text, ...fm, special: file === 'MEMORY.md' ? 'router' : isIndexPage(file) ? 'index' : null, stub: fmGet(fm.data, 'moved_to') !== undefined};
   });
   const generated = generateMemoryIndex({memoryDir, config, files: virtual()});
   for (const [file, text] of Object.entries(generated.pages)) { updates.set(file, text); navigation.push(file); }
-  const plannedText = virtual().map(f => f.text).join('\n');
-  for (const {source, text} of handText) if (!plannedText.includes(text)) throw new Error('migration hand text loss: ' + source);
+  for (const row of regenerated) {
+    row.after = Object.values(generated.pages).flatMap(text=>normalizeEol(text).split('\n')).find(line=>mdLinks(line).includes(row.target));
+    if (!row.after) throw new Error('migration missing regenerated index row: '+row.source);
+  }
+  const joinedNotes = getText => [...notePages.values()].map(names => names.map(file => rawBody(getText(file) ?? '')).join('')).join('\n');
+  const plannedText = normalizeEol(virtual().map(f => f.text).join('\n') + '\n' + joinedNotes(file => updates.get(file)));
+  const checkOrder = getText => { for (const page of keptPages) {
+    const output = (notePages.get(page.family) ?? []).map(file => rawBody(getText(file) ?? '')).join('').split(/\r?\n/);
+    let cursor = 0;
+    for (const line of page.lines) {
+      while (cursor < output.length && output[cursor] !== line) cursor++;
+      if (cursor === output.length) throw new Error('migration ORDER: ' + page.source);
+      cursor++;
+    }
+  } };
+  for (const row of router) if (row.after === '' && !plannedText.includes(normalizeEol(row.before))) throw new Error('migration router text loss: ' + row.before);
+  for (const {source, text} of handText) if (!plannedText.includes(normalizeEol(text))) throw new Error('migration hand text loss: ' + source);
+  checkRouterTriggers(originalRouter, updates.get('MEMORY.md'));
+  for (const row of router) {
+    row.moved = row.after === '' ? [...notePages.values()].flat().filter(file => normalizeEol(updates.get(file)).includes(normalizeEol(row.before))) : [];
+  }
+  checkOrder(file => updates.get(file));
   const families = [...payload].map(([family, names]) => {
     const reachable = new Set(Object.entries(generated.pages).filter(([file]) => file === `INDEX-${family}.md` || new RegExp('^INDEX-' + family + '-all(?:-\\d+)?\\.md$').test(file)).flatMap(([, text]) => mdLinks(text)));
     const lookup = new Map(virtual().map(f => [f.file, f]));
@@ -283,12 +436,12 @@ function migrateRoutesUnlocked({memoryDir, repo, config = loadConfig(), write = 
   });
   let recall = null;
   if (fs.existsSync(probesFile) && repo) {
-    const before = runProbes({memoryDir, repo, probesFile}).filter(p => p.pass).length;
-    const after = runProbes({corpus: buildCorpus({memoryDir, repo, files: virtual()}), probesFile}).filter(p => p.pass).length;
+    const before = runProbes({memoryDir, repo, config, probesFile}).filter(p => p.pass).length;
+    const after = runProbes({corpus: buildCorpus({memoryDir, repo, config, files: virtual()}), probesFile}).filter(p => p.pass).length;
     if (after < before) throw new Error(`migration recall loss: ${before} -> ${after}`);
     recall = {before, after};
   }
-  const report = {families, router, navigation: navigation.sort(), recall};
+  const report = {families, router, navigation: navigation.sort(), recall, regenerated};
   let ignore = read(path.join(memoryDir, '.gitignore'));
   if (!ignore.split(/\r?\n/).includes('.memory.lock*')) ignore += (ignore && !ignore.endsWith('\n') ? '\n' : '') + '.memory.lock*\n';
   updates.set('.gitignore', ignore);
@@ -297,7 +450,15 @@ function migrateRoutesUnlocked({memoryDir, repo, config = loadConfig(), write = 
   if (write) {
     beforeWrite({created: [...updates].filter(([file, text]) => text !== null && !fs.existsSync(path.join(memoryDir, file))).map(([file]) => file)});
     const originals = new Map([...updates.keys()].map(file => [file, fs.existsSync(path.join(memoryDir, file)) ? fs.readFileSync(path.join(memoryDir, file)) : null]));
-    try { for (const [file, text] of updates) { if (text === null) fs.unlinkSync(path.join(memoryDir, file)); else fs.writeFileSync(path.join(memoryDir, file), text); } }
+    try {
+      for (const [file, text] of updates) { if (text === null) fs.unlinkSync(path.join(memoryDir, file)); else fs.writeFileSync(path.join(memoryDir, file), matchEol(text, originals.get(file)?.toString() ?? text)); }
+      checkRouterTriggers(originalRouter, read(path.join(memoryDir, 'MEMORY.md')));
+      checkOrder(file => read(path.join(memoryDir,file)));
+      const written = normalizeEol(memoryFiles(memoryDir).map(f=>f.text).join('\n') + '\n' + joinedNotes(file => read(path.join(memoryDir,file))));
+      for (const index of indexes) for (const line of normalizeEol(rawBody(index.text)).split('\n')) {
+        if (line.trim() && !written.split('\n').includes(line) && !regenerated.some(row=>normalizeEol(row.before)===line && written.split('\n').includes(row.after))) throw new Error('migration hand line loss: '+index.file+': '+line);
+      }
+    }
     catch (error) { for (const [file, data] of originals) { if (data === null) fs.rmSync(path.join(memoryDir, file), {force: true}); else fs.writeFileSync(path.join(memoryDir, file), data); } throw error; }
   }
   return report;
@@ -324,7 +485,7 @@ export function main(argv = process.argv.slice(2)) {
       const result = migrateLessons({...loc, lock});
       let router = read(path.join(loc.memoryDir, 'MEMORY.md'));
       for (const index of result.indexes ?? []) if (!router.includes('(' + index + ')')) router += `\n- [${index.slice(6, -3)}](${index}) OPEN BEFORE ${index.slice(6, -3)} work.\n`;
-      fs.writeFileSync(path.join(loc.memoryDir, 'MEMORY.md'), router);
+      writeText(path.join(loc.memoryDir, 'MEMORY.md'), router);
       return {...result, routes: migrateRoutes({...loc, lock})};
     });
     else result = migrateLessons(loc);

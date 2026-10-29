@@ -1,0 +1,115 @@
+// Fixed engine fixture defaults; never load host configuration.
+export default {
+  "engine_version": "3.2.9",
+  "caps": {
+    "lesson": {"enforceAfterRepeats": 2, "failAfterRepeats": 4, "lessonOnlyReturns": true},
+    "guard": {"kitRules": "scripts/memory/enforce-rules.kit.json", "rules": "scripts/memory/enforce-rules.json"},
+    "router": {
+      "warnBytes": 12288,
+      "failBytes": 16384,
+      "failLineChars": 600,
+      "warnLines": 150,
+      "failLines": 200
+    },
+    "index": {
+      "pinSlackBytes": 1024,
+      "pinWarnRoomBytes": 400,
+      "warnLineChars": 300,
+      "failLineChars": 450,
+      "failBytesAbsolute": 24576,
+      "hotBytes": 8192
+    },
+    "archive": {
+      "failLineChars": 300
+    },
+    "topic": {
+      "warnBytes": 8192,
+      "failBytes": 20480,
+      "warnLineChars": 2000
+    },
+    "state": {
+      "warnBytes": 4096,
+      "failBytes": 8192,
+      "maxStateHeadings": 1
+    },
+    "hardRule": {
+      "warnBytes": 2048,
+      "failBytes": 4096
+    },
+    "description": {
+      "warnChars": 200,
+      "failChars": 400
+    },
+    "staleDays": 45,
+    "repoAhead": {
+      "warn": 1,
+      "fail": 10
+    },
+    "brainLog": {
+      "path": "brain/00-system/log.md",
+      "warnBytes": 51200,
+      "failBytes": 102400,
+      "keepEntries": 20
+    },
+    "brainIndex": {
+      "path": "brain/00-system/index.md",
+      "allPath": "brain/00-system/index-all.md",
+      "maxBytes": 12288,
+      "systemFiles": [
+        "AGENTS.md",
+        "schema.md",
+        "edge-cases.md",
+        "skills-index.md",
+        "log.md",
+        "index-all.md",
+        "agents-background.md",
+        "memory-ladder.md"
+      ]
+    },
+    "roadmap": {
+      "order": "newest-first",
+      "path": "docs/ROADMAP.md",
+      "warnBytes": 61440,
+      "failBytes": 81920,
+      "keepBlocks": 6
+    },
+    "agents": {
+      "path": "AGENTS.md",
+      "warnBytes": 16384
+    },
+    "brainNode": {
+      "lengthChecks": false,
+      "warnBodyWords": 350,
+      "warnSummaryChars": 200
+    },
+    "shelf": {
+      "path": "docs/shelf",
+      "reviewDays": 90
+    },
+    "brainShared": {
+      "paths": [
+        "brain/_shared/"
+      ]
+    },
+    "roadmapOverview": {
+      "path": "docs/ROADMAP-OVERVIEW.md"
+    },
+    "roadmapHistory": {
+      "path": "docs/ROADMAP-HISTORY.md"
+    },
+    "stale": {
+      "types": [
+        "project",
+        "reference"
+      ]
+    }
+  },
+  "measure": {
+    "startLogTailEntries": 10,
+    "startLogTailLines": 40,
+    "bytesPerToken": 4,
+    "evidenceDir": "docs/evidence/memory"
+  },
+  "pins": {},
+  "allow": []
+};

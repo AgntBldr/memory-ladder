@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { args, isDirect, loadConfig, repoRoot, readRequired, utf8Bytes, locations, read } from './lib.mjs';
+import { normalizeEol, matchEol, args, isDirect, loadConfig, repoRoot, readRequired, utf8Bytes, locations, read, roadmapOrder } from './lib.mjs';
 import {withMemoryLock} from './memory-lock.mjs';
 import { splitSections } from './memory-conserve.mjs';
 
@@ -39,16 +39,16 @@ function rotateLogUnlocked({ repo = repoRoot(), config = loadConfig(), keep = co
     for (const [i, [month, texts]] of [...groups].entries()) {
       const dest = path.join(repo, destinations[i].file);
       let current = fs.existsSync(dest) ? readRequired(dest) : `# Operation log — ${month}\n\nRotated from log.md by scripts/memory/memory-rotate.mjs; append-only; the newest entries are in log.md.\n\n`;
-      if (!fs.existsSync(dest)) fs.writeFileSync(dest, current, 'utf8');
+      if (!fs.existsSync(dest)) { current = matchEol(current, text); fs.writeFileSync(dest, current, 'utf8'); }
       // An interrupted run may have appended several entries before replacing log.md.
       let prefix = '', completed = 0;
       for (const [index, text] of texts.entries()) {
         prefix += text;
-        if (current.endsWith(prefix)) completed = index + 1;
+        if (normalizeEol(current).endsWith(normalizeEol(prefix))) completed = index + 1;
       }
       for (const text of texts.slice(completed)) {
-        if (current.endsWith(text)) continue;
-        const append = (current.endsWith('\n') ? '' : '\n') + text;
+        if (normalizeEol(current).endsWith(normalizeEol(text))) continue;
+        const append = matchEol((current.endsWith('\n') ? '' : '\n') + text, current);
         fs.appendFileSync(dest, append, 'utf8');
         current += append;
       }
@@ -62,6 +62,7 @@ function rotateLogUnlocked({ repo = repoRoot(), config = loadConfig(), keep = co
   return { moved: moved.length, kept: kept.length, destinations };
 }
 export function rotateRoadmap(options = {}) {
+  roadmapOrder(options.config ?? loadConfig());
   return options.write ? withMemoryLock(options.memoryDir ?? options.repo ?? repoRoot(), () => rotateRoadmapUnlocked(options), {lock: options.lock}) : rotateRoadmapUnlocked(options);
 }
 function rotateRoadmapUnlocked({repo = repoRoot(), config = loadConfig(), write = false, today = new Date().toISOString().slice(0, 10)} = {}) {
@@ -77,7 +78,8 @@ function rotateRoadmapUnlocked({repo = repoRoot(), config = loadConfig(), write 
   const blocks = starts.map((match, i) => ({date: match[1], start: start + match.index,
     end: start + (starts[i + 1]?.index ?? body.length), text: body.slice(match.index, starts[i + 1]?.index ?? body.length)}));
   for (const block of blocks) if (!validDate(block.date)) throw new Error('invalid roadmap block date: ' + block.date);
-  const oldest = [...blocks].sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
+  const newestFirst = roadmapOrder(config) === 'newest-first';
+  const oldest = [...blocks].sort((a, b) => a.date.localeCompare(b.date) || (newestFirst ? b.start - a.start : a.start - b.start));
   const keep = config.caps.roadmap.keepBlocks ?? 6;
   if (!Number.isInteger(keep) || keep < 2) throw new Error('roadmap.keepBlocks must be at least 2');
   const moved = oldest.slice(0, Math.max(0, oldest.length - keep));
@@ -87,17 +89,17 @@ function rotateRoadmapUnlocked({repo = repoRoot(), config = loadConfig(), write 
     moved.push(block); bytes -= utf8Bytes(block.text);
   }
   if (!moved.length) return {...empty, kept: blocks.length};
-  const payload = moved.map(b => b.text).join(''), historyFile = path.join(repo, config.caps.roadmapHistory.path);
-  const history = read(historyFile), heading = `## Open work — dated blocks moved ${today}\n\n`;
+  const payload = [...moved].sort((a, b) => a.start - b.start).map(b => b.text).join(''), historyFile = path.join(repo, config.caps.roadmapHistory.path);
+  const history = read(historyFile), eol = (history || text).includes('\r\n') ? '\r\n' : '\n', heading = `## Open work — dated blocks moved ${today}${eol}${eol}`;
   const first = [...history.matchAll(/^## (?!Open work)[^\r\n]*/gm)][0]?.index ?? history.length;
-  const nextHistory = history.slice(0, first) + (first && !history.slice(0, first).endsWith('\n') ? '\n' : '') + heading + payload + history.slice(first);
+  const nextHistory = history.slice(0, first) + (first && !history.slice(0, first).endsWith('\n') ? eol : '') + heading + payload + (first < history.length && !payload.endsWith('\n') ? eol : '') + history.slice(first);
   let next = text;
   for (const block of [...moved].sort((a, b) => b.start - a.start)) next = next.slice(0, block.start) + next.slice(block.end);
-  const result = {moved: moved.length, kept: blocks.length - moved.length, bytesRemoved: utf8Bytes(text) - utf8Bytes(next), bytesAdded: utf8Bytes(payload), found: moved.every(b => nextHistory.includes(b.text))};
+  const result = {moved: moved.length, kept: blocks.length - moved.length, bytesRemoved: utf8Bytes(text) - utf8Bytes(next), bytesAdded: utf8Bytes(payload), found: moved.every(b => normalizeEol(nextHistory).includes(normalizeEol(b.text)))};
   if (!result.found || result.bytesRemoved !== result.bytesAdded) throw new Error('roadmap conservation failed');
   if (write) {
     fs.mkdirSync(path.dirname(historyFile), {recursive: true});
-    fs.writeFileSync(historyFile, nextHistory);
+    fs.writeFileSync(historyFile, matchEol(nextHistory, history || text));
     fs.writeFileSync(file, next);
   }
   return result;
@@ -108,6 +110,8 @@ export function main(argv = process.argv.slice(2)) {
     if (opts.help) { console.log('Usage: memory-rotate.mjs log [--repo PATH] [--keep N] [--write] [--json]'); return 0; }
     if (!['log', 'roadmap'].includes(opts._[0])) throw new Error('expected log or roadmap');
     const loc = locations(opts);
+    const config = loadConfig(), input = opts._[0] === 'log' ? config.caps.brainLog.path : config.caps.roadmap.path;
+    if (!fs.existsSync(path.join(loc.repo, input))) { console.log('nothing to rotate: no existing input'); return 0; }
     const result = (opts._[0] === 'log' ? rotateLog : rotateRoadmap)({...loc, memoryDir: loc.memoryDir ?? loc.repo, keep: opts.keep, write: argv.includes('--write'), today: opts.today});
     if (opts.json) console.log(JSON.stringify(result, null, 2));
     else if (!result.moved) console.log('nothing to rotate');
