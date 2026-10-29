@@ -1,3 +1,4 @@
+import {repoPath, validateConfigPaths} from './lib.mjs';
 import {normalizeEol, writeText} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,7 +11,8 @@ const compareCodePoints = (a, b) => {
   return left.length - right.length;
 };
 export function generateOverview({ repo = repoRoot(), config = loadConfig() } = {}) {
-  const roadmap = splitSections(read(path.join(repo, config.caps.roadmap.path)));
+  validateConfigPaths(repo, config);
+  const roadmap = splitSections(read(repoPath(repo, config.caps.roadmap.path, 'caps.roadmap.path')));
   const preamble = roadmap.find(s => s.kind === 'preamble')?.text || '';
   const release = [], labels = /^(Last updated:|Current release candidate:|Latest published release:|Working version in the repo:)/;
   let active = false;
@@ -34,7 +36,7 @@ export function generateOverview({ repo = repoRoot(), config = loadConfig() } = 
   }
   const programs = roadmap.filter(s => /^## Active/.test(s.heading)).map(s => `- ${s.heading.slice(3)}`);
   lines.push('## Active programs', ...(programs.length ? programs : ['None live.']), '', '## Shelf');
-  const shelf = walkMd(path.join(repo, config.caps.shelf.path)).map(file => {
+  const shelf = walkMd(repoPath(repo, config.caps.shelf.path, 'caps.shelf.path')).map(file => {
     const data = parseFrontmatter(read(path.join(repo, config.caps.shelf.path, file))).data;
     return { ...data, file, name: String(data.name ?? path.basename(file, path.extname(file))) };
   }).sort((a, b) => compareCodePoints(a.name, b.name) || compareCodePoints(a.file, b.file));
@@ -42,7 +44,7 @@ export function generateOverview({ repo = repoRoot(), config = loadConfig() } = 
   if (shelf.length) lines.push('| Program | Shelved | Review | Source |', '| --- | --- | --- | --- |', ...shelf.map(s => `| ${[s.name, s.shelved, s.review, s.moved_from].map(cell).join(' | ')} |`));
   else lines.push('Empty.');
   const history = splitSections(read(path.join(repo, historyPath))).filter(s => s.kind === 'section').map(s => s.heading.slice(3));
-  lines.push('', '## History', `${historyPath} holds ${history.length} sections; first "${history[0] ?? ''}", last "${history.at(-1) ?? ''}".`, '');
+  lines.push('', '## History', fs.existsSync(path.join(repo,historyPath)) ? `${historyPath} holds ${history.length} sections; first "${history[0] ?? ''}", last "${history.at(-1) ?? ''}".` : `No roadmap history yet; ${historyPath} is created when old entries are rotated.`, '');
   return lines.join('\n');
 }
 export function main(argv = process.argv.slice(2)) {
@@ -50,9 +52,10 @@ export function main(argv = process.argv.slice(2)) {
     const opts = args(argv.filter(arg => arg !== '--write'));
     if (argv.includes('--write') && opts.check) throw new Error('choose --write or --check');
     const repo = path.resolve(opts.repo || repoRoot()), config = loadConfig();
-    if (!fs.existsSync(path.join(repo, config.caps.roadmap.path))) { console.log('roadmap overview: no existing roadmap'); return 0; }
+    validateConfigPaths(repo, config);
+    if (!fs.existsSync(repoPath(repo, config.caps.roadmap.path, 'caps.roadmap.path'))) { console.log('roadmap overview: no existing roadmap'); return 0; }
     const output = generateOverview({ repo, config });
-    const file = path.join(repo, config.caps.roadmapOverview.path);
+    const file = repoPath(repo, config.caps.roadmapOverview.path, 'caps.roadmapOverview.path');
     if (opts.check) { const ok = fs.existsSync(file) && normalizeEol(read(file)) === normalizeEol(output); console.log(ok ? 'roadmap overview: fresh' : 'roadmap overview: stale or missing'); return ok ? 0 : 1; }
     if (argv.includes('--write')) { fs.mkdirSync(path.dirname(file), { recursive: true }); writeText(file, output); }
     else process.stdout.write(output);

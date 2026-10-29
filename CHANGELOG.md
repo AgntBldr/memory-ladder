@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.2.12
+
+Path settings in memory.config.json must stay inside the project; installation refuses and the gate fails when they point outside it. Two spellings of the same folder, including macOS /tmp and /private/tmp and letter-case aliases, are recognised as one. A saved notes folder that was deleted is reported by its saved path and recreated there only when KIT.local.json is untracked and the saved path is absolute.
+
+Absolute paths, including those inside the project, and paths through `.git` are refused for path settings; guard rule paths must also stay inside the project. Folders and links that resolve outside the project fail `config.path`. `--write-allowlist` refuses while any `config.*` FAIL exists. The pre-commit hook blocks a staged secret even when another check fails.
+
+If memory-init has to roll back, it removes only what it created and reports entries left in place. First-run messages explain how to choose folders, check notes and add Git checks. The generated roadmap overview no longer describes a history file that does not exist.
+
+- Upgrade from 3.2.11 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then
+  `node scripts/upgrade.mjs --target <PROJECT>`; kit-owned files are replaced with a backup; edited skills and host files are kept. Run the installed gate.
+
 ## 3.2.11
 
 `memory-init` creates missing private memory for an installed engine with the installer's templates, generated indexes, baseline commit, gate, and hook, records a chosen `--memory-dir` using the installer's persistence rules, treats an empty existing notes folder as missing, and rolls back its own changes on failure.

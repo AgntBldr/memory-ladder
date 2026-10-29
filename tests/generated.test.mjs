@@ -453,7 +453,7 @@ test('3.2.2 D2 preserves installed hook, supports vendored commit, and refuses m
   const installed = path.join(f.repo, 'scripts', 'memory'); fs.mkdirSync(installed, {recursive: true});
   const gate = path.join(installed, 'memory-check.mjs'); fs.writeFileSync(gate, '');
   const hook = path.join(f.memory, '.git', 'hooks', 'pre-commit');
-  const quote = value => `"${path.resolve(value).replaceAll('\\', '/').replace(/["$`\\]/g, '\\$&')}"`;
+  const quote = value => !value.includes("'") ? "'" + path.resolve(value).replaceAll('\\', '/') + "'" : `"${path.resolve(value).replaceAll('\\', '/').replace(/["$`\\]/g, '\\$&')}"`;
   const expected = gatePath => `#!/bin/sh\n# memory-v3-gate (installed by scripts/memory/install-hooks.mjs; edit there)\nif ! command -v node >/dev/null 2>&1; then\n  echo "memory gate skipped: node not found"\n  exit 0\nfi\nnode ${quote(gatePath)} --hook --scope memory --memory-dir ${quote(f.memory)} || {\n  echo "memory gate failed: fix the FAIL lines above (or add a dated allow entry) and commit again"; exit 1; }\n`;
   patchOk(f.cli(vendor, 'install-hooks.mjs'));
   assert.equal(fs.readFileSync(hook, 'utf8'), expected(gate));
@@ -533,4 +533,13 @@ test('empty description retains legacy row bytes', async t => {
 
 test('installer shares index page classifier', () => {
   assert.match(fs.readFileSync(new URL('../scripts/install.mjs', import.meta.url), 'utf8'), /filter\(f=>isIndexPage\(f\)/, 'installer must share index classification');
+});
+
+
+test('roadmap overview distinguishes absent and empty history',async t=>{
+  const f=fixture(t),{generateOverview}=await import('../engine/roadmap-overview.mjs');
+  const history=path.join(f.repo,f.config.caps.roadmapHistory.path);
+  assert.ok(generateOverview(f).includes(`No roadmap history yet; ${f.config.caps.roadmapHistory.path} is created when old entries are rotated.`));
+  fs.mkdirSync(path.dirname(history),{recursive:true});fs.writeFileSync(history,'');
+  assert.ok(generateOverview(f).includes(`${f.config.caps.roadmapHistory.path} holds 0 sections; first "", last "".`));
 });

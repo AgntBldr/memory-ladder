@@ -1,3 +1,4 @@
+import {repoPath} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { args, locations, requireMemory, isDirect, toolDir, loadConfig, memoryFiles,
@@ -54,7 +55,7 @@ export function measure({ memoryDir, repo, config = loadConfig(), probesFile = p
   requireMemory(memoryDir);
   const files = memoryFiles(memoryDir), corpus = buildCorpus({ memoryDir, repo, config });
   const router = files.find(f => f.special === 'router');
-  const log = read(path.join(repo, config.caps.brainLog.path));
+  const log = read(repoPath(repo, config.caps.brainLog.path, 'caps.brainLog.path'));
   // A terminal newline terminates the last line; it is not an extra empty line.
   const logLines = log.match(/[^\n]*\n|[^\n]+$/g) || [];
   const legacyTail = logLines.slice(-config.measure.startLogTailLines).join('');
@@ -137,15 +138,11 @@ export function main(argv = process.argv.slice(2)) {
     config.measure ??= { startLogTailEntries: 10, startLogTailLines: 40, bytesPerToken: 4 };
     let dir;
     if (opts.write) {
-      dir = path.resolve(loc.repo, config.measure?.evidenceDir || 'docs/evidence/memory');
-      const inside = (root, dest) => { const rel = path.relative(root, dest); return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel); };
-      if (!inside(loc.repo, dir)) throw new Error('measure.evidenceDir resolves outside the repo');
-      let existing = dir;
-      while (!fs.existsSync(existing)) existing = path.dirname(existing);
-      if (!inside(fs.realpathSync(loc.repo), fs.realpathSync(existing))) throw new Error('measure.evidenceDir resolves outside the repo');
+      try { dir = repoPath(loc.repo, config.measure?.evidenceDir ?? 'docs/evidence/memory', 'measure.evidenceDir'); }
+      catch { throw new Error('measure.evidenceDir resolves outside the repo'); }
     }
     const result = measure({ ...loc, config, probesFile: typeof opts.probe === 'string' ? opts.probe : undefined, noGit: Boolean(opts['no-git']) });
-    const evidence = path.resolve(loc.repo, config.measure?.evidenceDir || 'docs/evidence/memory');
+    const evidence = repoPath(loc.repo, config.measure?.evidenceDir ?? 'docs/evidence/memory', 'measure.evidenceDir');
     const history = fs.existsSync(evidence) ? fs.readdirSync(evidence).filter(f => f.endsWith('.json'))
       .map(file => ({file, time: fs.statSync(path.join(evidence, file)).mtimeMs}))
       .sort((a, b) => b.time - a.time || b.file.localeCompare(a.file))

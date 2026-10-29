@@ -1068,15 +1068,16 @@ test('F2.6 hook installer ignores global hooksPath', t => {
   assert.ok(!fs.existsSync(path.join(f.root, 'global-hooks')));
 });
 
-for (const missing of ['file', 'check']) test(`F2.7 allowlist writer retains invalid entry missing ${missing}`, t => {
+for (const missing of ['file', 'check']) test(`F2.7 allowlist writer refuses invalid entry missing ${missing}`, t => {
   const f = fixture(t), entry = { check: 'router.line', file: 'MEMORY.md', reason: 'Baseline', added: '2026-10-21' };
   delete entry[missing]; f.config.allow.push(entry); f.put('MEMORY.md', 'x'.repeat(601));
   const configFile = f.putRepo('allow.json', JSON.stringify(f.config));
   const result = f.cli('memory-check.mjs', ['--scope', 'memory', '--config', configFile, '--write-allowlist', 'Baseline']);
-  assert.equal(result.status, 0); assert.match(result.stdout, /entries added/); assert.doesNotMatch(result.stdout, /error/);
+  assert.equal(result.status, 1); assert.equal(result.stdout.trim(), 'memory-check: error cannot write allowlist while config checks fail');
+  assert.equal(read(configFile), JSON.stringify(f.config));
   const updated = JSON.parse(read(configFile)); assert.ok(updated.allow.some(x => JSON.stringify(x) === JSON.stringify(entry)));
   finding(runCheck({ ...f, config: updated, scope: 'memory' }), 'config.allow', 'FAIL');
-  assert.equal(updated.allow.filter(x => x.check === 'router.line' && x.file === 'MEMORY.md').length, 1);
+  assert.equal(updated.allow.filter(x => x.check === 'router.line' && x.file === 'MEMORY.md').length, 0);
 });
 
 for (const words of ['cache caches', 'case cases', 'response responses', 'release releases', 'database databases', 'size sizes', 'name named names', 'use uses', 'rule rules', 'process processes', 'policy policies']) test(`F2.8 stems agree for ${words}`, () => {
@@ -1812,10 +1813,11 @@ test('R4 isDirect resolves both real paths including Windows case differences', 
   process.argv[1] = alias; t.after(() => { process.argv[1] = original; });
   t.mock.method(fs, 'realpathSync', file => {
     calls.push(file);
-    return file === alias && process.platform === 'win32' ? actual.toUpperCase() : actual;
+    return file === alias ? (process.platform === 'win32' ? actual.toUpperCase() : actual) : file;
   });
   assert.equal(isDirect(pathToFileURL(actual).href), true);
-  assert.deepEqual(calls, [alias, actual]);
+  assert.ok(calls.includes(alias));
+  assert.ok(calls.includes(actual));
 });
 test('R5 stubs resolve string and list targets in memory and repo brain', t => {
   const f = fixture(t); f.putRepo('brain/03-knowledge/target.md', '# Target');
@@ -2455,12 +2457,12 @@ for(const scenario of ['dry-run','fresh baseline','repeat','missing receipt','ol
   const f=initFixture(t),before=f.tree(f.root);
   if(scenario==='missing receipt') {
     fs.unlinkSync(path.join(f.engine,'KIT.json'));const unchanged=f.tree(f.root),r=f.cli();
-    assert.equal(r.status,1);assert.match(r.stderr,/run node .*install\.mjs/);assert.equal(r.stderr.trim().split('\n').length,1);assert.deepEqual(f.tree(f.root),unchanged);return;
+    assert.equal(r.status,1);assert.match(r.stderr,/node "KIT_FOLDER\/scripts\/install\.mjs" --target \./);assert.equal(r.stderr.trim().split('\n').length,2);assert.deepEqual(f.tree(f.root),unchanged);return;
   }
   if(scenario==='old Node') {
     const url=pathToFileURL(path.join(f.engine,'memory-init.mjs')).href;
     const r=f.run(process.execPath,['--input-type=module','-e',`Object.defineProperty(process.versions,'node',{value:'21.0.0'});const {main}=await import(${JSON.stringify(url)});process.exitCode=main([]);`]);
-    assert.equal(r.status,1);assert.match(r.stderr,/Node >=22 required/);assert.deepEqual(f.tree(f.root),before);return;
+    assert.equal(r.status,1);assert.match(r.stderr,/Install Node\.js 22 or newer, then run this command again\./);assert.deepEqual(f.tree(f.root),before);return;
   }
   if(scenario==='dry-run') {
     const r=f.cli(['--dry-run']);assert.equal(r.status,0,r.stdout+r.stderr);assert.match(r.stdout,/WRITE.*MEMORY\.md/);assert.match(r.stdout,/INDEX-craft-sessions/);assert.match(r.stdout,/pre-commit/);assert.deepEqual(f.tree(f.root),before);return;
@@ -2468,7 +2470,7 @@ for(const scenario of ['dry-run','fresh baseline','repeat','missing receipt','ol
   const memory=scenario==='flag'?path.join(f.root,'chosen'):f.memory;
   const r=f.cli(scenario==='flag'?['--memory-dir',memory]:[]);assert.equal(r.status,0,r.stdout+r.stderr);
   assert.ok(fs.existsSync(path.join(memory,'MEMORY.md')));assert.match(r.stdout,/0 FAIL, [01] WARN/);
-  assert.match(r.stdout,/next: git -C .* remote add origin <PRIVATE_REMOTE>/);assert.match(r.stdout,/next: git -C .* push -u origin HEAD/);
+  assert.match(r.stdout,/next: git -C .* remote add origin PRIVATE_REMOTE_URL/);assert.match(r.stdout,/next: git -C .* push -u origin HEAD/);
   const hostBefore=Object.fromEntries(Object.entries(before).filter(([p])=>p.startsWith('project'+path.sep)));
   const hostAfter=Object.fromEntries(Object.entries(f.tree(f.root)).filter(([p])=>p.startsWith('project'+path.sep)));
   if(scenario==='flag') {
@@ -2482,7 +2484,7 @@ for(const scenario of ['dry-run','fresh baseline','repeat','missing receipt','ol
   if(scenario==='repeat') {const before=f.tree(f.root),again=f.cli();assert.equal(again.status,0);assert.ok(again.stdout.includes(memory));assert.deepEqual(f.tree(f.root),before);}
   if(scenario==='flag') assert.match(r.stdout,/\(--memory-dir\)/);
   if(scenario==='identity fallback') {
-    assert.match(r.stdout,/No git identity; baseline uses memory-ladder-kit <kit@localhost> for this commit only/);
+    assert.match(r.stdout,/Git has no saved author name and email; the first notes commit uses memory-ladder-kit \(kit@localhost\) only for this commit\./);
     assert.equal(f.run('git',['-C',memory,'log','-1','--format=%an <%ae>']).stdout.trim(),'memory-ladder-kit <kit@localhost>');
     assert.doesNotMatch(read(path.join(memory,'.git/config')),/\[user\]|kit@localhost|memory-ladder-kit/);
     assert.equal(read(f.env.GIT_CONFIG_GLOBAL),'[core]\n autocrlf = false\n');

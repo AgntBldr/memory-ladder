@@ -121,7 +121,7 @@ test('F9 old config defaults evidence dir; outside paths refused before writes',
     assert.equal(r.status,1);assert.match(r.stderr,/evidenceDir.*outside/);assert.deepEqual(tree(f.root,{git:true}),before);
   }
 });
-test('F10 local-only memory record, precedence, missing fallthrough, source line and slug parity',t=>{
+test('F10 local-only memory record, precedence, missing saved folder, source line and slug parity',t=>{
   const f=fixture(t),local=path.join(f.root,'local-memory');ok(f.install(['--memory-dir',local]));
   assert.ok(!Object.hasOwn(json(path.join(engine(f),'KIT.json')),'memoryDir'));assert.equal(json(path.join(engine(f),'KIT.local.json')).memoryDir,local);
   assert.match(read(path.join(engine(f),'.gitignore')),/KIT\.local\.json/);
@@ -130,7 +130,8 @@ test('F10 local-only memory record, precedence, missing fallthrough, source line
   const other=path.join(f.root,'env-memory');fs.cpSync(local,other,{recursive:true});f.env.CLAUDE_MEMORY_DIR=other;
   assert.match(ok(gate(f)).stdout,/memory: .*\(CLAUDE_MEMORY_DIR\)/);assert.match(ok(gate(f,['--memory-dir',local])).stdout,/memory: .*\(--memory-dir\)/);
   delete f.env.CLAUDE_MEMORY_DIR;fs.cpSync(local,f.memory,{recursive:true});put(path.join(engine(f),'KIT.local.json'),JSON.stringify({memoryDir:path.join(f.root,'absent')}));
-  assert.match(ok(gate(f)).stdout,/memory: .*\(default\)/);assert.equal(path.basename(path.dirname(f.memory)),memorySlug(path.resolve(f.target)));
+  const missing=gate(f);assert.equal(missing.status,1);assert.equal(missing.stdout.trim(),`memory-check: error memory dir not found: ${path.join(f.root,'absent')}; run node scripts/memory/memory-init.mjs`);
+  assert.equal(path.basename(path.dirname(f.memory)),memorySlug(path.resolve(f.target)));
 });
 for(const name of ['KIT.json','KIT.local.json']) test('F10 malformed '+name+' gives one-line named error',t=>{
   const f=fixture(t);ok(f.install());put(path.join(engine(f),name),'{bad');const r=gate(f);assert.equal(r.status,1);

@@ -116,7 +116,7 @@ test('how-it-works guide ships six light/dark diagrams and real sanitized instal
   assert.doesNotMatch(guide, /Delivery status|pending rendering|installer was previewed|demo\/transcript/);
   assert.equal((guide.match(/<picture>/g) ?? []).length, 6);
   assert.equal((guide.match(/prefers-color-scheme: dark/g) ?? []).length, 6);
-  assert.match(guide, /memory gate hook installed: ~\/memory\/\.git\/hooks\/pre-commit/);
+  assert.match(guide, /memory gate hook installed; checks before saving a Git commit: ~\/memory\/\.git\/hooks\/pre-commit/);
   for (const name of ['memory-architecture', 'session-sequence', 'lesson-lifecycle', 'records-lifecycle', 'gate-dataflow', 'where-things-live']) {
     assert.ok(fs.existsSync(path.join(kitRoot, 'docs/diagrams', name + '.json')));
     for (const theme of ['light', 'dark']) {

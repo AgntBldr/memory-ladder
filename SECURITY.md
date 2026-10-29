@@ -24,6 +24,8 @@ For separate memory it installs the memory pre-commit hook, records custom memor
 When brain/00-system/ exists in the project and projectConfig.caps?.brainIndex is truthy, install runs brain-index.mjs --write, which rewrites the project's brain index file. It also rewrites the all-files index at caps.brainIndex.allPath.
 Reinstallation refuses. Conflicting owned files require --backup, which moves their original bytes into a timestamped backup before installation.
 
+Path settings in scripts/memory/memory.config.json are contained to the project; install refuses and the gate fails when one points outside.
+
 ## Upgrade writes
 
 An upgrade creates a timestamped backup and replaces kit-owned files, manifest and receipt. It rewrites scripts/memory/memory.config.json with merged defaults and the new engine_version. Project probes, foreign hooks and instruction blocks are kept; missing guard hooks are merged. The kit-owned enforce-rules.kit.json is refreshed; host-owned enforce-rules.json is seeded only when absent. --no-guard persists guard: false in KIT.local.json without discarding memoryDir. The incoming gate pre-run accepts only listed new FAIL-capable checks by check plus file. Edited skills are kept unless --force-skills is requested. New FAIL findings trigger rollback; pre-existing FAIL findings are reported. A failed rollback reports the recoverable backup and restore command.
@@ -34,7 +36,7 @@ Read or compare the project's scripts/memory/ with the kit's engine/ before upgr
 ## Paths and projects you did not write
 
 --target and the memory folder are resolved with path.resolve; symlinks are not resolved. Memory folder precedence is --memory-dir, then CLAUDE_MEMORY_DIR, then tracked memory.inRepoDir relative to the current checkout, then an existing folder recorded in KIT.local.json, then the default project-path slug under the user's Claude projects folder.
-Only the measurement evidence folder is contained in the project by realpath. The installer does not apply that containment to the target or memory folder. A cloned project can commit its own scripts/memory/KIT.local.json: read it before installing into a project you did not write.
+Path settings in scripts/memory/memory.config.json are contained in the project by realpath. The installer does not apply that containment to the target or memory folder. A cloned project can commit its own scripts/memory/KIT.local.json: read it before installing into a project you did not write.
 
 ## Reporting
 

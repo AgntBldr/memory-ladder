@@ -1,3 +1,4 @@
+import {validateConfigPaths} from '../engine/lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -116,7 +117,7 @@ export function checkInstalledIgnores(target, paths, opts) {
   return [file,next];
 }
 export function install(opts, root = kitRoot) {
-  if(Number(process.versions.node.split('.')[0]) < 22) throw new Error('Node >=22 required');
+  if(Number(process.versions.node.split('.')[0]) < 22) throw new Error('Install Node.js 22 or newer, then run this command again.');
   const started=performance.now(), target=path.resolve(opts.target), engine=path.join(target,'scripts/memory');
   const receiptFile=path.join(engine,'KIT.json');
   if(fs.existsSync(receiptFile)) {
@@ -130,6 +131,8 @@ export function install(opts, root = kitRoot) {
   if(!settings || typeof settings!=='object' || Array.isArray(settings)) throw new Error('settings.json must be an object');
   const configFile=path.join(engine,'memory.config.json');
   const projectConfig=readJSON(fs.existsSync(configFile)?configFile:path.join(root,'engine/memory.config.json'));
+  try { validateConfigPaths(target, projectConfig); }
+  catch (error) { throw new Error('edit scripts/memory/memory.config.json: ' + error.message.replace('inside the repo', 'inside the project')); }
   const writeBrainIndex=projectConfig.caps?.brainIndex && typedBrainCount(target,projectConfig)>0;
   const memory=resolveMemory(target,opts['memory-dir']), version=fs.readFileSync(path.join(root,'VERSION'),'utf8').trim();
   if(pathKey(target)===pathKey(memory.dir)) throw new Error('memory must live in a dedicated folder; see CONVERT.md#move-root-memory-into-a-dedicated-folder');
@@ -167,7 +170,7 @@ export function install(opts, root = kitRoot) {
     planned.push([configFile,JSON.stringify(projectConfig,null,2)+'\n']);
   }
   if(memory.custom && !inRepo) {
-    if(local.memoryDir && path.resolve(local.memoryDir)!==path.resolve(memory.dir)) throw new Error('existing KIT.local.json differs; resolve its memoryDir before install');
+    if(local.memoryDir && pathKey(local.memoryDir)!==pathKey(memory.dir)) throw new Error(`The saved notes folder in KIT.local.json is ${local.memoryDir}, but you requested ${memory.dir}. Use the saved folder or update memoryDir in scripts/memory/KIT.local.json before retrying.`);
     local.memoryDir=memory.dir;
   }
   if(opts['no-guard']) local.guard=false;

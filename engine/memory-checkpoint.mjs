@@ -1,3 +1,4 @@
+import {repoPath, validateConfigPaths} from './lib.mjs';
 import {writeText} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,11 +14,13 @@ import {runCheck, counts, findingLine} from './memory-check.mjs';
 export function checkpoint({memoryDir, repo, config = loadConfig(), dryRun = false, noPush = false, commit = false,
   today = new Date().toISOString().slice(0, 10), report = (step, message) => console.log(`${step}: ${message}`),
   git = (argv, options = {}) => execFileSync('git', ['-C', inRepoMemory(repo,memoryDir) ? repo : memoryDir, ...argv], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...options})}) {
+  validateConfigPaths(repo, config);
   if (!validDate(today)) throw new Error('invalid --today date; expected YYYY-MM-DD');
   roadmapOrder(config);
   const inRepo = inRepoMemory(repo,memoryDir);
   const steps = ['memory-index', 'rotate-log', 'rotate-roadmap', 'brain-index', 'roadmap-overview', 'gate', 'commit', 'push'];
   if (dryRun) { for (const step of steps) report(step, (step === 'push' && (noPush || inRepo)) || (step === 'commit' && inRepo && !commit) ? 'skipped' : 'dry-run'); return {dryRun: true}; }
+  if (fs.existsSync(repoPath(repo, config.caps.brainLog.path, 'caps.brainLog.path'))) rotateLog({repo, config});
   return withMemoryLock(memoryDir, lock => {
     const options = {memoryDir, repo, config, today, lock, write: true};
     const indexes = writeMemoryIndex(options); report('memory-index', `${Object.keys(indexes.pages).length} pages`);
@@ -28,19 +31,19 @@ export function checkpoint({memoryDir, repo, config = loadConfig(), dryRun = fal
     report('rotate-roadmap', roadmap ? `${roadmap.moved} moved; proof ${roadmap.bytesRemoved} = ${roadmap.bytesAdded} bytes; found ${roadmap.found}` : 'absent');
     if (fs.existsSync(path.join(repo, config.brain?.dir ?? 'brain'))) {
       // Use the same first-write handling as the standalone generator.
-      const output = generateIndex({repo, config}), allFile = path.join(repo, config.caps.brainIndex.allPath);
+      const output = generateIndex({repo, config}), allFile = repoPath(repo, config.caps.brainIndex.allPath, 'caps.brainIndex.allPath');
       if (!fs.existsSync(allFile)) {
         fs.mkdirSync(path.dirname(allFile), {recursive: true}); fs.writeFileSync(allFile, output.all);
         try { output.index = generateIndex({repo, config}).index; }
         catch (error) { fs.unlinkSync(allFile); throw error; }
       }
       for (const [name, text] of [[config.caps.brainIndex.path, output.index], [config.caps.brainIndex.allPath, output.all]]) {
-        const file = path.join(repo, name); fs.mkdirSync(path.dirname(file), {recursive: true}); writeText(file, text);
+        const file = repoPath(repo, name, name === config.caps.brainIndex.allPath ? 'caps.brainIndex.allPath' : 'caps.brainIndex.path'); fs.mkdirSync(path.dirname(file), {recursive: true}); writeText(file, text);
       }
     }
     report('brain-index', fs.existsSync(path.join(repo, config.brain?.dir ?? 'brain')) ? 'written' : 'absent');
     if (exists('roadmap')) {
-      const file = path.join(repo, config.caps.roadmapOverview.path);
+      const file = repoPath(repo, config.caps.roadmapOverview.path, 'caps.roadmapOverview.path');
       fs.mkdirSync(path.dirname(file), {recursive: true}); writeText(file, generateOverview({repo, config}));
     }
     report('roadmap-overview', exists('roadmap') ? 'written' : 'absent');

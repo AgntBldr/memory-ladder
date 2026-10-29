@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { args, locations, repoRoot, requireMemory, isDirect, listMd, walkMd, read, readRequired, utf8Bytes, parseFrontmatter, pathKey, loadConfig } from './lib.mjs';
+import { args, locations, repoRoot, requireMemory, isDirect, listMd, walkMd, read, readRequired, utf8Bytes, parseFrontmatter, pathKey, loadConfig, repoPath } from './lib.mjs';
 
 const patterns = {
   sha: /\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g,
@@ -50,7 +50,7 @@ export function verify({ baseline, memoryDir, repo, accepted, extraFiles = [], c
   const paths = [
     ...new Set([...(base.extraFiles || []), ...extraFiles].map(file => path.join(repo, file))),
     ...listMd(memoryDir).map(file => path.join(memoryDir, file)),
-    ...walkMd(path.join(repo, config.brain?.dir ?? 'brain')).map(file => path.join(repo, config.brain?.dir ?? 'brain', file)),
+    ...walkMd(repoPath(repo, config.brain?.dir ?? 'brain', config.brain?.dir === undefined ? 'brain' : 'brain.dir')).map(file => path.join(repo, config.brain?.dir ?? 'brain', file)),
     ...walkMd(path.join(repo, 'docs/shelf')).map(file => path.join(repo, 'docs/shelf', file)),
     ...listMd(path.join(repo, 'docs')).filter(file => /^ROADMAP.*\.md$/.test(file)).map(file => path.join(repo, 'docs', file)),
   ];

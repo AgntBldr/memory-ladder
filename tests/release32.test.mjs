@@ -62,7 +62,7 @@ test('S8 upgrade and route migration share a backup and restore both on forced f
 
 test('S9 release defaults and documentation use generated capture and checkpoint', () => {
   const config = json(path.join(kitRoot, 'engine/memory.config.json'));
-  assert.equal(config.engine_version, '3.2.11'); // Deliberate release pin: update only for a release.
+  assert.equal(config.engine_version, '3.2.12'); // Deliberate release pin: update only for a release.
   assert.equal(config.engine_version, read(path.join(kitRoot, 'VERSION')).trim());
   assert.equal(config.caps.index.hotBytes, 8192); assert.equal(config.caps.roadmap.keepBlocks, 6);
   assert.deepEqual(config.caps.stale.types, ['project', 'reference']);
@@ -92,7 +92,7 @@ test('K.8 config default places memory ladder after agents background', () => {
 });
 
 test('K8 release retains a literal pin', () => {
-  assert.match(read(path.join(kitRoot, 'tests/release32.test.mjs')), /assert\.equal\(config\.engine_version, '3\.2\.11'\)/);
+  assert.match(read(path.join(kitRoot, 'tests/release32.test.mjs')), /assert\.equal\(config\.engine_version, '3\.2\.12'\)/);
 });
 test('K9 index documentation explains shortening', () => {
   const text = read(path.join(kitRoot, 'engine/README.md'));

@@ -16,7 +16,7 @@ Needs: Node 22 or newer, Git with a name and email set (Git for Windows on Windo
 the project folder as a Git repository (`git init` first if it is not), and a private Git remote for the memory.
 
 1. **Get the kit next to the project**, not inside it:
-   `git clone --branch <tag> <KIT_REMOTE> <KIT>` (or copy the kit folder). Use `v3.2.11` with this
+   `git clone --branch <tag> <KIT_REMOTE> <KIT>` (or copy the kit folder). Use `v3.2.12` with this
    guide, or read the guide shipped with your chosen release. The kit is the original; everything installed is a copy, so never
    edit the installed engine by hand.
 2. **Preview**: `node <KIT>/scripts/install.mjs --target <PROJECT> --dry-run` prints every file it would write

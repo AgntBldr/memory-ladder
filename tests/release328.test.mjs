@@ -342,7 +342,7 @@ test('328 takeaway docs keep person-set and model fields separate', () => {
   }
   assert.match(fs.readFileSync(path.join(root,'docs/LESSON-KINDS.md'),'utf8'),/Models label `kind`; people set optional `metadata.takeaway`/);
   assert.match(fs.readFileSync(path.join(root,'docs/LABELLING.md'),'utf8'),/at most 6 of 40 disagreements/);
-  assert.match(fs.readFileSync(path.join(root,'scripts/upgrade.mjs'),'utf8'),/export const NEW_CHECKS = \[\];/);
+  assert.match(fs.readFileSync(path.join(root,'scripts/upgrade.mjs'),'utf8'),/export const NEW_CHECKS = \['config\.path'\];/);
 });
 
 

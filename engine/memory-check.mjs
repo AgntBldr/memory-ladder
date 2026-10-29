@@ -1,3 +1,4 @@
+import {validateConfigPaths} from './lib.mjs';
 import {normalizeEol, writeText, lessonCases} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -6,7 +7,7 @@ import childProcess from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { validDate } from './memory-rotate.mjs';
 import { generateOverview } from './roadmap-overview.mjs';
-import { generateIndex, typedBrainCount, brainIndexPairs } from './brain-index.mjs';
+import { generateIndex, brainIndexPairs } from './brain-index.mjs';
 import {generateMemoryIndex, isGenerated, lessonIdentity, lessonField, routes, routerFamilies, ladderWalk, hasTrigger, KINDS, REPEAT_ENTRY, gateCheckIds, enforceSentence, failSentence} from './memory-index.mjs';
 import {loadRules} from './memory-guard.mjs';
 import {scanChains, scanLines} from './memory-chains.mjs';
@@ -41,10 +42,7 @@ function stubTargetExists(target, memoryDir, repo, config) {
   if (!inside(root, absolute)) return false;
   try {
     return fs.statSync(absolute).isFile() && inside(fs.realpathSync(root), fs.realpathSync(absolute));
-  } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false;
-    throw error;
-  }
+  } catch { return false; }
 }
 
 function gitState(dir, files, caps, now, add, hook, inRepo = false) {
@@ -104,6 +102,12 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
   const caps = config.caps, findings = [], externalEdges = [];
   const add = (severity, check, file, line, message, value) => findings.push({ severity, check, file, line,
     message: redact(message), ...(value === undefined ? {} : { value }), allowed: false, reason: null });
+  try { if (repo) validateConfigPaths(repo, config); }
+  catch (error) {
+    add('FAIL', 'config.path', 'memory.config.json', null, error.message);
+    return {version: config.engine_version, scope, hook, noGit, quick, inRepo: inRepoMemory(repo, memoryDir), findings, externalEdges,
+      stats: {files: 0, inboxNotes: 0, bytes: 0, largest: {file: null, bytes: 0}, ms: Math.round(performance.now() - started)}};
+  }
   // Fixed kit defaults: malformed host groups cannot supply their own fallback.
   const groupDefaults = {
     lesson: {"enforceAfterRepeats": 2, "failAfterRepeats": 4, "lessonOnlyReturns": true},
@@ -185,7 +189,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
   for (const error of guard.errors) if (fs.existsSync(error.file)) {
     const relative = relativeRules(error.file);
     const reason = error.reason.replaceAll(error.file, relative);
-    const message = reason.startsWith(`rules file ${relative} is not valid JSON: `) ? reason : `rules file ${relative}: ${reason}`;
+    const message = reason === `rules file ${relative} is not valid JSON` ? reason : `rules file ${relative}: ${reason}`;
     ruleProblem('FAIL', error.file, message);
   }
   if (repo) {
@@ -219,7 +223,10 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       add('WARN', 'index.unreachable', f.file, null, 'not reachable from MEMORY.md through index and catalog pages');
   }
   const memoryPaths = new Set(files.map(f => pathKey(memoryDir, f.file)));
-  const brains = (repo ? brainPaths(repo, config) : []).map(file => {
+  let brainFiles = [];
+  try { if (repo) brainFiles = brainPaths(repo, config); }
+  catch (error) { add('FAIL', 'config.path', 'memory.config.json', null, error.message); }
+  const brains = brainFiles.map(file => {
     const text = read(path.join(repo, config.brain?.dir ?? 'brain', file));
     return { file: `${config.brain?.dir ?? 'brain'}/${file}`, inbox: pathSpelling(file).startsWith('99-inbox/'), text, ...parseFrontmatter(text) };
   });
@@ -476,7 +483,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     for (const [key, id] of [['brainLog', 'repo.brain-log'], ['roadmap', 'repo.roadmap'], ['agents', 'repo.agents']]) {
       size(id, caps[key].path, utf8Bytes(read(path.join(repo, caps[key].path))), caps[key]);
     }
-    if (caps.brainIndex && typedBrainCount(repo, config)) {
+    if (caps.brainIndex && !untypedBrain) {
     try {
       const generated = generateIndex({ repo, config });
       const {pairs} = brainIndexPairs(repo, config, generated);
@@ -594,6 +601,7 @@ export function ratchetPins({ memoryDir, config, configFile = path.join(toolDir,
   return changes;
 }
 export function writeAllowlist({ result, config, reason, configFile = path.join(toolDir, 'memory.config.json'), now = new Date() }) {
+  if (result.findings.some(f => f.severity === 'FAIL' && f.check.startsWith('config.'))) throw new Error('cannot write allowlist while config checks fail');
   if (!reason?.trim()) throw new Error('allowlist reason must not be empty');
   const eligible = result.findings.filter(f => f.check !== 'secret' && !f.check.startsWith('config.') && !(f.check === 'fm.parse' && f.severity === 'FAIL'));
   const active = result.findings.filter(f => !f.check.startsWith('config.'));
@@ -629,6 +637,8 @@ export function main(argv = process.argv.slice(2)) {
     if (opts.help) { console.log('Usage: node scripts/memory/memory-check.mjs [--memory-dir PATH] [--repo PATH] [--scope all|memory] [--json] [--session-start] [--hook] [--ratchet-pins] [--write-allowlist REASON] [--config FILE]'); return 0; }
     const loc = locations(opts);
     sessionRepo = loc.repo;
+    if (loc.memorySource === 'KIT.local.json' && !fs.existsSync(loc.memoryDir))
+      throw new Error('memory dir not found: ' + loc.memoryDir + '; run node scripts/memory/memory-init.mjs');
     requireMemory(loc.memoryDir);
     const configFile = opts.config ? path.resolve(opts.config) : path.join(toolDir, 'memory.config.json');
     const config = JSON.parse(read(configFile));
@@ -663,7 +673,8 @@ export function main(argv = process.argv.slice(2)) {
   } catch (error) {
     const message = redact(String(error.message).replace(/[\r\n]+/g, ' '));
     if (hook && !session) {
-      const blocked = error.code === 'SNAPSHOT_EXTRACTION';
+      const blocked = ['SNAPSHOT_EXTRACTION', 'STAGED_SECRET', 'SECRET_SCAN_FAILED'].includes(error.code);
+      for (const finding of error.secretFindings ?? []) console.log(findingLine(finding));
       console.log(`memory gate: ${blocked ? 'commit blocked' : 'error'}: ${message}`); return blocked ? 1 : 0;
     }
     console.log(session ? (message === 'memory dir not found' ? 'memory gate: memory dir not found' + (sessionRepo && fs.existsSync(path.join(sessionRepo,'scripts/memory/KIT.json')) ? '; run node scripts/memory/memory-init.mjs' : '') : `memory gate: error ${message}`) : `memory-check: error ${message}`);
@@ -671,7 +682,9 @@ export function main(argv = process.argv.slice(2)) {
   }
 }
 export function stagedCheck(options) {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-stage-'));
+  let temp;
+  try { temp = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-stage-')); }
+  catch (error) { throw Object.assign(new Error('staged snapshot extraction failed: ' + error.message), {code: 'SNAPSHOT_EXTRACTION'}); }
   let snapshot = temp;
   let stagedLinkExists;
   try {
@@ -683,13 +696,14 @@ export function stagedCheck(options) {
       if (relative && inRepoMemory(options.repo, memoryDir)) {
         // Read index metadata only; sibling contents never enter the memory snapshot.
         const indexed = childProcess.execFileSync('git', ['-C', root, 'ls-files', '--cached', '--stage', '-z'], {encoding:'utf8', stdio:'pipe', timeout:30000, maxBuffer:32 * 1024 * 1024});
-        const paths = new Set(indexed.split('\0').filter(row=>/^(?:100644|100755|120000) [0-9a-f]+ 0\t/.test(row)).map(row=>pathKey(root,row.slice(row.indexOf('\t')+1))));
+        const spellingKey = file => process.platform === 'win32' ? file.replaceAll('\\', '/').toLowerCase() : process.platform === 'darwin' ? file.toLowerCase() : file;
+        const paths = new Set(indexed.split('\0').filter(row=>/^(?:100644|100755|120000) [0-9a-f]+ 0\t/.test(row)).map(row=>spellingKey(path.resolve(root,row.slice(row.indexOf('\t')+1)))));
         const within = (base, file) => { const rel=path.relative(base,file);return rel!== '..' && !rel.startsWith('..'+path.sep) && !path.isAbsolute(rel); };
         stagedLinkExists = target => {
           if(path.isAbsolute(target) || path.win32.isAbsolute(target)) return undefined;
           const absolute=path.resolve(memoryDir,target);
           if(within(memoryDir,absolute) || !within(root,absolute)) return undefined;
-          return paths.has(pathKey(absolute));
+          return paths.has(spellingKey(absolute)) || paths.has(pathKey(absolute));
         };
       }
       snapshot = path.join(temp, relative);
@@ -697,10 +711,34 @@ export function stagedCheck(options) {
       childProcess.execFileSync('git', ['-C', root, 'checkout-index', '--force', '-z', '--stdin', '--prefix=' + temp.replace(/\\/g, '/') + '/'], {input: entries, stdio: 'pipe', timeout: 30000});
       fs.mkdirSync(snapshot, {recursive: true});
     } catch (error) { throw Object.assign(new Error('staged snapshot extraction failed: ' + error.message), {code: 'SNAPSHOT_EXTRACTION'}); }
-    const result = runCheck({...options, memoryDir: snapshot, noGit: true, stagedLinkExists});
-    result.findings = result.findings.filter(f => f.check !== 'repo.git-skipped');
-    if (!options.noGit) gitState(fs.realpathSync(options.memoryDir), memoryFiles(snapshot), options.config.caps, options.today ?? options.now ?? new Date(), (severity, check, file, line, message, value) => result.findings.push({severity, check, file, line, message, value}), true);
-    return result;
-  } finally { fs.rmSync(temp, {recursive: true, force: true}); }
+    try {
+      const result = runCheck({...options, memoryDir: snapshot, noGit: true, stagedLinkExists});
+      result.findings = result.findings.filter(f => f.check !== 'repo.git-skipped');
+      if (!options.noGit) gitState(fs.realpathSync(options.memoryDir), memoryFiles(snapshot), options.config.caps, options.today ?? options.now ?? new Date(), (severity, check, file, line, message, value) => result.findings.push({severity, check, file, line, message, value}), true);
+      return result;
+    } catch (error) {
+      const secretFindings = [];
+      try {
+        const root = fs.realpathSync(snapshot);
+        // listMd is the memoryFiles file set, without frontmatter or link processing.
+        for (const file of listMd(snapshot)) {
+          const absolute = path.join(snapshot, file), relative = path.relative(root, fs.realpathSync(absolute));
+          if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('memory file resolves outside staged snapshot');
+          fs.readFileSync(absolute, 'utf8').split(/\r?\n/).forEach((line, i) => {
+            for (const [name, pattern] of Object.entries(secrets)) if (pattern.test(line)) {
+              secretFindings.push({severity: 'FAIL', check: 'secret', file, line: i + 1, message: `${file}:${i + 1} secret pattern ${name}`});
+              break;
+            }
+          });
+        }
+      } catch (scanError) { throw Object.assign(new Error('secret scan could not run: ' + scanError.message), {code: 'SECRET_SCAN_FAILED'}); }
+      if (secretFindings.length) throw Object.assign(new Error('gate error after a secret was found: ' + error.message), {code: 'STAGED_SECRET', secretFindings});
+      throw error;
+    }
+  } finally {
+    // A failed cleanup must never replace the check's result or block.
+    try { fs.rmSync(temp, {recursive: true, force: true, maxRetries: 3}); }
+    catch { console.error(`memory gate: could not remove the staged copy ${temp}; delete it by hand`); }
+  }
 }
 if (isDirect(import.meta.url)) process.exitCode = main();

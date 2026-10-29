@@ -50,7 +50,79 @@ export function readRequired(file) {
 }
 export const loadConfig = () => JSON.parse(read(path.join(toolDir, 'memory.config.json')));
 export const pathSpelling = value => process.platform === 'win32' ? slash(value).toLowerCase() : value;
-export const pathKey = (...parts) => pathSpelling(path.resolve(...parts));
+const canonicalDirectories = new Map();
+function canonicalPath(file) {
+  const suffix = [];
+  let parent = path.resolve(file);
+  for (;;) {
+    try {
+      if (canonicalDirectories.has(parent)) return path.join(canonicalDirectories.get(parent), ...suffix);
+      const stat = fs.lstatSync(parent);
+      if (stat.isDirectory() || stat.isSymbolicLink()) {
+        const real = fs.realpathSync(parent);
+        if (fs.statSync(parent).isDirectory()) canonicalDirectories.set(parent, real);
+        return path.join(real, ...suffix);
+      }
+      return path.join(canonicalPath(path.dirname(parent)), path.basename(parent), ...suffix);
+    }
+    catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
+      // A dangling link must not be treated as a future ordinary directory.
+      let stat;
+      try { stat = fs.lstatSync(parent); }
+      catch (statError) { if (!['ENOENT', 'ENOTDIR'].includes(statError.code)) throw statError; }
+      if (stat?.isSymbolicLink()) throw error;
+      const next = path.dirname(parent);
+      if (next === parent) throw error;
+      suffix.unshift(path.basename(parent)); parent = next;
+    }
+  }
+}
+const canonicalKeys = new Map();
+export function pathKeyFor(platform, ...parts) {
+  const resolved = path.resolve(...parts);
+  let value = canonicalKeys.get(resolved) ?? resolved;
+  if (!canonicalKeys.has(resolved)) try {
+    value = canonicalPath(resolved);
+    if (fs.existsSync(resolved)) canonicalKeys.set(resolved, value);
+  } catch {}
+  return platform === 'win32' ? slash(value).toLowerCase() : platform === 'darwin' ? value.toLowerCase() : value;
+}
+export const pathKey = (...parts) => pathKeyFor(process.platform, ...parts);
+const contained = (root, file) => {
+  const rel = path.relative(root, file);
+  return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
+};
+export function repoPath(repo, relative, label) {
+  const fail = () => { throw new Error(`${label} must be a relative path inside the repo`); };
+  if (typeof relative !== 'string' || !relative.trim() || path.posix.isAbsolute(relative) || path.win32.parse(relative).root !== '' || relative.split(/[\\/]/).some(part => part.toLowerCase() === '.git' || /^git~\d+$/i.test(part) || part.includes(':') || (part !== '.' && part !== '..' && /[. ]$/.test(part)))) fail();
+  const absolute = path.resolve(repo, relative);
+  if (absolute === path.resolve(repo) || !contained(path.resolve(repo), absolute)) fail();
+  try {
+    const root = pathSpelling(canonicalPath(repo)), target = pathSpelling(canonicalPath(absolute));
+    if (target === root || !contained(root, target) || path.relative(root, target).split(/[\\/]/).some(part => part.toLowerCase() === '.git')) fail();
+  }
+  catch { fail(); }
+  return absolute;
+}
+export function configPaths(config) {
+  const paths = [];
+  for (const [group, cap] of Object.entries(config.caps ?? {})) {
+    if (!cap || typeof cap !== 'object') continue;
+    for (const key of ['path', 'allPath', 'rules', 'kitRules'])
+      if (Object.hasOwn(cap, key)) paths.push([`caps.${group}.${key}`, cap[key]]);
+    if (Object.hasOwn(cap, 'paths')) {
+      if (!Array.isArray(cap.paths)) paths.push([`caps.${group}.paths`, cap.paths]);
+      else cap.paths.forEach((value, i) => paths.push([`caps.${group}.paths[${i}]`, value]));
+    }
+  }
+  for (const [group, key] of [['brain', 'dir'], ['memory', 'inRepoDir'], ['measure', 'evidenceDir']])
+    if (config[group] && Object.hasOwn(config[group], key)) paths.push([`${group}.${key}`, config[group][key]]);
+  return paths.map(([label, value]) => [label.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 120), value]);
+}
+export function validateConfigPaths(repo, config) {
+  for (const [label, value] of configPaths(config)) repoPath(repo, value, label);
+}
 export const pathIncludes = (file, pattern) => pathSpelling(file).includes(pathSpelling(pattern));
 export function isDirect(url) {
   if (!process.argv[1]) return false;
@@ -96,8 +168,13 @@ export function memoryLocation(repo = repoRoot(), requested) {
   if (fs.existsSync(local)) {
     const configured = readKitJSON(local).memoryDir;
     if (configured && typeof configured !== 'string') throw new Error(`invalid memoryDir in ${local}`);
-    if (configured && fs.existsSync(path.resolve(configured)) && fs.statSync(path.resolve(configured)).isDirectory())
-      return { dir: path.resolve(configured), source: 'KIT.local.json' };
+    if (configured) {
+      const exists = fs.existsSync(path.resolve(configured));
+      const tracked = !exists && path.isAbsolute(configured) ? spawnSync('git', ['-C', repo, 'ls-files', '--error-unmatch', '--', ':(icase)scripts/memory/KIT.local.json'], {encoding:'utf8',timeout:10000,windowsHide:true}) : null;
+      if ((exists && fs.statSync(path.resolve(configured)).isDirectory()) ||
+          (!exists && path.isAbsolute(configured) && tracked.status === 1))
+        return { dir: path.resolve(configured), source: 'KIT.local.json' };
+    }
   }
   const slug = memorySlug(path.resolve(repo));
   const projects = path.join(process.env.USERPROFILE || process.env.HOME || os.homedir(), '.claude/projects');
@@ -112,7 +189,7 @@ export function memoryLocation(repo = repoRoot(), requested) {
 export const memoryDir = (repo = repoRoot()) => memoryLocation(repo).dir;
 export function insideRepo(repo, dir) {
   if (!repo || !dir) return false;
-  const rel = path.relative(path.resolve(repo), path.resolve(dir));
+  const rel = path.relative(pathKey(repo), pathKey(dir));
   return rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
 }
 export const inRepoMemory = (repo, dir) => insideRepo(repo, dir) && !fs.existsSync(path.join(dir, '.git'));
@@ -186,7 +263,7 @@ export function parseFrontmatter(text) {
   const keyLine = /^([\w.-]+):(?:[ \t]+(.*)|[ \t]*)$/;
   const warn = i => warnings.push({ line: i + 1, text: lines[i] });
   const assign = (obj, key, value, i) => {
-    if (['__proto__', 'prototype', 'constructor', '__warnings', '__error'].includes(key) || Object.hasOwn(obj, key)) warn(i);
+    if (['__proto__', 'prototype', '__warnings', '__error'].includes(key) || Object.hasOwn(Object.prototype, key) || Object.hasOwn(obj, key)) warn(i);
     else obj[key] = value;
   };
   let i = 1;
@@ -310,7 +387,7 @@ export function walkMd(dir, { skipDirs = [] } = {}) {
   walk('');
   return result.sort();
 }
-export const brainPaths = (repo, config = loadConfig()) => walkMd(path.join(repo, config.brain?.dir ?? 'brain'), {
+export const brainPaths = (repo, config = loadConfig()) => walkMd(repoPath(repo, config.brain?.dir ?? 'brain', config.brain?.dir === undefined ? 'brain' : 'brain.dir'), {
   skipDirs: ['00-system', '_templates', '.claude', '.agents', '.obsidian'],
 }).filter(p => p.includes('/') && !/^(?:readme|_manifest|index)\.md$/i.test(path.basename(p)));
 export function brainNamesFromNodes(nodes) {

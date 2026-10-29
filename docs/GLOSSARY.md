@@ -134,6 +134,8 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 **config.allow-stale** - WARN when a valid exception matches no finding for a check actually evaluated in this run; remove obsolete exceptions after checking scope, with no numeric threshold. Where: `memory.config.json` `allow`. See also: allowed / allowlist.
 
+**config.path** - FAIL when a configured path is not a relative path inside the project, including symlink escapes; edit scripts/memory/memory.config.json. This check cannot be allowlisted. Where: `memory.config.json` path settings. See also: config.allow.
+
 **config.roadmap-order** - FAIL when the configured order is neither `newest-first` nor `oldest-first`; use the actual ordering, default `newest-first`. Where: `caps.roadmap.order`. See also: rotation, repo.roadmap-order.
 
 **config.upgrades** - FAIL when the deferred-upgrade ledger is missing or malformed; repair its schema rather than allowing the finding. Where: `upgrades.json`, checked by `memory-check.mjs`. See also: deferred-upgrade ledger.

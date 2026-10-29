@@ -221,9 +221,9 @@ test('rules problems distinct and repo relative',t=> {
   for(const file of ['kit.json','host.json']) f.put(file,'{',f.repo);
   let parseError;
   try { JSON.parse('{'); } catch(error) { parseError=error.message.replace(/[\r\n]+/g,' '); }
-  for(const h of hits(f,'enforce.rules')) { assert.equal(h.message,`rules file ${h.file} is not valid JSON: ${parseError}`); assert.ok(!h.message.includes(f.repo)); }
+  for(const h of hits(f,'enforce.rules')) { assert.equal(h.message,`rules file ${h.file} is not valid JSON`); assert.ok(!h.message.includes(f.repo)); }
 });
-for(const [key,fallback] of [['topic.warnLineChars',2000],['lesson.enforceAfterRepeats',2],['lesson.failAfterRepeats',4],['lesson.lessonOnlyReturns',true],['guard.kitRules','scripts/memory/enforce-rules.kit.json'],['guard.rules','scripts/memory/enforce-rules.json'],['router.warnLines',150],['router.failLines',200]]) test(`config.caps validates ${key} and applies default`,t=> {
+for(const [key,fallback] of [['topic.warnLineChars',2000],['lesson.enforceAfterRepeats',2],['lesson.failAfterRepeats',4],['lesson.lessonOnlyReturns',true],['guard.kitRules','scripts/memory/enforce-rules.kit.json'],['guard.rules','scripts/memory/enforce-rules.json'],['router.warnLines',150],['router.failLines',200]]) test(`${key.startsWith('guard.') ? 'config.path rejects' : 'config.caps validates'} ${key}${key.startsWith('guard.') ? '' : ' and applies default'}`,t=> {
   const f=setup(t), [group,name]=key.split('.');
   f.put('MEMORY.md',Array(key==='router.warnLines'?151:201).fill('x').join('\n'));
   f.put('topic.md','---\ndescription: Useful topic.\n---\n'+'x'.repeat(2001));
@@ -237,6 +237,11 @@ for(const [key,fallback] of [['topic.warnLineChars',2000],['lesson.enforceAfterR
   for(const value of values) {
     f.config.caps[group][name]=value;
     const result=f.check();
+    if(group==='guard') {
+      assert.deepEqual(result.findings.map(h=>[h.check,h.severity,h.file,h.message,h.allowed]),[['config.path','FAIL','memory.config.json',`caps.${key} must be a relative path inside the repo`,false]]);
+      const r=f.cli('memory-check',['--no-git','--scope','memory']); assert.equal(r.status,1); assert.match(r.stdout,/FAIL config\.path/); assert.doesNotMatch(r.stdout,/memory-check: error/);
+      continue;
+    }
     assert.deepEqual(result.findings.filter(h=>h.check!=='config.caps'),expected);
     assert.deepEqual(result.findings.filter(h=>h.check==='config.caps').map(h=>[h.severity,h.file,h.message]),[['FAIL','memory.config.json',`caps.${key} has invalid value ${JSON.stringify(value)}; using default ${JSON.stringify(fallback)}`]]);
     const r=f.cli('memory-check',['--no-git','--scope','memory']); assert.equal(r.status,1); assert.match(r.stdout,/FAIL config\.caps/); assert.doesNotMatch(r.stdout,/memory-check: error/);
@@ -321,14 +326,14 @@ test('junction containment rejects outside hook targets', t => {
   assert.equal(hits(f,'lesson.enforce')[0]?.severity,'FAIL');
 });
 
-test('rules JSON message retains parse error', t => {
+test('rules JSON message omits file content', t => {
   const f=setup(t); f.config.caps.guard={kitRules:'kit.json',rules:'host.json'};
   let reason;
   try { JSON.parse('{'); } catch(error) { reason=error.message.replace(/[\r\n]+/g,' '); }
   for(const file of ['kit.json','host.json']) {
     for(const name of ['kit.json','host.json']) f.put(name,JSON.stringify({version:1,rules:[]}),f.repo);
     f.put(file,'{',f.repo);
-    assert.deepEqual(hits(f,'enforce.rules').map(h=>[h.severity,h.file,h.message]),[['FAIL',file,`rules file ${file} is not valid JSON: ${reason}`]]);
+    assert.deepEqual(hits(f,'enforce.rules').map(h=>[h.severity,h.file,h.message]),[['FAIL',file,`rules file ${file} is not valid JSON`]]);
   }
 });
 
@@ -343,7 +348,7 @@ test('rules read error has one relative prefix', t => {
       return original.call(this,p,...args);
     };
     try {
-      assert.deepEqual(hits(f,'enforce.rules').map(h=>[h.severity,h.file,h.message]),[['FAIL',file,`rules file ${file} is not valid JSON: EACCES: permission denied, open '${file}'`]]);
+      assert.deepEqual(hits(f,'enforce.rules').map(h=>[h.severity,h.file,h.message]),[['FAIL',file,`rules file ${file} is not valid JSON`]]);
     } finally { fs.readFileSync=original; }
   }
 });

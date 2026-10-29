@@ -12,7 +12,7 @@ import {isGenerated, generateMemoryIndex, writeMemoryIndex} from '../engine/memo
 import {instructions,mirrorWrites} from './install-safety.mjs';
 
 // Only new FAIL-capable ids; replace this release-specific list at the next release.
-export const NEW_CHECKS = [];
+export const NEW_CHECKS = ['config.path'];
 const newFailKey=f=>JSON.stringify([f.check,f.file]);
 export function newCheckFailures(root,target,memory,config) {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'kit-new-checks-'));

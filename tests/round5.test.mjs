@@ -13,8 +13,8 @@ import {fleet} from '../engine/memory-fleet.mjs';
 import {migrateRoutes} from '../engine/memory-migrate.mjs';
 const cfg=()=>json(path.join(kitRoot,'engine/memory.config.json'));
 test('release version and log hygiene',()=>{
- assert.equal(read(path.join(kitRoot,'VERSION')).trim(),'3.2.11');
- assert.equal(cfg().engine_version,'3.2.11');
+ assert.equal(read(path.join(kitRoot,'VERSION')).trim(),'3.2.12');
+ assert.equal(cfg().engine_version,'3.2.12');
 });
 test('log hygiene',()=>{
  assert.ok(!fs.readdirSync(path.join(kitRoot,'tests')).some(n=>/^round4-.*\.log$/.test(n)));

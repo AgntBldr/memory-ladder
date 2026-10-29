@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fixture,ok,tree,read,json,kitRoot,put} from './helpers.mjs';
+import {shellQuoted} from '../engine/install-hooks.mjs';
+import {planInit,rollbackInit} from '../engine/memory-init.mjs';
+import {freshMemoryWrites} from '../engine/memory-setup.mjs';
 import {ownedFiles} from '../scripts/manifest.mjs';
 
 test('memory-init restores a deleted fresh install byte for byte without host writes',t=>{
@@ -17,8 +20,9 @@ test('memory-init restores a deleted fresh install byte for byte without host wr
   const lines=r.stdout.trim().split(/\r?\n/),ordered=lines.filter(line=>/^(memory: |memory-check |next: )/.test(line));
   assert.equal(ordered.length,4);assert.match(ordered[0],/^memory: .* \(default\)$/);
   assert.match(ordered[1],/^memory-check .*0 FAIL, 1 WARN/);
-  assert.equal(ordered[2],`next: git -C "${f.memory}" remote add origin <PRIVATE_REMOTE>`);
-  assert.equal(ordered[3],`next: git -C "${f.memory}" push -u origin HEAD`);
+  assert.equal(ordered[2],`next: git -C ${shellQuoted(f.memory)} remote add origin PRIVATE_REMOTE_URL`);
+  assert.equal(ordered[3],`next: git -C ${shellQuoted(f.memory)} push -u origin HEAD`);
+  assert.ok(lines.includes('Optional: create a private repository on GitHub, then replace PRIVATE_REMOTE_URL in the first command with its address:'));
   assert.deepEqual(tree(f.memory),expected);assert.deepEqual(tree(f.target,{git:true}),host);
   const memoryPrefix=path.relative(f.root,f.memory).replaceAll(path.sep,'/')+'/';
   const outside=entries=>Object.fromEntries(Object.entries(entries).filter(([file])=>!file.startsWith(memoryPrefix)));
@@ -105,6 +109,11 @@ test('memory-init --memory-dir in repo writes inRepoDir and prints no next lines
   const hook=ok(f.cli('scripts/memory/memory-check.mjs',['--hook','--scope','memory'],f.target));
   assert.match(hook.stdout,/0 FAIL/);
   assert.doesNotMatch(init.stdout,/^next:/m);
+  assert.ok(init.stdout.trim().split(/\r?\n/).includes('Review and commit the new notes with your project.'));
+  const planned=['MEMORY.md','current-state.md'].map(name=>[path.join(memory,name),read(path.join(kitRoot,'templates',name))]);
+  const {owned}=planInit({memoryDir:memory,planned,config:json(path.join(f.target,'scripts/memory/memory.config.json')),inRepo:true});
+  assert.ok(fs.readdirSync(memory).every(name=>owned.has(name)));
+  assert.ok(!owned.has('.git'));
 });
 
 test('memory-init refuses differing KIT.local.json memoryDir before creating folder',t=>{
@@ -114,7 +123,7 @@ test('memory-init refuses differing KIT.local.json memoryDir before creating fol
   const memory=path.join(f.root,'requested-memory');
   const init=f.cli('scripts/memory/memory-init.mjs',['--memory-dir',memory],f.target);
   assert.equal(init.status,1);
-  assert.match(init.stderr,/existing KIT\.local\.json differs; resolve its memoryDir before install/);
+  assert.match(init.stderr,/The saved notes folder in KIT\.local\.json is .*but you requested .*Use the saved folder or update memoryDir/);
   assert.ok(!fs.existsSync(memory));
 });
 
@@ -275,7 +284,7 @@ test('memory-init refuses unusable dangling memory path without changing state',
   const before=tree(f.target,{git:true});
   const failed=f.cli('scripts/memory/memory-init.mjs',['--memory-dir',memory],f.target);
   assert.equal(failed.status,1);
-  assert.match(failed.stderr,/memory path exists but is not a usable folder/);
+  assert.match(failed.stderr,/This path is a file or broken link/);
   assert.deepEqual(tree(f.target,{git:true}),before);
 });
 
@@ -286,7 +295,7 @@ test('memory-init refuses existing file memory path without changing state',t=>{
   const before=tree(f.target,{git:true});
   const failed=f.cli('scripts/memory/memory-init.mjs',['--memory-dir',memory],f.target);
   assert.equal(failed.status,1);
-  assert.match(failed.stderr,/memory path exists but is not a usable folder/);
+  assert.match(failed.stderr,/This path is a file or broken link/);
   assert.deepEqual(tree(f.target,{git:true}),before);
 });
 
@@ -299,6 +308,106 @@ test('memory-init refuses outside repo custom path when memory.inRepoDir is conf
   const memory=path.join(f.root,'custom-memory');
   const failed=f.cli('scripts/memory/memory-init.mjs',['--memory-dir',memory],f.target);
   assert.equal(failed.status,1);
-  assert.match(failed.stderr,/memory\.config\.json names an in-repo memory folder \(memory\.inRepoDir\); remove that setting or use --memory-dir <that folder>/);
+  assert.match(failed.stderr,/memory\.config\.json names an in-repo memory folder: .*but you requested .*remove memory\.inRepoDir/);
   assert.ok(!fs.existsSync(memory));
+});
+
+
+test('memory-init owned plan covers successful entries and dry-run names',t=>{
+  const f=fixture(t);ok(f.install());
+  fs.rmSync(f.memory,{recursive:true,force:true});
+  const planned=freshMemoryWrites(f.memory,path.join(kitRoot,'templates'));
+  const {owned}=planInit({memoryDir:f.memory,planned,config:json(path.join(f.target,'scripts/memory/memory.config.json')),inRepo:false});
+  const dry=ok(f.cli('scripts/memory/memory-init.mjs',['--dry-run'],f.target)).stdout;
+  const printed=new Set();
+  for(const line of dry.split(/\r?\n/)) {
+    const match=line.match(/^(?:WRITE (?:and remove )?|INIT )(.*)$/);
+    if(!match || !match[1].startsWith(f.memory+path.sep)) continue;
+    printed.add(match[1].slice(f.memory.length+1).split(' (')[0].split(path.sep)[0]);
+  }
+  assert.deepEqual([...printed].sort(),[...owned].sort());
+  assert.match(dry,/Preview only: no files will be changed\./);
+  assert.ok(dry.trim().endsWith('If you have no backup to restore, run again without --dry-run to create your notes.'));
+  ok(f.cli('scripts/memory/memory-init.mjs',[],f.target));
+  assert.deepEqual(fs.readdirSync(f.memory).sort(),[...owned].filter(name=>name!=='.memory.lock').sort());
+});
+for(const state of ['existing-empty','missing']) test('memory-init rollback preserves foreign entries in '+state,t=>{
+  const f=fixture(t),createdTop=path.join(f.root,'created'),memoryDir=path.join(createdTop,'nested');
+  const configFile=put(path.join(f.target,'config.json'),'changed'),localFile=put(path.join(f.target,'local.json'),'changed');
+  const configBefore=Buffer.from('\ufeff{"saved":true}\r\n'),localBefore=Buffer.from('{"local":true}\r\n');
+  put(path.join(memoryDir,'MEMORY.md'),'owned');put(path.join(memoryDir,'.git','config'),'owned');
+  const foreign=put(path.join(memoryDir,'foreign.txt'),'keep');
+  const result=rollbackInit({memoryDir,owned:new Set(['MEMORY.md','.git']),state,createdTop,configFile,configBefore,localFile,localBeforeExists:true,localBefore,persistWrites:[[configFile],[localFile]],entries:[{file:path.join(memoryDir,'.git'),recursive:true}]});
+  assert.deepEqual(result.problems,[]);assert.deepEqual(result.left,[foreign]);
+  assert.equal(read(foreign),'keep');assert.deepEqual(fs.readdirSync(memoryDir),['foreign.txt']);
+  assert.deepEqual(fs.readFileSync(configFile),configBefore);assert.deepEqual(fs.readFileSync(localFile),localBefore);
+});
+test('memory-init rollback preserves foreign entries in a created ancestor',t=>{
+  const f=fixture(t),createdTop=path.join(f.root,'created'),memoryDir=path.join(createdTop,'nested');
+  put(path.join(memoryDir,'MEMORY.md'),'owned');const foreign=put(path.join(createdTop,'foreign.txt'),'keep');
+  const configFile=put(path.join(f.target,'config.json'),'changed'),localFile=path.join(f.target,'local.json');
+  const result=rollbackInit({memoryDir,owned:new Set(['MEMORY.md']),state:'missing',createdTop,configFile,configBefore:Buffer.from('{}'),localFile,localBeforeExists:false});
+  assert.deepEqual(result,{left:[foreign],problems:[]});assert.ok(!fs.existsSync(memoryDir));assert.equal(read(foreign),'keep');
+});
+
+test('memory-init existing notes dry-run prints only location and unchanged message', t=>{
+  const f=fixture(t);ok(f.install());
+  const result=ok(f.cli('scripts/memory/memory-init.mjs',['--dry-run'],f.target));
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/),[
+    `memory: ${f.memory} (default)`,
+    `memory already exists: ${f.memory}. Nothing was changed. To check it, run node scripts/memory/memory-check.mjs`
+  ]);
+});
+test('memory-init rollback rejects invalid names and preserves unwritten persistence', t=>{
+  const f=fixture(t),memoryDir=path.join(f.root,'notes');fs.mkdirSync(memoryDir);
+  const configFile=put(path.join(f.target,'config.json'),'concurrent edit'),localFile=put(path.join(f.target,'local.json'),'concurrent creation');
+  const sibling=put(path.join(f.root,'sib.txt'),'keep');
+  const names=['','.', '..','../sib.txt','a/b','a\\b',sibling];
+  const result=rollbackInit({memoryDir,owned:new Set(names),state:'existing-empty',configFile,configBefore:Buffer.from('old'),localFile,localBeforeExists:false});
+  assert.equal(result.problems.length,names.length);assert.equal(read(sibling),'keep');
+  assert.equal(read(configFile),'concurrent edit');assert.equal(read(localFile),'concurrent creation');
+});
+test('memory-init rollback reports owned directory and leaves project git intact', t=>{
+  const f=fixture(t),memoryDir=path.join(f.target,'notes');fs.mkdirSync(path.join(memoryDir,'MEMORY.md'),{recursive:true});
+  const before=tree(path.join(f.target,'.git'));
+  const result=rollbackInit({memoryDir,owned:new Set(['MEMORY.md']),entries:[],state:'existing-empty'});
+  assert.equal(result.problems.length,1);assert.deepEqual(result.left,[path.join(memoryDir,'MEMORY.md')]);
+  assert.deepEqual(tree(path.join(f.target,'.git')),before);
+});
+test('memory-init rollback unlinks an owned junction without touching its target', t=>{
+  const f=fixture(t),memoryDir=path.join(f.root,'notes'),other=path.join(f.root,'other');fs.mkdirSync(memoryDir);put(path.join(other,'keep'),'keep');
+  const file=path.join(memoryDir,'.git');
+  try { fs.symlinkSync(other,file,process.platform==='win32'?'junction':'dir'); }
+  catch(error) { if(['EPERM','EACCES','ENOSYS'].includes(error.code)) { t.skip(error.code);return; } throw error; }
+  const result=rollbackInit({memoryDir,owned:new Set(['.git']),entries:[{file,recursive:true}],state:'existing-empty'});
+  assert.deepEqual(result,{left:[],problems:[]});assert.equal(read(path.join(other,'keep')),'keep');
+});
+
+for(const problem of [false,true]) test('memory-init main reports '+(problem?'incomplete rollback':'foreign entry left in place')+' exactly',t=>{
+  const f=fixture(t);ok(f.install());const memory=path.join(f.root,'failed-notes');
+  const script=path.join(f.target,'scripts/memory/memory-init.mjs');
+  const injected=problem
+    ? "const originalRemove=fs.rmSync; fs.rmSync=(file,options)=>{if(file===path.join(memory.dir,'MEMORY.md')) throw new Error('injected removal failure');return originalRemove(file,options);}; throw new Error('injected');"
+    : "fs.writeFileSync(path.join(memory.dir,'foreign.txt'),'keep'); throw new Error('injected');";
+  put(script,read(script).replace('finishMemory({memory,target,engine,configFile,freshMemory:true,newRepo:!inRepo,inRepo});',injected));
+  const result=f.cli('scripts/memory/memory-init.mjs',['--memory-dir',memory],f.target);
+  assert.equal(result.status,1);
+  const expected=problem
+    ? `memory-init rollback could not complete: could not remove ${path.join(memory,'MEMORY.md')}: injected removal failure; left in place: ${path.join(memory,'MEMORY.md')}`
+    : `memory-init rolled back what it created; these entries were left in place: ${path.join(memory,'foreign.txt')}. Review them before you run it again.`;
+  assert.deepEqual(result.stderr.trim().split(/\r?\n/),['memory-init: injected',expected]);
+});
+test('memory-init main explains foreign project hook exactly',t=>{
+  const f=fixture(t);ok(f.install());const memory=path.join(f.target,'notes');
+  put(path.join(f.target,'.git/hooks/pre-commit'),'#!/bin/sh\nexit 0\n');
+  const result=ok(f.cli('scripts/memory/memory-init.mjs',['--memory-dir',memory],f.target));
+  assert.ok(result.stdout.split(/\r?\n/).includes('project hook preserved; add this line to your pre-commit hook (create one if none exists), not as a one-time terminal command:'));
+});
+
+test('memory-init rollback does not rewrite unchanged config bytes',t=>{
+  const f=fixture(t),memoryDir=path.join(f.root,'notes');fs.mkdirSync(memoryDir);
+  const configFile=put(path.join(f.target,'config.json'),'same bytes'),configBefore=fs.readFileSync(configFile),writes=[];
+  const original=fs.writeFileSync;t.mock.method(fs,'writeFileSync',(file,...args)=>{writes.push(file);return original(file,...args);});
+  const result=rollbackInit({memoryDir,owned:new Set(),state:'existing-empty',configFile,configBefore,persistWrites:[[configFile]]});
+  assert.deepEqual(result,{left:[],problems:[]});assert.deepEqual(writes,[]);
 });

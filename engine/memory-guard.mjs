@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {args, isDirect, toolDir, loadConfig} from './lib.mjs';
+import {args, isDirect, toolDir, loadConfig, repoPath} from './lib.mjs';
 
 const hint = 'If the matched text is only inside a commit message or heredoc, write it to a file and pass the file.';
 const errorText = error => String(error.message ?? error).replace(/[\r\n]+/g, ' ');
@@ -8,11 +8,16 @@ const defaultRepo = () => process.env.CLAUDE_PROJECT_DIR || path.resolve(toolDir
 export function loadRules({repo = defaultRepo(), config = loadConfig()} = {}) {
   const errors = [], merged = new Map();
   const kit = config.caps?.guard?.kitRules;
-  const files = [kit ? path.resolve(repo, kit) : path.join(toolDir, 'enforce-rules.kit.json'), path.resolve(repo, config.caps?.guard?.rules ?? 'scripts/memory/enforce-rules.json')];
+  const files = [path.join(toolDir, 'enforce-rules.kit.json'), null];
+  try { if (kit !== undefined) files[0] = repoPath(repo, kit, 'caps.guard.kitRules'); }
+  catch (error) { errors.push({reason: errorText(error)}); }
+  try { files[1] = repoPath(repo, config.caps?.guard?.rules ?? 'scripts/memory/enforce-rules.json', 'caps.guard.rules'); }
+  catch (error) { errors.push({reason: errorText(error)}); }
   for (const file of files) {
+    if (!file) continue;
     let data;
     try { data = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')); }
-    catch (error) { if (error.code === 'ENOENT' && file === files[1] && file !== files[0]) continue; errors.push({file, reason: `rules file ${file} is not valid JSON: ${errorText(error)}`, unparsable: error instanceof SyntaxError}); continue; }
+    catch (error) { if (error.code === 'ENOENT' && file === files[1] && file !== files[0]) continue; errors.push({file, reason: `rules file ${file} is not valid JSON`, unparsable: error instanceof SyntaxError}); continue; }
     if (data?.version !== 1 || !Array.isArray(data.rules)) { errors.push({file, reason:'rules file requires version 1 and a rules array'}); continue; }
     const counts = new Map();
     for (const r of data.rules) counts.set(r?.id, (counts.get(r?.id) ?? 0) + 1);

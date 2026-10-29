@@ -53,7 +53,7 @@ test('L4 listed new FAIL is pre-existing while changed message retains check-fil
   const f = fixture(t); ok(f.install()); const next = bump(f);
   const file = path.join(next, 'engine/memory-check.mjs');
   put(file, read(file).replace('const originals = [...findings];', "add('FAIL', 'router.lines', 'MEMORY.md', null, repo && fs.existsSync(path.join(repo, 'scripts/memory/new-marker.mjs')) ? 'after' : 'before');\n  const originals = [...findings];"));
-  put(path.join(next, 'scripts/upgrade.mjs'), read(path.join(next, 'scripts/upgrade.mjs')).replace('export const NEW_CHECKS = [];', "export const NEW_CHECKS = ['router.lines'];"));
+  put(path.join(next, 'scripts/upgrade.mjs'), read(path.join(next, 'scripts/upgrade.mjs')).replace("export const NEW_CHECKS = ['config.path'];", "export const NEW_CHECKS = ['router.lines'];"));
   put(path.join(next, 'engine/new-marker.mjs'), '// marker\n');
   ok(f.cli('scripts/manifest.mjs', [], next));
   const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target], next));
@@ -72,14 +72,14 @@ test('L4 broken legacy hint child cannot break upgrade and final line stays iden
 test('L4 listed check on a different file after replacement still rolls back', t => {
   const f=fixture(t);ok(f.install());const next=bump(f),file=path.join(next,'engine/memory-check.mjs'),before=tree(f.target);
   put(file,read(file).replace('const originals = [...findings];', "add('FAIL', 'router.lines', repo && fs.existsSync(path.join(repo, 'scripts/memory/new-marker.mjs')) ? 'different.md' : 'MEMORY.md', null, 'injected');\n  const originals = [...findings];"));
-  put(path.join(next,'scripts/upgrade.mjs'),read(path.join(next,'scripts/upgrade.mjs')).replace('export const NEW_CHECKS = [];',"export const NEW_CHECKS = ['router.lines'];"));
+  put(path.join(next,'scripts/upgrade.mjs'),read(path.join(next,'scripts/upgrade.mjs')).replace("export const NEW_CHECKS = ['config.path'];","export const NEW_CHECKS = ['router.lines'];"));
   put(path.join(next,'engine/new-marker.mjs'),'// marker\n');ok(f.cli('scripts/manifest.mjs',[],next));
   const r=f.cli('scripts/upgrade.mjs',['--target',f.target],next);assert.equal(r.status,1);assert.match(r.stderr,/new FAIL: router.lines different.md: injected/);assert.deepEqual(tree(f.target),before);
 });
 
 test('L4 NEW_CHECKS is exactly the new FAIL-capable registry', async () => {
   const {NEW_CHECKS}=await import('../scripts/upgrade.mjs');
-  assert.deepEqual(NEW_CHECKS, []);
+  assert.deepEqual(NEW_CHECKS, ['config.path']);
 });
 
 test('L4 tolerant pre-run filters severity, allowed and unlisted IDs and cleans temporary config', async t => {

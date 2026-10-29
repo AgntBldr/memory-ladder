@@ -113,6 +113,6 @@ test('K.2 environment custom path and existing AGENTS, CLAUDE and duplicate hook
 });
 test('K.2 missing git identity uses commit-only fallback',t=>{
   const f=fixture(t);put(f.env.GIT_CONFIG_GLOBAL,'[core]\n autocrlf = false\n');
-  const r=ok(f.install());assert.match(r.stdout,/baseline uses memory-ladder-kit <kit@localhost>/);
+  const r=ok(f.install());assert.match(r.stdout,/first notes commit uses memory-ladder-kit \(kit@localhost\)/);
   assert.equal(f.git(f.memory,'log','-1','--format=%an <%ae>'),'memory-ladder-kit <kit@localhost>');assert.doesNotMatch(read(f.env.GIT_CONFIG_GLOBAL),/user/);
 });

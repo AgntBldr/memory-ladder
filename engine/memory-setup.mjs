@@ -48,7 +48,7 @@ export function finishMemory({memory,target,engine,configFile,freshMemory,newRep
   if(needsBaseline) {
     let identity=[];
     try { run('git',['-C',memory.dir,'var','GIT_AUTHOR_IDENT']); }
-    catch { identity=['-c','user.name=memory-ladder-kit','-c','user.email=kit@localhost']; console.log('No git identity; baseline uses memory-ladder-kit <kit@localhost> for this commit only'); }
+    catch { identity=['-c','user.name=memory-ladder-kit','-c','user.email=kit@localhost']; console.log('Git has no saved author name and email; the first notes commit uses memory-ladder-kit (kit@localhost) only for this commit.'); }
     run('git',['-C',memory.dir,'add','.']);
     run('git',['-C',memory.dir,...identity,'commit','-m','Baseline memory']);
   }

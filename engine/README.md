@@ -89,6 +89,8 @@ per-file entry under an existing wildcard entry. Never raise a ceiling or a pin 
 make the gate pass: move the detail down a layer. An entry without `ceiling` is for
 files that grow by design until they are rotated (the roadmap and the brain log).
 `secret`, `config.*` and parse-error (`fm.parse` FAIL) findings cannot be allowed.
+Configured project paths are checked by `config.path` (FAIL, cannot be allowlisted). Paths must be relative and remain inside the project, including through symlinks. Install refuses invalid paths before writing.
+
 Missing fields or a bad ceiling fail `config.allow`; an entry for a check the run
 evaluated that matches nothing warns `config.allow-stale` (memory scope skips the
 repo layer, and `--hook` skips the remote/ahead/uncommitted checks).
@@ -352,6 +354,11 @@ decide where the mistake is visible; at four without a decision, record one. Eve
 decision, including lesson-only by default, returns on a strictly later repeat.
 A changed rule becomes a new lesson using `supersedes`; capture its repeat as
 `rule-wrong`. Link shared incident background from each distinct rule's lesson.
+
+## Known limits
+
+Case folding on case-sensitive APFS volumes or case-sensitive Windows folders can treat siblings differing only in case as one; on macOS the folded key is also used as a read path by the gate.
+Rollback ownership is by name: a foreign entry that appears during the run under an owned name can be removed.
 
 ## 3.2.7 checks and operations
 
