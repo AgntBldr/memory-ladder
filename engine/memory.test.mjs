@@ -13,7 +13,8 @@ for(const entry of fs.readdirSync(source,{withFileTypes:true})) {
     fs.copyFileSync(path.join(source,entry.name),path.join(runtime,entry.name));
 }
 fs.writeFileSync(path.join(runtime,'memory.config.json'),JSON.stringify(config));
-if(fs.existsSync(path.join(source,'templates'))) fs.cpSync(path.join(source,'templates'),path.join(runtime,'templates'),{recursive:true});
+const templates=fs.existsSync(path.join(source,'templates'))?path.join(source,'templates'):path.join(source,'../templates');
+if(fs.existsSync(templates)) fs.cpSync(templates,path.join(runtime,'templates'),{recursive:true});
 const saved=process.env.CLAUDE_MEMORY_DIR;
 delete process.env.CLAUDE_MEMORY_DIR;
 after(()=>{

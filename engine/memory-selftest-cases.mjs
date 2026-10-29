@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
-import childProcess, { spawnSync } from 'node:child_process';
+import childProcess, { spawnSync, execFileSync } from 'node:child_process';
 import { loadConfig, toolDir, parseFrontmatter, fmGet, mdLinks, wikilinks, walkMd, utf8Bytes, brainPaths, memoryDir, memorySlug, isDirect, pathKey, read, memoryFiles } from './lib.mjs';
-import { runCheck, ratchetPins, writeAllowlist, findingLine, redact, main as checkMain } from './memory-check.mjs';
+import { runCheck, stagedCheck, ratchetPins, writeAllowlist, findingLine, redact, main as checkMain } from './memory-check.mjs';
 import { buildCorpus, search, runProbes, tokenize, humanResults } from './memory-recall.mjs';
 
 for (const count of [1, 130]) test(`external hook ${count} rows`, async t => {
@@ -1367,6 +1367,12 @@ test('session-start prints at most five lines on failure and exits zero', t => {
 });
 test('session-start missing memory prints exact message and exits zero', t => {
   const f = fixture(t); fs.rmSync(f.memoryDir, { recursive: true });
+  f.putRepo('scripts/memory/KIT.json', '{}');
+  const result = f.cli('memory-check.mjs', ['--session-start']);
+  assert.equal(result.status, 0); assert.equal(result.stdout.trim(), 'memory gate: memory dir not found; run node scripts/memory/memory-init.mjs');
+});
+test('session-start missing memory without receipt retains exact output', t => {
+  const f = fixture(t); fs.rmSync(f.memoryDir, { recursive: true });
   const result = f.cli('memory-check.mjs', ['--session-start']);
   assert.equal(result.status, 0); assert.equal(result.stdout.trim(), 'memory gate: memory dir not found');
 });
@@ -1796,7 +1802,7 @@ test('1000 files by 1000 allow entries stays under the 5000 ms ceiling', t => {
   for (let i = 0; i < 995; i++) f.put(`fact-${i}.md`, f.topic(`fact-${i}`));
   for (let i = 0; i < 1000; i++) f.config.allow.push({ check: 'link.orphan', file: `*${i}*.md`, reason: 'Baseline', added: '2026-10-21' });
   const result = f.check(); assert.equal(result.stats.files, 1000);
-  // A ceiling, not a benchmark: the quadratic version took 2.2 s with no load; other sessions share this machine.
+  // A regression ceiling, not a benchmark; allow headroom for varying machine speed and concurrent load.
   assert.ok(result.stats.ms < 5000, `Gate took ${result.stats.ms} ms`);
   t.diagnostic(`1000 files x 1000 entries: ${result.stats.ms} ms`);
 });
@@ -2210,6 +2216,58 @@ test('migration accepts omitted repo', async t => {
   assert.doesNotThrow(() => migrateRoutes({memoryDir: f.memoryDir, write: true}));
 });
 
+test('untyped brain plain notes have no node findings', t => {
+  const f = fixture(t);
+  f.config.caps.brainNode.lengthChecks = true;
+  f.putRepo('brain/archive/x.md', '# History\nPlain note.\n');
+  f.putRepo('brain/notes/y.md', '---\ntitle: Notes\n---\nPlain note.\n');
+  const result = f.check('all');
+  assert.deepEqual(result.findings.filter(x => ['brain.frontmatter', 'brain.length'].includes(x.check)), []);
+  assert.equal(result.findings.filter(x => x.severity === 'FAIL' && !x.allowed).length, 0);
+});
+
+test('typed brain plain note still requires frontmatter', t => {
+  const f = fixture(t);
+  f.putRepo('brain/99-inbox/node.md', '---\nid: node\ntype: fact\n---\n');
+  f.putRepo('brain/archive/x.md', '# Plain note\n');
+  finding(f.check('all'), 'brain.frontmatter', 'FAIL', 'brain/archive/x.md');
+});
+
+test('untyped brain partial nodes still require both fields', t => {
+  const f = fixture(t);
+  f.putRepo('brain/nodes/id.md', '---\nid: partial\n---\n');
+  f.putRepo('brain/nodes/type.md', '---\ntype: fact\n---\n');
+  for (const key of ['id', 'type']) for (const [i, value] of ['0', 'false', 'null', '""'].entries())
+    f.putRepo(`brain/nodes/${key}-${i}.md`, `---\n${key}: ${value}\n---\n`);
+  const result = f.check('all');
+  for (const name of ['id', 'type']) finding(result, 'brain.frontmatter', 'FAIL', `brain/nodes/${name}.md`);
+  for (const key of ['id', 'type']) for (let i = 0; i < 4; i++)
+    finding(result, 'brain.frontmatter', 'FAIL', `brain/nodes/${key}-${i}.md`);
+});
+
+test('untyped brain malformed plain note keeps parse finding', t => {
+  const f = fixture(t);
+  f.putRepo('brain/archive/x.md', '---\ntitle: Unclosed\n');
+  finding(f.check('all'), 'fm.parse', 'FAIL', 'brain/archive/x.md');
+});
+
+test('untyped brain long plain note skips length only until typed', t => {
+  const f = fixture(t);
+  f.config.caps.brainNode.lengthChecks = true;
+  f.putRepo('brain/archive/x.md', '---\nsummary: ' + 'x'.repeat(f.config.caps.brainNode.warnSummaryChars + 1) + '\n---\n' + 'word '.repeat(f.config.caps.brainNode.warnBodyWords + 1));
+  assert.deepEqual(f.check('all').findings.filter(x => x.check === 'brain.length'), []);
+  f.putRepo('brain/nodes/node.md', '---\nid: node\ntype: fact\n---\n');
+  const result = f.check('all');
+  assert.equal(result.findings.filter(x => x.check === 'brain.length' && x.file === 'brain/archive/x.md').length, 2);
+});
+
+test('typed brain inbox id-only note keeps frontmatter exemption', t => {
+  const f = fixture(t);
+  f.putRepo('brain/nodes/node.md', '---\nid: node\ntype: fact\n---\n');
+  f.putRepo('brain/99-inbox/note.md', '---\nid: inbox-note\n---\n');
+  assert.deepEqual(f.check('all').findings.filter(x => x.check === 'brain.frontmatter'), []);
+});
+
 test('numeric brain id keeps gate findings without crashing', async t => {
   const f = fixture(t), { brainNameSet } = await import('./lib.mjs');
   f.putRepo('brain/nodes/node.md', '---\nid: 123\n---\n');
@@ -2370,4 +2428,137 @@ test('release323 invalid order descending dates has FAIL without date WARN', t =
   f.putRepo('docs/ROADMAP.md', '## Open work\n**2026-10-02**\nB\n**2026-10-01**\nA\n');
   const result = f.check('all'); finding(result, 'config.roadmap-order', 'FAIL');
   assert.ok(!result.findings.some(x => x.check === 'repo.roadmap-order'), 'invalid order emitted repo.roadmap-order');
+});
+
+function initFixture(t) {
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'mem-init-')));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const repo=path.join(root,'project'),engine=path.join(repo,'scripts/memory'),home=path.join(root,'home');
+  fs.mkdirSync(home,{recursive:true});fs.cpSync(toolDir,engine,{recursive:true});
+  const version=loadConfig().engine_version;
+  fs.writeFileSync(path.join(engine,'KIT.json'),JSON.stringify({version}));
+  fs.writeFileSync(path.join(engine,'MANIFEST.json'),JSON.stringify({version,files:{}}));
+  for(const name of ['memory-ladder','memory-review']) {
+    const dir=path.join(repo,'.claude/skills',name);fs.mkdirSync(dir,{recursive:true});
+    fs.writeFileSync(path.join(dir,'SKILL.md'),'---\nmetadata:\n  engine_version: "'+version+'"\n---\n');
+  }
+  const env={...process.env,HOME:home,USERPROFILE:home,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:path.join(home,'gitconfig')};
+  for(const key of ['CLAUDE_MEMORY_DIR','GIT_AUTHOR_NAME','GIT_AUTHOR_EMAIL','GIT_COMMITTER_NAME','GIT_COMMITTER_EMAIL']) delete env[key];
+  fs.writeFileSync(env.GIT_CONFIG_GLOBAL,'[core]\n autocrlf = false\n');
+  const memory=path.join(home,'.claude/projects',memorySlug(repo),'memory');
+  const run=(command,args=[],options={})=>spawnSync(command,args,{cwd:repo,env,encoding:'utf8',timeout:30000,...options});
+  const cli=(args=[])=>run(process.execPath,[path.join(engine,'memory-init.mjs'),...args]);
+  const tree=dir=>Object.fromEntries(fs.readdirSync(dir,{recursive:true,withFileTypes:true}).filter(e=>e.isFile()).map(e=>{const file=path.join(e.parentPath,e.name);return [path.relative(dir,file),fs.readFileSync(file).toString('base64')];}).sort(([a],[b])=>a.localeCompare(b)));
+  return {root,repo,engine,home,env,memory,run,cli,tree};
+}
+for(const scenario of ['dry-run','fresh baseline','repeat','missing receipt','old Node','flag','identity fallback','generated pins']) test('memory-init '+scenario,async t=>{
+  const f=initFixture(t),before=f.tree(f.root);
+  if(scenario==='missing receipt') {
+    fs.unlinkSync(path.join(f.engine,'KIT.json'));const unchanged=f.tree(f.root),r=f.cli();
+    assert.equal(r.status,1);assert.match(r.stderr,/run node .*install\.mjs/);assert.equal(r.stderr.trim().split('\n').length,1);assert.deepEqual(f.tree(f.root),unchanged);return;
+  }
+  if(scenario==='old Node') {
+    const url=pathToFileURL(path.join(f.engine,'memory-init.mjs')).href;
+    const r=f.run(process.execPath,['--input-type=module','-e',`Object.defineProperty(process.versions,'node',{value:'21.0.0'});const {main}=await import(${JSON.stringify(url)});process.exitCode=main([]);`]);
+    assert.equal(r.status,1);assert.match(r.stderr,/Node >=22 required/);assert.deepEqual(f.tree(f.root),before);return;
+  }
+  if(scenario==='dry-run') {
+    const r=f.cli(['--dry-run']);assert.equal(r.status,0,r.stdout+r.stderr);assert.match(r.stdout,/WRITE.*MEMORY\.md/);assert.match(r.stdout,/INDEX-craft-sessions/);assert.match(r.stdout,/pre-commit/);assert.deepEqual(f.tree(f.root),before);return;
+  }
+  const memory=scenario==='flag'?path.join(f.root,'chosen'):f.memory;
+  const r=f.cli(scenario==='flag'?['--memory-dir',memory]:[]);assert.equal(r.status,0,r.stdout+r.stderr);
+  assert.ok(fs.existsSync(path.join(memory,'MEMORY.md')));assert.match(r.stdout,/0 FAIL, [01] WARN/);
+  assert.match(r.stdout,/next: git -C .* remote add origin <PRIVATE_REMOTE>/);assert.match(r.stdout,/next: git -C .* push -u origin HEAD/);
+  const hostBefore=Object.fromEntries(Object.entries(before).filter(([p])=>p.startsWith('project'+path.sep)));
+  const hostAfter=Object.fromEntries(Object.entries(f.tree(f.root)).filter(([p])=>p.startsWith('project'+path.sep)));
+  if(scenario==='flag') {
+    // a chosen folder outside the project is recorded in KIT.local.json, exactly as the installer does; nothing else changes
+    const localKey=path.join('project','scripts','memory','KIT.local.json');
+    assert.ok(hostAfter[localKey],'--memory-dir must record the chosen folder in KIT.local.json');
+    assert.equal(path.resolve(JSON.parse(fs.readFileSync(path.join(f.root,localKey),'utf8')).memoryDir),path.resolve(memory));
+    delete hostAfter[localKey];
+  }
+  assert.deepEqual(hostAfter,hostBefore,'initialization must not write host files');
+  if(scenario==='repeat') {const before=f.tree(f.root),again=f.cli();assert.equal(again.status,0);assert.ok(again.stdout.includes(memory));assert.deepEqual(f.tree(f.root),before);}
+  if(scenario==='flag') assert.match(r.stdout,/\(--memory-dir\)/);
+  if(scenario==='identity fallback') {
+    assert.match(r.stdout,/No git identity; baseline uses memory-ladder-kit <kit@localhost> for this commit only/);
+    assert.equal(f.run('git',['-C',memory,'log','-1','--format=%an <%ae>']).stdout.trim(),'memory-ladder-kit <kit@localhost>');
+    assert.doesNotMatch(read(path.join(memory,'.git/config')),/\[user\]|kit@localhost|memory-ladder-kit/);
+    assert.equal(read(f.env.GIT_CONFIG_GLOBAL),'[core]\n autocrlf = false\n');
+  }
+  if(scenario==='generated pins') {
+    assert.equal(f.tree(f.repo)['scripts'+path.sep+'memory'+path.sep+'memory.config.json'],before[path.join('project','scripts','memory','memory.config.json')]);
+    assert.match(read(path.join(memory,'INDEX-craft-sessions.md')),/^<!-- generated by memory-index/);
+  }
+  if(scenario==='fresh baseline') {
+    assert.equal(f.run('git',['-C',memory,'rev-list','--count','HEAD']).stdout.trim(),'1');
+    const actual=Object.fromEntries(Object.entries(f.tree(memory)).filter(([p])=>!p.startsWith('.git'+path.sep)));
+    assert.deepEqual(f.run('git',['-C',memory,'show','--pretty=format:','--name-only','HEAD']).stdout.trim().split(/\r?\n/).sort(),Object.keys(actual).sort());
+    for(const file of ['MEMORY.md','current-state.md']) assert.equal(read(path.join(memory,file)),read(path.join(f.engine,'templates',file)));
+    assert.equal(f.run('git',['-C',memory,'log','-1','--format=%s']).stdout.trim(),'Baseline memory');
+    // Exercise the same fresh-memory path imported by the installer, without shipping installer tooling.
+    const reference=path.join(f.root,'reference'),setup=pathToFileURL(path.join(f.engine,'memory-setup.mjs')).href;
+    const script=`import {freshMemoryWrites,write,finishMemory} from ${JSON.stringify(setup)}; const memory={dir:${JSON.stringify(reference)}}; for(const [file,data] of freshMemoryWrites(memory.dir,${JSON.stringify(path.join(f.engine,'templates'))})) write(file,data);finishMemory({memory,target:${JSON.stringify(f.repo)},engine:${JSON.stringify(f.engine)},configFile:${JSON.stringify(path.join(f.engine,'memory.config.json'))},freshMemory:true,newRepo:true,inRepo:false});`;
+    const baseline=f.run(process.execPath,['--input-type=module','-e',script]);assert.equal(baseline.status,0,baseline.stdout+baseline.stderr);
+    assert.deepEqual(actual,Object.fromEntries(Object.entries(f.tree(reference)).filter(([p])=>!p.startsWith('.git'+path.sep))));
+  }
+});
+
+for(const scenario of ['tracked','missing','untracked','staged add','anchor','directory','inside staged content','external unchanged','snapshot bounded']) test('staged sibling '+scenario,t=>{
+  const f=initFixture(t),memory=scenario==='external unchanged'?path.join(f.root,'external'):path.join(f.repo,'memory');
+  fs.mkdirSync(memory,{recursive:true});
+  const gitRoot=scenario==='external unchanged'?memory:f.repo;
+  const git=(...args)=>{const r=f.run('git',['-C',gitRoot,...args]);assert.equal(r.status,0,r.stdout+r.stderr);return r;};
+  git('init');
+  const put=(file,text)=>{const dest=path.join(f.repo,file);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.writeFileSync(dest,text);};
+  const target=scenario==='directory'?'../brain/folder.md':scenario==='inside staged content'||scenario==='external unchanged'?'note.md':'../brain/x.md'+(scenario==='anchor'?'#missing-heading':'');
+  fs.writeFileSync(path.join(memory,'MEMORY.md'),'# Memory\n[Target]('+target+')\n');
+  const note='---\nname: note\ndescription: Useful fact.\n---\n# Note\n';
+  if(['inside staged content','external unchanged'].includes(scenario)) fs.writeFileSync(path.join(memory,'note.md'),note);
+  if(['tracked','staged add','anchor','snapshot bounded'].includes(scenario)) {put('brain/x.md','# Target\n');git('add','brain/x.md');}
+  if(scenario==='untracked') put('brain/x.md','# Target\n');
+  if(scenario==='directory') {put('brain/folder.md/child.txt','child\n');git('add','brain/folder.md');}
+  if(scenario==='snapshot bounded') {for(let i=0;i<48;i++)put('large/file-'+i+'.txt','x'.repeat(2048));git('add','large');}
+  git('add',scenario==='external unchanged'?'.':'memory');
+  if(scenario==='tracked'||scenario==='anchor') {
+    git('-c','user.name=fixture','-c','user.email=fixture@example.invalid','commit','-m','Baseline');
+    fs.appendFileSync(path.join(memory,'MEMORY.md'),'\n');git('add','memory');
+  }
+  if(scenario==='inside staged content') {
+    // The index contains a valid note even though the working copy now contains a parse error.
+    fs.writeFileSync(path.join(memory,'note.md'),'---\nname: [\n---\n');
+  }
+  const config={...structuredClone(loadConfig()),pins:{},allow:[]};
+  const options={memoryDir:memory,repo:f.repo,scope:'memory',config,noGit:true,hook:true};
+  const full=runCheck({...options,hook:false});
+  let extracted=[];
+  t.mock.method(childProcess,'execFileSync',function(command,args,opts){
+    const result=execFileSync(command,args,{...opts,env:f.env});
+    if(args.includes('checkout-index')) {
+      const prefix=args.find(a=>a.startsWith('--prefix=')).slice(9);
+      extracted=Object.keys(f.tree(prefix));
+    }
+    return result;
+  });
+  const staged=stagedCheck(options),dead=result=>result.findings.filter(x=>x.check==='link.dead'),fails=result=>result.findings.filter(x=>x.severity==='FAIL'&&!x.allowed);
+  if(['missing','untracked','directory'].includes(scenario)) assert.equal(dead(staged).length,1,JSON.stringify(staged.findings));
+  else assert.deepEqual(fails(staged),[]);
+  if(scenario==='untracked') assert.deepEqual(dead(full),[],'full mode accepts an existing untracked file');
+  if(['anchor','directory'].includes(scenario)) assert.deepEqual(dead(staged),dead(full));
+  if(scenario==='inside staged content') {
+    assert.ok(fails(full).length,'working-tree damage must be observed in full mode');
+    git('add','memory/note.md');fs.writeFileSync(path.join(memory,'note.md'),note);
+    assert.ok(fails(stagedCheck(options)).length,'staged damage must be observed despite a healthy working copy');
+    git('rm','--cached','-f','memory/note.md');
+    assert.equal(dead(stagedCheck(options)).length,1,'an unstaged memory target cannot satisfy the staged link');
+  }
+  if(scenario==='external unchanged') {
+    assert.deepEqual(staged.findings,full.findings.filter(x=>x.check!=='repo.git-skipped'));assert.deepEqual(staged.externalEdges,full.externalEdges);
+    const nested=path.join(memory,'nested');fs.mkdirSync(nested);
+    fs.writeFileSync(path.join(nested,'MEMORY.md'),'# Memory\n[Note](../note.md)\n');git('add','nested');
+    assert.equal(dead(stagedCheck({...options,memoryDir:nested})).length,1,'external subfolders retain their existing snapshot-only behavior');
+  }
+  assert.ok(extracted.every(file=>scenario==='external unchanged'||file.startsWith('memory'+path.sep)),'snapshot includes non-memory files: '+extracted.join(','));
+  if(scenario==='snapshot bounded') assert.equal(extracted.length,1);
 });

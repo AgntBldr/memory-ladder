@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.2.11
+
+`memory-init` creates missing private memory for an installed engine with the installer's templates, generated indexes, baseline commit, gate, and hook, records a chosen `--memory-dir` using the installer's persistence rules, treats an empty existing notes folder as missing, and rolls back its own changes on failure.
+
+In-repo pre-commit checks incorrectly reported tracked sibling Markdown targets as dead links. Checked relative links outside memory but inside the same repository now use the Git index, including staged additions; memory targets still use the staged snapshot. `upgrade.mjs` does not reinstall the hook, and the hook script is unchanged: updating the installed `memory-check.mjs` repairs existing hooks. A glossary sentence and a self-test comment that described the maintainer's own setup were reworded for any user. No other behaviour change.
+
+- Upgrade from 3.2.10 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then
+  `node scripts/upgrade.mjs --target <PROJECT>`; kit-owned files are replaced with a backup; edited skills and host files are kept. Run the installed gate.
+
+## 3.2.10
+
+Plain notes in a brain with no typed nodes incorrectly raised brain.frontmatter FAIL and could prevent pre-commit hook installation. When no discovered brain file has both id and type, files with neither field now skip brain.frontmatter and brain.length. Partial nodes retain their checks; typed brains retain all existing node checks, and 99-inbox/ retains its frontmatter exemption. Parse findings, secret scanning, duplicate IDs, edges and reachability are unchanged. No other behaviour change.
+
+- Upgrade from 3.2.9 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then
+  `node scripts/upgrade.mjs --target <PROJECT>`; kit-owned files are replaced with a backup; edited skills and host files are kept. Run the installed gate.
+- If the install skipped the pre-commit hook, run `node scripts/memory/install-hooks.mjs --repo . --memory-dir <MEMORY_DIR>` once the gate shows 0 FAIL.
+
 ## 3.2.9
 
 - Wording only; no behaviour change. Commands, flags, outputs (except version strings), caps and detections are unchanged.

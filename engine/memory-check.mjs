@@ -95,7 +95,7 @@ function notEvaluated(entry, scope, hook, noGit = false, inRepo = false, quick =
   return /^(?:brain\.|repo\.(?:brain-log|brain-index|roadmap|roadmap-order|roadmap-overview|agents|skill-version)$)/.test(entry.check) || /^(?:brain|docs)\//.test(pathSpelling(entry.file));
 }
 
-export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig(), now = new Date(), today = new Date(now).toISOString().slice(0, 10), hook = false, noGit = false, quick = false, upgradesFile }) {
+export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig(), now = new Date(), today = new Date(now).toISOString().slice(0, 10), hook = false, noGit = false, quick = false, upgradesFile, stagedLinkExists }) {
   const started = performance.now();
   requireMemory(memoryDir);
   if (!['all', 'memory'].includes(scope)) throw new Error('scope must be all or memory');
@@ -223,6 +223,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     const text = read(path.join(repo, config.brain?.dir ?? 'brain', file));
     return { file: `${config.brain?.dir ?? 'brain'}/${file}`, inbox: pathSpelling(file).startsWith('99-inbox/'), text, ...parseFrontmatter(text) };
   });
+  const untypedBrain = !brains.some(f => fmGet(f.data, 'id') && fmGet(f.data, 'type'));
   const brainNames = brainNamesFromNodes(brains);
   const brainSubjects = new Set(brains.map(f => fmGet(f.data, 'id')).filter(id => typeof id === 'string')
     .map(id => id.replace(/^[a-z]{3}-/, '').replace(/-\d{4}-\d{2}(?:-\d{2})?$/, '')));
@@ -238,7 +239,8 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       for (const target of mdLinks(f.text)) {
         const absolute = pathKey(memoryDir, target);
         linked.add(absolute);
-        if (!memoryPaths.has(absolute) && (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile())) {
+        const exists = stagedLinkExists?.(target) ?? (fs.existsSync(absolute) && fs.statSync(absolute).isFile());
+        if (!memoryPaths.has(absolute) && !exists) {
           const line = f.text.split(/\r?\n/).findIndex(text => mdLinks(text).includes(target)) + 1;
           add('FAIL', 'link.dead', f.file, line || null, `missing target ${target}`);
         }
@@ -514,7 +516,8 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     for (const f of brains) {
       parseCheck(f);
       const id = fmGet(f.data, 'id');
-      if (!f.inbox && (!id || !fmGet(f.data, 'type'))) add('FAIL', 'brain.frontmatter', f.file, null, 'node requires id and type');
+      const plainNote = untypedBrain && id === undefined && fmGet(f.data, 'type') === undefined;
+      if (!f.inbox && !plainNote && (!id || !fmGet(f.data, 'type'))) add('FAIL', 'brain.frontmatter', f.file, null, 'node requires id and type');
       const idKey = `${pathSpelling(f.file).startsWith(pathSpelling(`${config.brain?.dir ?? 'brain'}/_shared/`)) ? 'shared' : 'project'}:${id}`;
       if (id && ids.has(idKey)) add('FAIL', 'brain.duplicate-id', f.file, null, `id also used by ${ids.get(idKey)}`);
       else if (id) ids.set(idKey, f.file);
@@ -530,7 +533,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
           unresolved(f, 'edges', target, `unresolved edges target ${target}`);
         }
       }
-      if (caps.brainNode.lengthChecks) {
+      if (!plainNote && caps.brainNode.lengthChecks) {
         const words = f.body.trim().split(/\s+/).filter(Boolean).length;
         const summary = String(fmGet(f.data, 'summary') ?? '').length;
         if (words > caps.brainNode.warnBodyWords) add('WARN', 'brain.length', f.file, null, `${words} body words`, words);
@@ -620,10 +623,12 @@ export function writeAllowlist({ result, config, reason, configFile = path.join(
 }
 export function main(argv = process.argv.slice(2)) {
   const session = argv.includes('--session-start'), hook = argv.includes('--hook');
+  let sessionRepo;
   try {
     const opts = args(argv);
     if (opts.help) { console.log('Usage: node scripts/memory/memory-check.mjs [--memory-dir PATH] [--repo PATH] [--scope all|memory] [--json] [--session-start] [--hook] [--ratchet-pins] [--write-allowlist REASON] [--config FILE]'); return 0; }
     const loc = locations(opts);
+    sessionRepo = loc.repo;
     requireMemory(loc.memoryDir);
     const configFile = opts.config ? path.resolve(opts.config) : path.join(toolDir, 'memory.config.json');
     const config = JSON.parse(read(configFile));
@@ -661,25 +666,38 @@ export function main(argv = process.argv.slice(2)) {
       const blocked = error.code === 'SNAPSHOT_EXTRACTION';
       console.log(`memory gate: ${blocked ? 'commit blocked' : 'error'}: ${message}`); return blocked ? 1 : 0;
     }
-    console.log(session ? (message === 'memory dir not found' ? 'memory gate: memory dir not found' : `memory gate: error ${message}`) : `memory-check: error ${message}`);
+    console.log(session ? (message === 'memory dir not found' ? 'memory gate: memory dir not found' + (sessionRepo && fs.existsSync(path.join(sessionRepo,'scripts/memory/KIT.json')) ? '; run node scripts/memory/memory-init.mjs' : '') : `memory gate: error ${message}`) : `memory-check: error ${message}`);
     return session ? 0 : 1;
   }
 }
 export function stagedCheck(options) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-stage-'));
   let snapshot = temp;
+  let stagedLinkExists;
   try {
     try {
       const memoryDir = fs.realpathSync(options.memoryDir);
       const root = fs.realpathSync(childProcess.execFileSync('git', ['-C', memoryDir, 'rev-parse', '--show-toplevel'], {encoding: 'utf8', stdio: 'pipe', timeout: 30000}).trim());
       const relative = path.relative(root, memoryDir);
       if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('memory directory outside git root');
+      if (relative && inRepoMemory(options.repo, memoryDir)) {
+        // Read index metadata only; sibling contents never enter the memory snapshot.
+        const indexed = childProcess.execFileSync('git', ['-C', root, 'ls-files', '--cached', '--stage', '-z'], {encoding:'utf8', stdio:'pipe', timeout:30000, maxBuffer:32 * 1024 * 1024});
+        const paths = new Set(indexed.split('\0').filter(row=>/^(?:100644|100755|120000) [0-9a-f]+ 0\t/.test(row)).map(row=>pathKey(root,row.slice(row.indexOf('\t')+1))));
+        const within = (base, file) => { const rel=path.relative(base,file);return rel!== '..' && !rel.startsWith('..'+path.sep) && !path.isAbsolute(rel); };
+        stagedLinkExists = target => {
+          if(path.isAbsolute(target) || path.win32.isAbsolute(target)) return undefined;
+          const absolute=path.resolve(memoryDir,target);
+          if(within(memoryDir,absolute) || !within(root,absolute)) return undefined;
+          return paths.has(pathKey(absolute));
+        };
+      }
       snapshot = path.join(temp, relative);
       const entries = childProcess.execFileSync('git', ['-C', memoryDir, 'ls-files', '--cached', '--full-name', '-z', '--', '.'], {stdio: 'pipe', timeout: 30000, maxBuffer: 32 * 1024 * 1024});
       childProcess.execFileSync('git', ['-C', root, 'checkout-index', '--force', '-z', '--stdin', '--prefix=' + temp.replace(/\\/g, '/') + '/'], {input: entries, stdio: 'pipe', timeout: 30000});
       fs.mkdirSync(snapshot, {recursive: true});
     } catch (error) { throw Object.assign(new Error('staged snapshot extraction failed: ' + error.message), {code: 'SNAPSHOT_EXTRACTION'}); }
-    const result = runCheck({...options, memoryDir: snapshot, noGit: true});
+    const result = runCheck({...options, memoryDir: snapshot, noGit: true, stagedLinkExists});
     result.findings = result.findings.filter(f => f.check !== 'repo.git-skipped');
     if (!options.noGit) gitState(fs.realpathSync(options.memoryDir), memoryFiles(snapshot), options.config.caps, options.today ?? options.now ?? new Date(), (severity, check, file, line, message, value) => result.findings.push({severity, check, file, line, message, value}), true);
     return result;

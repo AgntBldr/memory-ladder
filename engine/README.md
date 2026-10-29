@@ -17,6 +17,8 @@ resolve after installation under `scripts/memory/`; in the kit tree these guides
 
 ## Commands, ladder and caps
 
+`node scripts/memory/memory-init.mjs [--memory-dir <MEMORY>] [--dry-run]` creates missing private memory when the engine is already installed. It uses the installer's memory setup, runs the gate and installs the hook; an existing folder is left unchanged. It prints private remote setup commands only for memory outside the repository (none for memory inside it).
+
 Stage 2: `memory-migrate.mjs convert --memory-dir D [--source FILE]
 [--classes FILE] [--tag NAME] [--write]` splits original lesson blocks without changing their
 body bytes (including CRLF). The default is a JSON dry run. A classes JSON object

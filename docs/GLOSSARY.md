@@ -46,6 +46,8 @@ Paths below are relative to the project unless marked as kit paths; memory filen
 
 **memory repo** - The Git repository tracking the memory folder so earlier states can be recovered and authorized checkpoints backed up to a private remote. Where: memory folder `.git`, or its tracked parent repository. See also: memory folder, memory pre-commit hook, checkpoint.
 
+**memory-init** - `node scripts/memory/memory-init.mjs [--memory-dir <MEMORY>] [--dry-run]` creates missing private memory for an installed engine, using the installer's folder resolution, templates, generated indexes, baseline commit, gate and hook. Existing folders are left unchanged; the output prints private remote setup commands for memory outside the repository and none for memory inside it. Where: `memory-init.mjs`, with shared installer setup in `memory-setup.mjs`. See also: install, memory folder.
+
 **old-name stub** - A small recovery file left at a moved file's old name, with `moved_to:` naming existing memory files or project `brain/...` files; follow it and do not grow it into a second copy. Where: original memory filename. See also: stub.target, conversion.
 
 **pin** - In lesson metadata, `pin: true` keeps an active lesson on its generated hot page; in config, a numeric index pin is a byte ceiling for a hand-written index, a separate meaning. Where: lesson `metadata.pin` or `memory.config.json` `pins`. See also: pin ceiling, hot page, supersedes.
@@ -80,9 +82,9 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 **brain.edge** - WARN when a node's relation target cannot resolve, except configured shared-folder targets reported as external edges; repair the target or review the intentional unresolved reference, with no numeric threshold. Where: brain frontmatter relation fields or `edges` list. See also: edge, caps.brainShared.
 
-**brain.frontmatter** - FAIL when a discovered brain node lacks `id` or `type`; add the correct fields, with no numeric threshold. Where: brain node frontmatter. See also: node type, frontmatter.
+**brain.frontmatter** - FAIL when a discovered brain file outside `99-inbox/` lacks `id` or `type`, except that a plain note with neither field is exempt when no discovered file (including inbox files) has both fields. A file with only one field outside `99-inbox/` still fails. Once any file has both fields, every discovered non-inbox subfolder file requires both. Add the correct fields, with no numeric threshold. Where: brain node frontmatter. See also: node type, frontmatter.
 
-**brain.length** - Optional WARN above 350 body words or 200 summary characters; disabled by default, and fixed by separating facts or shortening the summary. Where: brain nodes; `caps.brainNode`. See also: summary.
+**brain.length** - Optional WARN above 350 body words or 200 summary characters; disabled by default. Skipped for plain notes with neither `id` nor `type` only when no discovered brain file (including inbox files) has both fields. Partial nodes and every discovered file in a typed brain retain the length checks, including inbox files. Fix by separating facts or shortening the summary. Where: brain nodes; `caps.brainNode`. See also: summary.
 
 **brain.pointer** - FAIL when a memory `brain:` value is not a valid existing `brain/...` file inside the project; repair the pointer, with no numeric threshold. Where: memory frontmatter. See also: brain pointer.
 
@@ -176,7 +178,7 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 **lessons.duplicate** - FAIL for repeated full lesson numbers, including suffixes; reconcile identities and repair citations, with no numeric allowance for duplicates. Where: memory lesson filenames. See also: lesson number.
 
-**link.dead** - FAIL for a missing Markdown target in router/index/archive navigation or a missing linked background reached from those roots; restore or correct the link, with no numeric threshold. Where: memory navigation and linked parents. See also: background file.
+**link.dead** - FAIL for a missing Markdown target in router/index/archive navigation or a missing linked background reached from those roots; restore or correct the link, with no numeric threshold. Where: memory navigation and linked parents. For in-repo memory, checked relative Markdown links outside memory but inside the same repository use indexed files in hook mode, including staged additions; untracked files and directories do not satisfy them. Targets inside memory use the staged snapshot, and anchors retain full-mode handling. See also: background file.
 
 **link.orphan** - WARN for a non-stub topic not reachable through navigation roots and their memory links; link it from the right index or parent, with no numeric threshold. Where: memory folder. See also: index page.
 
@@ -654,7 +656,7 @@ are not copied.
 
 **split.chain** - Chain scan result contains parts with file, parent and integer n, and problems with file, kind and detail. Numbering, gaps and parent order remain report-only. Where: engine/memory-chains.mjs. See also: memory-chains.mjs scan, memory-chains.mjs repair.
 
-**verbatim payload** - BEGIN VERBATIM PAYLOAD through END VERBATIM PAYLOAD HTML comment blocks preserve long lines during repair. Measured long-line wave: 76 lines in eight memories, with 48 in verbatim blocks, five list items and 23 repairable paragraphs. Where: engine/memory-chains.mjs. See also: memory-chains.mjs lines, caps.topic.warnLineChars.
+**verbatim payload** - BEGIN VERBATIM PAYLOAD through END VERBATIM PAYLOAD HTML comment blocks preserve long lines during repair. Verbatim blocks and list items remain unchanged; eligible prose paragraphs can be split at sentence boundaries. Where: engine/memory-chains.mjs. See also: memory-chains.mjs lines, caps.topic.warnLineChars.
 
 ## 3.2.7 gate, recall and measurement
 

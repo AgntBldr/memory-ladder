@@ -16,11 +16,11 @@ export function tree(root,{git=false,previous=false}={}) {
   return Object.fromEntries(files(root).filter(f=>(git||!f.split('/').includes('.git'))&&(previous||!f.split('/').some(p=>p.startsWith('.kit-backup-')))).map(f=>[f,fs.readFileSync(path.join(root,f)).toString('base64')]));
 }
 export function fixture(t) {
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'kit-')), target=path.join(root,'project'),home=path.join(root,'home');
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'kit-'))), target=path.join(root,'project'),home=path.join(root,'home');
   fs.mkdirSync(target); fs.mkdirSync(home);
   const env={...process.env,HOME:home,USERPROFILE:home,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:path.join(home,'.gitconfig')};
   delete env.CLAUDE_MEMORY_DIR;
-  put(env.GIT_CONFIG_GLOBAL,'[user]\n name = kit-test\n email = kit-test@example.invalid\n[core]\n autocrlf = false\n');
+  put(env.GIT_CONFIG_GLOBAL,'[user]\n name = kit-test\n email = kit-test@example.invalid\n[core]\n autocrlf = false\n longpaths = true\n');
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const exec=(command,args,opts={})=>{
     const r=spawnSync(command,args,{encoding:'utf8',env,cwd:target,timeout:120000,...opts}); assert.ifError(r.error);return r;

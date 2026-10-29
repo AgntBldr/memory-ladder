@@ -13,8 +13,8 @@ import {fleet} from '../engine/memory-fleet.mjs';
 import {migrateRoutes} from '../engine/memory-migrate.mjs';
 const cfg=()=>json(path.join(kitRoot,'engine/memory.config.json'));
 test('release version and log hygiene',()=>{
- assert.equal(read(path.join(kitRoot,'VERSION')).trim(),'3.2.9');
- assert.equal(cfg().engine_version,'3.2.9');
+ assert.equal(read(path.join(kitRoot,'VERSION')).trim(),'3.2.11');
+ assert.equal(cfg().engine_version,'3.2.11');
 });
 test('log hygiene',()=>{
  assert.ok(!fs.readdirSync(path.join(kitRoot,'tests')).some(n=>/^round4-.*\.log$/.test(n)));
@@ -69,7 +69,7 @@ test('fleet status never executes clean filters',t=>{
 test('installed selftest ignores host config local and environment',t=>{
  const f=fixture(t);ok(f.install());const config=cfg();config.caps.roadmap.path='roadmap.md';config.caps.router.failLineChars=1200;config.brain={dir:'custom-brain'};
  put(path.join(f.target,'scripts/memory/memory.config.json'),JSON.stringify(config));put(path.join(f.target,'scripts/memory/KIT.local.json'),'{"memoryDir":"host-only"}');
- const env={...f.env,CLAUDE_MEMORY_DIR:path.join(f.root,'host-env')};delete env.NODE_TEST_CONTEXT; const r=f.exec(process.execPath,['--test',path.join(f.target,'scripts/memory/memory.selftest.mjs')],{env,timeout:120000});assert.equal(r.status,0,r.stdout+r.stderr);assert.match(r.stdout,/# tests 361/);
+ const env={...f.env,CLAUDE_MEMORY_DIR:path.join(f.root,'host-env')};delete env.NODE_TEST_CONTEXT; const r=f.exec(process.execPath,['--test',path.join(f.target,'scripts/memory/memory.selftest.mjs')],{env,timeout:120000});assert.equal(r.status,0,r.stdout+r.stderr);assert.match(r.stdout,/# tests 385/);
 });
 test('resolved environment memory accepted',t=>{const f=fixture(t), dir=path.join(f.target,'.claude/memory');put(path.join(dir,'MEMORY.md'),'# Memory');assert.doesNotThrow(()=>checkMemoryRouter(f.target,{dir},{},instructions(f.target)));});
 test('bare first worktree keeps current checkout',t=>{const f=fixture(t), bare=path.join(f.root,'bare.git'), wt=path.join(f.root,'checkout');f.git(f.target,'add','.');f.git(f.target,'commit','-m','fixture');f.git(f.root,'clone','--bare',f.target,bare);f.git(bare,'worktree','add',wt);assert.equal(mainWorktree(wt),wt);});

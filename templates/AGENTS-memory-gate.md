@@ -1,5 +1,7 @@
 ## Memory gate
 
+- If the private memory folder is absent, run `node scripts/memory/memory-init.mjs` from the project root.
+
 - At session start and every checkpoint run `node scripts/memory/memory-check.mjs`; fix or report every FAIL.
 - Claude Code uses SessionStart; other agents run the gate manually. Memory pre-commit runs `--hook --scope memory`.
 - Before opening indexes run `node scripts/memory/memory-recall.mjs "<question>"`; honor the router's activity triggers.

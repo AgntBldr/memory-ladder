@@ -14,7 +14,7 @@ session with one short handover. It is plain Node with no package dependencies, 
 ## How it fits together
 
 - **The memory** is a folder of Markdown files outside your project, with its own Git repository. The install
-  creates it. It holds `MEMORY.md` (the router: hard rules, active work and links to the indexes), index files that
+  creates it; when the engine is already installed but the folder is absent, run `node scripts/memory/memory-init.mjs` from the project root. It holds `MEMORY.md` (the router: hard rules, active work and links to the indexes), index files that
   list lessons, one file per lesson, and `current-state.md` with a single `## CURRENT` block that says where the
   work stands.
 - **The gate** is `scripts/memory/memory-check.mjs` in your project. It checks the memory's size and structure and
@@ -64,7 +64,7 @@ In these steps, `<PROJECT>` is the full path of your project folder. The engine 
      character that is not a letter or a digit replaced by `-`. On Windows, `~` is your `%USERPROFILE%` folder,
      and the slug is derived from the project path. The label in brackets after the path says
      how the folder was chosen; on a first install it can read `(--memory-dir)` even when you passed no flag.
-   - The gate summary looks like `memory-check 3.2.9 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
+   - The gate summary looks like `memory-check 3.2.11 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
      install worked.** The one WARN is `repo.remote`: the new memory repository has no remote yet. Step 4 adds it.
 
 4. Back up the memory. Replace `<PRIVATE_REMOTE>` with the clone URL of your private remote:
@@ -177,8 +177,7 @@ Run `memory-measure.mjs --write <name>` again later and compare the two `.md` fi
 
 **On another computer.** Clone the memory's private remote into the folder the gate expects
 (`git clone <PRIVATE_REMOTE> <MEMORY>`), then run the gate. Until the memory is there, the session-start hook
-prints `memory gate: memory dir not found`. A teammate who clones the project sees the same line until they set up
-their own memory.
+prints `memory gate: memory dir not found; run node scripts/memory/memory-init.mjs` when the kit is installed. Run that command to create a new private memory, or clone an existing private memory before running the gate.
 
 ## Update to a new release
 

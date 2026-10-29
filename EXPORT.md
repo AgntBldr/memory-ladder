@@ -1,1 +1,1 @@
-Memory ladder 3.2.9 public distribution.
+Memory ladder 3.2.11 public distribution.

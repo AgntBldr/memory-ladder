@@ -2,7 +2,7 @@
 name: memory-review
 description: Audit this project's v3 memory with the Node gate and repair only reported FAIL or WARN findings. Use for memory review, checkpoint checks, or fixing stale, oversized, or broken memory.
 metadata:
-  engine_version: "3.2.9"
+  engine_version: "3.2.11"
 ---
 
 # Review v3 memory
