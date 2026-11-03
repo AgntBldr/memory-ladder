@@ -965,7 +965,7 @@ test('stage2 splitter refuses malformed candidates, invalid classes and clobbers
 });
 
 for (const file of ['MEMORY.md', 'INDEX-craft-verification.md']) test(`stage2 lessons.cite ${file}`, t => {
-  const f = fixture(t); f.put(file, '# Activity\n#54b #54 #999\n');
+  const f = fixture(t); f.put(file, '# Activity\nlessons #54b, #54 and #999\n');
   assert.ok(!f.check().findings.some(x => x.check === 'lessons.cite'));
   f.put('lesson-054b-test.md', f.topic('lesson-054b-test'));
   const citations = f.check().findings.filter(x => x.check === 'lessons.cite');
@@ -1844,11 +1844,11 @@ test('R6 slug replaces every nonalphanumeric and lookup keeps case fallback and 
   t.after(() => { if (old === undefined) delete process.env.CLAUDE_MEMORY_DIR; else process.env.CLAUDE_MEMORY_DIR = old; });
   t.mock.method(os, 'homedir', () => f.root);
   assert.equal(memorySlug(path.win32.join('C:' + String.fromCharCode(92), 'Users', 'x', 'Repo', '.claude', 'worktrees', 'a.b')), 'C--Users-x-Repo--claude-worktrees-a-b');
-  const repo = path.join(f.root, '.claude/worktrees/a.b'), projects = path.join(f.root, '.claude/projects');
+  const repo = path.join(f.root, 'Repo', '.claude/worktrees/a.b'), projects = path.join(f.root, '.claude/projects');
   const slug = memorySlug(path.resolve(repo)), exact = path.join(projects, slug, 'memory');
   fs.mkdirSync(exact, { recursive: true }); assert.equal(memoryDir(repo), exact);
   fs.rmSync(path.join(projects, slug), { recursive: true });
-  const lower = path.join(projects, slug.toLowerCase(), 'memory'); fs.mkdirSync(lower, { recursive: true });
+  const lower = path.join(projects, slug.toLowerCase(), 'memory'); assert.notEqual(lower, exact); fs.mkdirSync(lower, { recursive: true });
   // Force the exact-case miss on case-insensitive filesystems to exercise fallback.
   const exists = fs.existsSync.bind(fs);
   t.mock.method(fs, 'existsSync', file => file === exact ? false : exists(file));

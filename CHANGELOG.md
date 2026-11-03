@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.3.2
+
+- Saving a first lesson no longer makes pull-request or deploy numbers fail the memory gate.
+- Lesson citations must be numbered Markdown links such as `[#015](lesson-015-x.md)`, or numbers introduced by `lesson` or `lessons`, including a continuing list. Missing lessons still fail.
+- A numbered lesson link must agree with the number in its lesson filename. Bare numbers such as pull-request numbers are no longer read as lessons; numbers in code and URLs are ignored.
+
 ## 3.3.1
 
 Start replies and /handover reports now use grouped bullets. A new Reports line in AGENTS.md asks for short groups, file and board links, and a statement about whether it is safe to compact.

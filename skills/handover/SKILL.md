@@ -2,7 +2,7 @@
 name: handover
 description: /handover, /handover quick; whole message handover, hand over, do a handover, lets do a handover, end session, end of session, session end, quick handover. Offer at stage end/wrap-up; the user decides.
 metadata:
-  engine_version: "3.3.1"
+  engine_version: "3.3.2"
 ---
 Full by default: /handover, phrases without "quick".
 Put Note: text in state within its cap.

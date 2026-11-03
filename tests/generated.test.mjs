@@ -181,7 +181,7 @@ test('S4 stale dead-pid locks break but live-pid and foreign-host locks remain',
 
 test('S5 duplicate full identities, four-digit citations, TODO and route validation', t => {
   const f = fixture(t); f.lesson('114c'); f.lesson('1000');
-  f.put('MEMORY.md', '#114c #1000\n- [Craft](INDEX-craft.md) Testing.\n');
+  f.put('MEMORY.md', 'lessons #114c and #1000\n- [Craft](INDEX-craft.md) Testing.\n');
   f.put('INDEX-craft.md', marker + '\n');
   f.lesson('002', '', 'TODO');
   f.put('lesson-003-other.md', '---\nname: lesson-003-other\ndescription: Other.\n---\n');

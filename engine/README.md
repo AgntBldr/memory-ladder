@@ -27,8 +27,11 @@ Write mode refuses unparsed candidates and existing targets, writes lesson files
 and index lines first, then replaces the source with a recovery stub. A stub run
 is a no-op. Missing dates are reported; they are never inferred from later lessons.
 
-`lessons.cite` fails on unresolved `#N`/`#Nb` references in craft indexes or the
-router once lesson files exist. `brain.pointer` fails on invalid/missing `brain:`
+`lessons.cite` checks numbered Markdown links and numbers introduced by lesson or
+lessons (including lists) in craft indexes or the router once lesson files exist.
+Missing lessons and mismatched link text/lesson filename numbers fail; bare
+pull-request, deploy and ranking numbers, code and URLs are ignored.
+`brain.pointer` fails on invalid/missing `brain:`
 targets; `brain.pointer-missing` warns for project/reference memories whose name
 exactly matches a brain id after removing its type prefix and trailing date.
 

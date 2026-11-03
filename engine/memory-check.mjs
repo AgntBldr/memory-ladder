@@ -18,6 +18,33 @@ import { args, locations, requireMemory, isDirect, toolDir, loadConfig, memoryFi
 
 import {secretSources as secrets, redact} from './lib.mjs';
 export {redact} from './lib.mjs';
+// Keep offsets while excluding literal code and URLs from prose citations.
+function lessonCitations(text) {
+  const mask = value => value.replace(/[^\n]/g, '\0');
+  let fence = null;
+  let prose = text.split('\n').map(line => {
+    const marker = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
+      return mask(line);
+    }
+    if (marker && (marker[1][0] !== '`' || !marker[2].includes('`'))) { fence = marker[1]; return mask(line); }
+    return line;
+  }).join('\n').replace(/(`+)([\s\S]*?)\1(?!`)/g, mask);
+  const citations = [];
+  prose = prose.replace(/\[([^\]\n]*)\]\(([^)\n]*)\)/g, (link, label, target, index) => {
+    const number = /^#(\d+[a-z]*)$/.exec(label);
+    if (number && text[index - 1] !== '!' && text[index - 1] !== '\\') citations.push({number: number[1], index, target});
+    if (text[index - 1] === '!' || text[index - 1] === '\\') return mask(link);
+    return '\0' + label + '\0' + mask(link.slice(label.length + 2));
+  });
+  prose = prose.replace(/(?:https?:\/\/|www\.)[^\s<>]+/gi, mask);
+  for (const list of prose.matchAll(/\blessons?\s+#\d+[a-z]*\b(?:(?:\s*,\s*(?:and\s+)?|\s+and\s+)#\d+[a-z]*\b)*/gi)) {
+    for (const number of list[0].matchAll(/#(\d+[a-z]*)\b/g)) citations.push({number: number[1], index: list.index + number.index});
+  }
+  return citations.sort((a, b) => a.index - b.index);
+}
+const citationId = number => number.replace(/^\d+/, n => n.padStart(3, '0'));
 const edgeFields = ['supports', 'contradicts', 'depends_on', 'derived_from', 'related_to',
   'part_of', 'preceded_by', 'followed_by', 'authored_by', 'tagged_with'];
 const stem = p => path.basename(p).replace(/\.md$/i, '');
@@ -444,9 +471,11 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     }
     for (const f of files.filter(f => ['router', 'index'].includes(f.special))) {
       if (f.special === 'router' || /^INDEX-craft-/.test(f.file)) {
-        for (const m of f.text.matchAll(/#(\d+[a-z]*)\b/g)) {
-          const id = m[1].replace(/^\d+/, n => n.padStart(3, '0'));
-          if (!seen.has(id)) add('FAIL', 'lessons.cite', f.file, f.text.slice(0, m.index).split('\n').length, `#${m[1]} has no matching lesson file`);
+        for (const citation of lessonCitations(f.text)) {
+          const id = citationId(citation.number), line = f.text.slice(0, citation.index).split('\n').length;
+          if (!seen.has(id)) add('FAIL', 'lessons.cite', f.file, line, `#${citation.number} has no matching lesson file`);
+          const targetNumber = /(?:^|[/<])lesson-(\d+[a-z]*)-/.exec(citation.target ?? '')?.[1];
+          if (targetNumber && citationId(targetNumber) !== id) add('FAIL', 'lessons.cite', f.file, line, `#${citation.number} links to lesson #${targetNumber}; numbers must match`);
         }
       }
     }
