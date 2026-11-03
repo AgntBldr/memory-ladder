@@ -1,5 +1,5 @@
 {
-  "engine_version": "3.2.12",
+  "engine_version": "3.3.0",
   "caps": {
     "lesson": {
       "enforceAfterRepeats": 2,
@@ -37,6 +37,13 @@
       "warnBytes": 4096,
       "failBytes": 8192,
       "maxStateHeadings": 1
+    },
+    "handovers": {
+      "warnBytes": 3072,
+      "failBytes": 6144,
+      "archiveWarnBytes": 102400,
+      "keepNotes": 20,
+      "windowHours": 24
     },
     "hardRule": {
       "warnBytes": 2048,

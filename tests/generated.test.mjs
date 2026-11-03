@@ -335,7 +335,7 @@ test('S7 checkpoint holds one lock, orders steps, trims brain sections and repor
     return args[0] === 'status' ? ' M INDEX-craft.md\n' : '';
   }});
   assert.equal(result.push, 'fake push refused');
-  assert.deepEqual(steps, ['memory-index', 'rotate-log', 'rotate-roadmap', 'brain-index', 'roadmap-overview', 'gate', 'commit', 'push']);
+  assert.deepEqual(steps, ['memory-index', 'rotate-log', 'rotate-roadmap', 'rotate-handovers', 'brain-index', 'roadmap-overview', 'gate', 'commit', 'push']);
   assert.match(commands.join('\n'), /add --all[\s\S]*commit -m memory: checkpoint/);
   const index = fs.readFileSync(path.join(f.repo, f.config.caps.brainIndex.path), 'utf8');
   assert.ok(Buffer.byteLength(index) <= 2000); assert.match(index, /\d+ more/);

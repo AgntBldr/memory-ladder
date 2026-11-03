@@ -2,7 +2,32 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {spawnSync} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+
+// Keep caller-specific process limits and output handling at the call site.
+export const gitResult = (repo, argv, options = {}) => spawnSync('git', ['--no-optional-locks', '-C', repo, ...argv], {encoding: 'utf8', timeout: 10000, windowsHide: true, ...options});
+export function localTime(date) {
+  const pad = n => String(n).padStart(2, '0'), offset = -date.getTimezoneOffset();
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${offset < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
+}
+export function atomicWrite(file, data, options = {}) {
+  const temp = file + '.' + randomUUID() + '.tmp';
+  try { fs.writeFileSync(temp, data, {flag: 'wx', ...options}); fs.renameSync(temp, file); }
+  finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
+}
+export function porcelainEntries(raw, {includeSources = false} = {}) {
+  const rows = raw.split('\0').filter(Boolean), result = [];
+  for (let i = 0; i < rows.length; i++) {
+    const code = rows[i].slice(0, 2);
+    result.push({code, file: rows[i].slice(3)});
+    if (/[RC]/.test(code)) {
+      const source = rows[++i];
+      if (includeSources) result.push({code, file: source});
+    }
+  }
+  return result;
+}
 
 export const toolDir = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = () => path.resolve(toolDir, '../..');
@@ -132,13 +157,13 @@ export function isDirect(url) {
 export const memorySlug = repo => repo.replace(/[^A-Za-z0-9]/g, '-');
 export function mainWorktree(repo) {
   const git = (...argv) => {
-    const r = spawnSync('git', ['--no-optional-locks', '-C', repo, 'rev-parse', ...argv], {encoding:'utf8',timeout:10000,windowsHide:true});
+    const r = gitResult(repo, ['rev-parse', ...argv]);
     return r.status === 0 ? r.stdout.trim() : null;
   };
   const common = git('--path-format=absolute', '--git-common-dir'), dir = git('--absolute-git-dir');
   if (!common || !dir || pathKey(common) === pathKey(dir)) return repo;
   // The common directory belongs to the main checkout, including separate-git-dir setups.
-  const r = spawnSync('git', ['--no-optional-locks','-C',repo,'worktree','list','--porcelain','-z'], {encoding:'utf8',timeout:10000,windowsHide:true});
+  const r = gitResult(repo, ['worktree','list','--porcelain','-z']);
   return r.status === 0 && r.stdout.startsWith('worktree ') && !r.stdout.split('\0\0')[0].split('\0').includes('bare') ? r.stdout.slice(9).split('\0')[0] : repo;
 }
 
@@ -149,7 +174,7 @@ export function readKitJSON(file) {
     return value;
   } catch (error) { throw new Error(`cannot read ${file}: ${String(error.message).replace(/[\r\n]+/g, ' ')}`); }
 }
-export function memoryLocation(repo = repoRoot(), requested) {
+export function memoryLocation(repo = repoRoot(), requested, {list = true} = {}) {
   if (requested) return { dir: path.resolve(requested), source: '--memory-dir' };
   if (process.env.CLAUDE_MEMORY_DIR) return { dir: path.resolve(process.env.CLAUDE_MEMORY_DIR), source: 'CLAUDE_MEMORY_DIR' };
   const configFile = path.join(repo, 'scripts/memory/memory.config.json');
@@ -180,7 +205,7 @@ export function memoryLocation(repo = repoRoot(), requested) {
   const projects = path.join(process.env.USERPROFILE || process.env.HOME || os.homedir(), '.claude/projects');
   const exact = path.join(projects, slug, 'memory');
   if (fs.existsSync(exact)) return { dir: exact, source: 'default' };
-  if (!fs.existsSync(projects)) return { dir: null, source: 'default' };
+  if (!list || !fs.existsSync(projects)) return { dir: null, source: 'default' };
   const match = fs.readdirSync(projects, { withFileTypes: true }).find(e =>
     e.isDirectory() && e.name.toLowerCase() === slug.toLowerCase() &&
     fs.existsSync(path.join(projects, e.name, 'memory')));
@@ -410,6 +435,33 @@ export const isIndexPage = file => file.startsWith('INDEX-') && /\.md$/i.test(fi
 export function indexFamily(file) {
   const stem = file.slice(6, -3), parts = stem.split('-');
   return parts.length > 1 && /^\d{1,3}$/.test(parts.at(-1)) && !/^\d{4}$/.test(parts.at(-2)) ? parts.slice(0, -1).join('-') : stem;
+}
+export function parseHandover(text) {
+  const fm = parseFrontmatter(text), header = /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)?.[1] ?? '';
+  for (const key of ['branch', 'sha', 'mode']) {
+    const raw = new RegExp('^' + key + ':[ \\t]*(.*)$', 'm').exec(header)?.[1].trim();
+    if (raw !== undefined && !/^[\[\]{|>]/.test(raw)) fm.data[key] = /^["']/.test(raw) ? scalar(raw) : raw;
+  }
+  const {time, branch, sha, mode} = fm.data;
+  const valid = !text.includes('\0') && !fm.data.__error && !fm.data.__warnings && typeof time === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(time) && Number.isFinite(Date.parse(time)) && new Date(time.slice(0, 10)).toISOString().slice(0, 10) === time.slice(0, 10) && typeof branch === 'string' && Boolean(branch.trim()) && typeof sha === 'string' && /^[a-f0-9]{7}$/.test(sha) && ['full', 'quick'].includes(mode);
+  return {...fm, valid};
+}
+export function handoverFiles(memoryDir) {
+  try {
+    const dir = path.join(memoryDir, 'handovers');
+    let names;
+    try { names = fs.readdirSync(dir).filter(name => /\.md$/i.test(name)).sort(); }
+    catch (error) { return error.code === 'ENOENT' ? [] : [{file: 'handovers/', kind: 'stray', text: '', bytes: 0, error: 'cannot read handovers folder'}]; }
+    return names.map(name => {
+      const file = 'handovers/' + name, kind = /^\d{6}-\d{4}-\d{2}-\d{2}-\d{4}\.md$/.test(name) ? 'note' : /^archive-\d{4}-\d{2}\.md$/.test(name) ? 'archive' : 'stray';
+      try {
+        const absolute = path.join(dir, name);
+        if (!fs.lstatSync(absolute).isFile()) throw new Error('not a regular file');
+        const raw = fs.readFileSync(absolute), text = raw.toString('utf8');
+        return {file, kind, ...parseHandover(text), raw, text, bytes: raw.length};
+      } catch { return {file, kind, text: '', bytes: 0, valid: false, error: 'cannot read handover file'}; }
+    });
+  } catch { return []; }
 }
 export function memoryFiles(dir) {
   const hard = new Set(hardRuleTargets(read(path.join(dir, 'MEMORY.md'))).map(p => pathKey(dir, p)));

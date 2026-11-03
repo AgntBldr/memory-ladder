@@ -304,7 +304,7 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 ## Project records the kit manages
 
-**checkpoint** - The end-of-work save: first update the handoff and live records, then the command runs `memory-index`, `rotate-log`, `rotate-roadmap`, `brain-index`, `roadmap-overview`, `gate`, memory `commit`, and `push` in that order under one lock, skipping absent optional sources. Unallowed FAILs stop before commit; `--dry-run` only reports steps, `--no-push` skips push, and a failed push exits 2 with the commit retained. In-repo memory instead prints staging paths by default; explicit `--commit` commits on the current branch and never pushes. Where: `memory-checkpoint.mjs`. See also: CURRENT block, rotation, gate.
+**checkpoint** - The end-of-work save: first update the handoff and live records, then the command runs `memory-index`, `rotate-log`, `rotate-roadmap`, `rotate-handovers`, `brain-index`, `roadmap-overview`, `gate`, memory `commit`, and `push` in that order under one lock, skipping absent optional sources. Unallowed FAILs stop before commit; `--dry-run` only reports steps, `--no-push` skips push, and a failed push exits 2 with the commit retained. In-repo memory instead prints staging paths by default; explicit `--commit` commits on the current branch and never pushes. Where: `memory-checkpoint.mjs`. See also: CURRENT block, rotation, gate.
 
 **log** - An append-oriented record of completed actions and decisions, kept separate from the current handoff and future work. Where: configured brain log, normally `brain/00-system/log.md`. See also: brain log, Open work, CURRENT block.
 
@@ -760,3 +760,25 @@ are not copied.
 **lesson.takeaway** - WARN for a present value other than fix, method or know; absence is valid. Where: engine/memory-check.mjs. See also: metadata.takeaway.
 
 **metadata.takeaway** - Optional hand-set takeaway: fix (error and remedy), method (best way or next-time action), know (how things work). Models label kind; people set takeaway. Capture with new --takeaway, batch takeaway:, or classify takeaways; recall displays and filters it. Where: engine/memory-lesson.mjs and engine/memory-recall.mjs. See also: lesson.takeaway.
+
+## Session note helpers
+
+**caps.handovers** - Loose-note and archive settings: `caps.handovers.warnBytes` is 3,072, `caps.handovers.failBytes` is 6,144, `caps.handovers.archiveWarnBytes` is 102,400, `caps.handovers.keepNotes` is 20 and `caps.handovers.windowHours` is 24. Where: `memory.config.json`. See also: handover.size, handover.archive-size.
+
+**handover** - Validate a JSON session input with check, or run lessons, write a numbered note before CURRENT under lock, publish and verify the committed note and pushed HEAD. Where: `engine/handover.mjs`. See also: session core, CURRENT block.
+
+**handover.archive-size** - WARN above the archive byte limit, never FAIL from size alone; archives remain secret-scanned containers without note frontmatter or topic rules. Where: `handovers/archive-YYYY-MM.md`; `caps.handovers.archiveWarnBytes`. See also: secret, caps.handovers.
+
+**handover.count** - WARN when loose notes exceed keepNotes plus 20, normally 40; rotate older notes into monthly archives. Where: `handovers/`; `caps.handovers.keepNotes`. See also: rotation, caps.handovers.
+
+**handover.frontmatter** - FAIL for malformed or NUL-containing notes, or invalid time, branch, sha or mode; use an ISO timestamp with offset, a nonempty branch, seven hex SHA characters and full or quick mode. Where: loose `handovers/` notes. See also: frontmatter, handover.read.
+
+**handover.read** - FAIL when the notes folder or an entry cannot be read as a regular file; repair access or file type before retrying. Where: `handovers/`. See also: handover.frontmatter.
+
+**handover.size** - WARN above 3,072 bytes and FAIL above 6,144; shorten the loose note without discarding durable facts. Where: loose `handovers/` notes; `caps.handovers`. See also: handover.archive-size.
+
+**handover.stray** - WARN for a Markdown entry that is neither a numbered loose note nor a monthly archive; inspect its intended role. Where: `handovers/`. See also: handover.frontmatter.
+
+**new-session** - Read-only detect, dispatch, start, brief and open commands; phrase entry checks installed skill ownership, while start summarizes the newest notes and waits for go. Where: `engine/new-session.mjs`. See also: session core, CURRENT block.
+
+**session core** - Shared CURRENT and overlay parsing, raw-byte state tokens, phrase matching, note listing and bounded output; note order follows sequence numbers, and listing never writes. Where: `engine/session-core.mjs`. See also: new-session, caps.handovers.

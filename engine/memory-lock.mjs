@@ -19,13 +19,36 @@ export function withMemoryLock(memoryDir, run, {lock, timeoutMs = 30000, note = 
     return run(lock);
   }
   const started = Date.now(), token = {dir: pathKey(memoryDir)};
+  const transient = error => ['EPERM', 'EBUSY'].includes(error.code);
+  let transientSince;
+  const retry = error => {
+    const now = Date.now();
+    if (transient(error)) transientSince ??= now;
+    else transientSince = undefined;
+    if (now - started >= timeoutMs || (transientSince !== undefined && now - transientSince >= 2000)) {
+      if (transient(error)) {
+        const hint = error.code === 'EPERM' ? 'the memory folder is not writable here' : 'the lock file is busy or held by another process';
+        error.message = `${error.code}: memory lock ${file}; ${hint}`;
+        throw error;
+      }
+      throw new Error('memory lock timed out waiting for ' + file);
+    }
+    sleep(Math.min(50, Math.max(0, timeoutMs - (now - started)), transientSince === undefined ? 50 : Math.max(0, 2000 - (now - transientSince))));
+  };
   const text = JSON.stringify({pid: process.pid, host: os.hostname(), time: new Date().toISOString(), token: randomUUID()}) + '\n';
   for (;;) {
     try { fs.writeFileSync(file, text, {flag: 'wx'}); break; }
-    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    catch (error) {
+      if (transient(error)) { retry(error); continue; }
+      if (error.code !== 'EEXIST') throw error;
+    }
     let current, stat;
     try { stat = fs.statSync(file); current = fs.readFileSync(file, 'utf8'); }
-    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+    catch (error) {
+      if (error.code === 'ENOENT' || transient(error)) { retry(error); continue; }
+      throw error;
+    }
+    transientSince = undefined;
     let owner;
     try { owner = JSON.parse(current); } catch { owner = {}; }
     if (owner?.host && owner.host !== os.hostname()) throw new Error('memory lock belongs to another host; inspect it manually: ' + owner.host);

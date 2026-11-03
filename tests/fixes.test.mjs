@@ -75,6 +75,7 @@ test('F6 NEW FAIL rolls back despite existing failures',t=>{
 });
 test('F6 unique backups, removed files, restore command and ignore rules',t=>{
   const f=fixture(t);ok(f.install());const next=bump(f),obsolete=put(path.join(engine(f),'obsolete.mjs'),'old release\r\n');
+  const ledger=path.join(next,'engine/upgrades.json'),rows=json(ledger);rows.at(-1).retired=['scripts/memory/obsolete.mjs'];put(ledger,JSON.stringify(rows));
   put(path.join(next,'engine/added.mjs'),'// new release file\n');ok(f.cli('scripts/manifest.mjs',[],next));
   const mp=path.join(engine(f),'MANIFEST.json'),m=json(mp);m.files['scripts/memory/obsolete.mjs']=hash(obsolete);put(mp,JSON.stringify(m));const before=tree(f.target);
   ok(f.cli('scripts/upgrade.mjs',['--target',f.target],next));assert.ok(!fs.existsSync(obsolete));assert.ok(fs.existsSync(path.join(engine(f),'added.mjs')));const first=backups(f)[0];
@@ -141,6 +142,8 @@ test('F11 BOM settings read; existing hook preserves exact bytes',t=>{
   // Install preserves bytes when all shipped hooks already exist, including the guard hooks.
   const f=fixture(t),p=path.join(f.target,'.claude/settings.json'),settings=json(path.join(kitRoot,'templates/settings.sessionstart.json'));
   Object.assign(settings.hooks,json(path.join(kitRoot,'templates/settings.guard.json')).hooks);
+  settings.hooks.UserPromptSubmit.push(...json(path.join(kitRoot,'templates/settings.newsession.json')).hooks.UserPromptSubmit);
+  settings.permissions={allow:['Bash(node scripts/memory/new-session.mjs:*)','PowerShell(node scripts/memory/new-session.mjs:*)']};
   const bytes='\uFEFF'+JSON.stringify(settings)+'\r\n';put(p,bytes);const result=ok(f.install());assert.equal(read(p),bytes);
   assert.ok(result.stdout.split(/\r?\n/).includes('settings: present'));
 });

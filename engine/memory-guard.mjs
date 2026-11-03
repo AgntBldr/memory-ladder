@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {args, isDirect, toolDir, loadConfig, repoPath} from './lib.mjs';
+import {localTime, args, isDirect, toolDir, loadConfig, repoPath} from './lib.mjs';
 
 const hint = 'If the matched text is only inside a commit message or heredoc, write it to a file and pass the file.';
 const errorText = error => String(error.message ?? error).replace(/[\r\n]+/g, ' ');
@@ -76,9 +76,8 @@ export function main(argv = process.argv.slice(2)) {
   try {
     const opts = args(argv); command = opts._.shift();
     if (command === 'prompt') {
-      const now = new Date(), pad = x => String(x).padStart(2,'0'), offset = -now.getTimezoneOffset();
-      const local = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-      console.log(`clock: ${local} local (${offset < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offset)/60))}:${pad(Math.abs(offset)%60)}) | ${now.toISOString().slice(0,16).replace('T',' ')} UTC`); return 0;
+      const now = new Date(), stamp = localTime(now);
+      console.log(`clock: ${stamp.slice(0,16).replace('T',' ')} local (${stamp.slice(-6)}) | ${now.toISOString().slice(0,16).replace('T',' ')} UTC`); return 0;
     }
     let input;
     if (command === 'pretooluse') {

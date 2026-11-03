@@ -64,7 +64,7 @@ In these steps, `<PROJECT>` is the full path of your project folder. The engine 
      character that is not a letter or a digit replaced by `-`. On Windows, `~` is your `%USERPROFILE%` folder,
      and the slug is derived from the project path. The label in brackets after the path says
      how the folder was chosen; on a first install it can read `(--memory-dir)` even when you passed no flag.
-   - The gate summary looks like `memory-check 3.2.12 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
+   - The gate summary looks like `memory-check 3.3.0 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
      install worked.** The one WARN is `repo.remote`: the new memory repository has no remote yet. Step 4 adds it.
 
 4. Back up the memory. Replace `<PRIVATE_REMOTE>` with the clone URL of your private remote:
@@ -95,9 +95,11 @@ In these steps, `<PROJECT>` is the full path of your project folder. The engine 
    add them by name. For a project that had no `AGENTS.md` or `CLAUDE.md` before, the list is:
 
    ```sh
-   git add scripts/memory .claude/skills/memory-ladder .claude/skills/memory-review .claude/settings.json AGENTS.md CLAUDE.md
+   git add scripts/memory .claude/skills/memory-ladder .claude/skills/memory-review .claude/skills/new-session .claude/skills/handover .claude/settings.json AGENTS.md CLAUDE.md
    git commit -m "Add the memory ladder"
    ```
+
+   Include `.claude/skills/new-session/` and `.claude/skills/handover/` as above, and add any installed `.agents/skills/` mirrors by name.
 
    Add files by name rather than with `git add -A`, so nothing unrelated slips into the commit. If your
    `.gitignore` ignores `.claude/`, `git add` refuses those paths; add them with `git add -f`.
@@ -179,6 +181,18 @@ Run `memory-measure.mjs --write <name>` again later and compare the two `.md` fi
 (`git clone <PRIVATE_REMOTE> <MEMORY>`), then run the gate. Until the memory is there, the session-start hook
 prints `memory gate: memory dir not found; run node scripts/memory/memory-init.mjs` when the kit is installed. Run that command to create a new private memory, or clone an existing private memory before running the gate.
 
+## Starting and handing over a session
+
+Use `/new-session [goal]`, or send "We are starting a new session - read this and let me know when we can start" as the whole message. The read-only start shows Git and memory health, the newest note from memory's `handovers/` folder and other recent handovers. It writes nothing and ends "Waiting for your go." Work starts after your go.
+
+Use `/handover` at the end of work, optionally `quick` or `Note: <context>`. The full flow captures new lessons, writes a sequenced note in `handovers/`, rebuilds `current-state.md`'s CURRENT block from it, then checkpoints and pushes memory. Quick mode skips learning, roadmap and log checks. Read the printed verdict: `SAFE TO COMPACT` requires this session's note and any created lessons to be committed unchanged and pushed, a green gate and successful required checks. With no remote, the existing local-only SAFE variant explicitly says `committed locally (no remote), gate green`; it does not claim a push. A failure prints NOT SAFE and recovery instructions. After a safe handover, open a new conversation and use `/new-session`.
+
+Input JSON: `state`, `question`, `lessons` are strings; `next` is 1-3 unnumbered strings or one string. `waits`, `risks`, `constraints` are strings or string arrays (joined with `; `). Omit `constraints` for the default. With no overlay `close:` steps, omit `closed`; null, an empty object or any string also mean no steps. With steps, use an object such as `{"lint":"ok"}`, or `lint=ok; review: failed`, naming every step exactly once. Normalize these shapes before the existing field and whole-input caps (1,792 B full / 1,024 B quick); input whitespace still counts. Repeat the printed report verbatim, then at most one line.
+
+The gate validates note frontmatter and sizes and scans the entire notes folder for secrets. Checkpoint rotation keeps the newest 20 loose notes by sequence and verifies older notes in monthly archives before removing their originals. Use one active writing clone per memory branch; pull before switching machines and reconcile any colliding note names before retrying.
+
+Claude Code terminal and VS Code support the hook and skills. Codex `exec` loads the skills and follows the gate line; its interactive TUI is untested. Codex `exec -s workspace-write` keeps `.git` read-only, so handover ends NOT SAFE when its checkpoint cannot create `.git/index.lock`. Handover needs a sandbox mode that permits writes to the memory repository's `.git`, or run it from Claude Code. Cursor: untested. The UserPromptSubmit hook handles the recognized whole-message phrases. Opt out with install or upgrade's `--no-new-session-hook`, which saves `newSessionHook: false` in `scripts/memory/KIT.local.json`. Set it to true and upgrade to restore the hook and both Bash and PowerShell permissions. Slash skills remain available when the hook is disabled.
+
 ## Update to a new release
 
 Update the kit folder (`git pull`, or `git fetch --tags` and check out the new tag), then from the kit folder:
@@ -222,7 +236,7 @@ The git-ignored local record remembers custom paths for later unflagged gates an
 
 ### What install writes
 
-Install writes the engine, two skills, a hash manifest and receipt, merges a
+Install writes the engine, four skills (`memory-ladder`, `memory-review`, `new-session`, `handover`), a hash manifest and receipt, merges
 SessionStart, PreToolUse (Bash|PowerShell), and UserPromptSubmit hooks without removing other settings, appends the AGENTS memory gate
 once (in `CLAUDE.md` when that is the only instructions file) and creates `CLAUDE.md`
 only if absent. Malformed or non-object settings stop before writes; when all kit hooks already exist,
@@ -270,6 +284,7 @@ The memory repository's pre-commit hook runs `node "<PROJECT>/scripts/memory/mem
 Claude Code also runs PreToolUse command guard and UserPromptSubmit clock hooks unless guard installation was skipped; the engine makes no network calls.
 The guard commands are `node "${CLAUDE_PROJECT_DIR:-.}/scripts/memory/memory-guard.mjs" pretooluse` and `node "${CLAUDE_PROJECT_DIR:-.}/scripts/memory/memory-guard.mjs" prompt`.
 Installation refreshes scripts/memory/enforce-rules.kit.json and seeds host-owned scripts/memory/enforce-rules.json only when absent; starter rules warn.
+The independent UserPromptSubmit phrase hook runs `node "${CLAUDE_PROJECT_DIR:-.}/scripts/memory/new-session.mjs" detect`; it adds both `Bash(node scripts/memory/new-session.mjs:*)` and `PowerShell(node scripts/memory/new-session.mjs:*)` to permissions.allow. --no-new-session-hook persists newSessionHook: false and removes only this exact hook and both permissions; true plus upgrade restores them.
 The gate uses `scripts/memory/MANIFEST.json` to report edited kit files.
 Details are in [SECURITY.md](SECURITY.md).
 

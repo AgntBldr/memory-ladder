@@ -9,15 +9,18 @@ export {readJSON,write,writeJSON,run,resolveMemory,gate} from '../engine/memory-
 import { kitRoot, installedManifest, installedPath, ownedFiles } from './manifest.mjs';
 import {typedBrainCount, brainIndexPairs, generateIndex} from '../engine/brain-index.mjs';
 import {instructions,checkMemoryRouter,mirrorWrites,appendText,toolingHints,hostSnapshot,installReport,sameFile} from './install-safety.mjs';
+import {sessionSettings,skillPlan,gateLinePlan,distributionRefusals} from './install-safety.mjs';
+export {mergeNewSessionHooks} from './install-safety.mjs';
 export function options(argv) {
   if(argv.includes('--help') || argv.includes('-h')) return {help:true};
   const out = {};
   for(let i=0;i<argv.length;i++) {
     const key=argv[i];
-    if(['--target','--memory-dir','--restore'].includes(key)) {
+    if(['--target','--memory-dir','--restore','--replace-skill'].includes(key)) {
       if(!argv[i+1] || argv[i+1].startsWith('--')) throw new Error('Missing '+key);
-      out[key.slice(2)] = argv[++i];
-    } else if(['--no-guard','--no-gitignore-fix','--dry-run','--check','--force-skills','--backup','--accept-separate-memory'].includes(key)) out[key.slice(2)] = true;
+      if(key==='--replace-skill') (out['replace-skill']??=[]).push(argv[++i]);
+      else out[key.slice(2)] = argv[++i];
+    } else if(['--no-new-session-hook','--no-guard','--no-gitignore-fix','--dry-run','--check','--force-skills','--backup','--accept-separate-memory'].includes(key)) out[key.slice(2)] = true;
     else throw new Error('Unknown option '+key);
   }
   if(!out.target) throw new Error('--target is required');
@@ -31,12 +34,14 @@ export function usage(script) {
   --memory-dir <MEMORY>  Use this private memory directory.
   --accept-separate-memory  Explicitly accept a separate memory despite an in-repo router.
   --no-guard            Skip guard hooks and persist guard: false in KIT.local.json.
+  --no-new-session-hook Remove the phrase hook and its permission; persist the opt-out.
+  --replace-skill <NAME> Back up and replace this kit skill, including a foreign skill.
   --no-gitignore-fix    Warn with every ignored installed file and matching .gitignore line;
                         continue even with excluded parents, without editing .gitignore.
   --dry-run             ${installScript?'Print planned writes without writing.':'Accepted by the shared parser; unused by upgrade.'}
   --backup              ${installScript?'Back up conflicting kit-owned files before installing.':'Accepted by the shared parser; upgrade always backs up changes.'}
   --force-skills        ${installScript?'Accepted by the shared parser; unused by install.':'Replace edited skills, including at the same version.'}
-  --check               ${installScript?'Accepted by the shared parser; unused by install.':'Report version and local edits without writing.'}
+  --check               ${installScript?'Report the installation plan without writing.':'Report hooks, gate line, mirrors, foreign and unknown files without writing.'}
   --restore <BACKUP>    ${installScript?'Accepted by the shared parser; unused by install.':'Restore files from an upgrade backup.'}
   --help (-h)           Show this help and exit.
 `;
@@ -129,6 +134,8 @@ export function install(opts, root = kitRoot) {
   // Parse every existing JSON needed by installation before the first write.
   const settings = fs.existsSync(settingsFile) ? readJSON(settingsFile) : {};
   if(!settings || typeof settings!=='object' || Array.isArray(settings)) throw new Error('settings.json must be an object');
+  const refusals=distributionRefusals(target,root);
+  if(refusals.length) throw Error(refusals.join('\n'));
   const configFile=path.join(engine,'memory.config.json');
   const projectConfig=readJSON(fs.existsSync(configFile)?configFile:path.join(root,'engine/memory.config.json'));
   try { validateConfigPaths(target, projectConfig); }
@@ -153,14 +160,18 @@ export function install(opts, root = kitRoot) {
   const localBefore=JSON.stringify(local);
   const skipGuard=opts['no-guard'] || local.guard===false;
   const guardAdded=!skipGuard && mergeGuardHooks(settings,readJSON(path.join(root,'templates/settings.guard.json')));
-  console.log('settings: '+(opts['no-guard']?'skipped (--no-guard)':local.guard===false?'skipped (KIT.local.json guard: false)':guardAdded?'guard hooks added (PreToolUse Bash|PowerShell, UserPromptSubmit)':'present'));
+  const sessionChanged=sessionSettings(settings,local,opts,root);
+  console.log('settings: '+(opts['no-guard']?'skipped (--no-guard)':local.guard===false?'skipped (KIT.local.json guard: false)':guardAdded?(opts.check||opts['dry-run']?'guard hooks: would add':'guard hooks added')+' (PreToolUse Bash|PowerShell, UserPromptSubmit)':'present'));
   const receipt={version,source:'memory-ladder-kit',installedAt:new Date().toISOString()};
-  const planned = ownedFiles(root).map(f=>[path.join(target,installedPath(f)),fs.readFileSync(path.join(root,f))]);
-  planned.push([path.join(engine,'MANIFEST.json'),Buffer.from(JSON.stringify(installedManifest(root),null,2)+'\n')]);
-  const mirrors=mirrorWrites(target,planned,sources);
+  const oldManifestFile=path.join(engine,'MANIFEST.json');
+  const skills=skillPlan(target,root,fs.existsSync(oldManifestFile)?readJSON(oldManifestFile):null,local,opts);
+  const planned = ownedFiles(root).filter(f=>!skills.kept.includes(installedPath(f))).map(f=>[path.join(target,installedPath(f)),fs.readFileSync(path.join(root,f))]);
+  planned.push([path.join(engine,'MANIFEST.json'),Buffer.from(JSON.stringify(skills.next,null,2)+'\n')]);
+  const mirrors=mirrorWrites(target,planned,sources,{replaceSkills:skills.replaceSkills});
   planned.push(...mirrors);
   const conflicts=planned.filter(([file,data])=>fs.existsSync(file)&&(!fs.statSync(file).isFile()||normalizeEol(fs.readFileSync(file,'utf8'))!==normalizeEol(data)));
-  if(conflicts.length&&!opts.backup) throw new Error('kit-owned destinations differ; use --backup:\n'+conflicts.map(([f])=>path.relative(target,f)).join('\n'));
+  const unapproved=conflicts.filter(([file])=>!skills.replaceSkills.some(name=>['.claude','.agents'].some(dir=>file===path.join(target,dir,'skills',name,'SKILL.md'))));
+  if(unapproved.length&&!opts.backup) throw new Error('kit-owned destinations differ; use --backup:\n'+unapproved.map(([f])=>path.relative(target,f)).join('\n'));
   if(conflicts.some(([file])=>!fs.statSync(file).isFile())) throw new Error('kit-owned destination is not a file');
   for(const file of ['memory.config.json','recall-probes.json','upgrades.json']) if(!fs.existsSync(path.join(engine,file))) planned.push([path.join(engine,file),fs.readFileSync(path.join(root,'engine',file))]);
   if(!fs.existsSync(path.join(engine,'enforce-rules.json'))) planned.push([path.join(engine,'enforce-rules.json'),fs.readFileSync(path.join(root,'templates/enforce-rules.json'))]);
@@ -184,19 +195,20 @@ export function install(opts, root = kitRoot) {
   const agentsFile=!fs.existsSync(path.join(target,'AGENTS.md'))&&fs.existsSync(claudeFile)?claudeFile:path.join(target,'AGENTS.md'), agents=fs.existsSync(agentsFile)?fs.readFileSync(agentsFile,'utf8'):'';
   let gateInstructions=fs.readFileSync(path.join(root,'templates/AGENTS-memory-gate.md'),'utf8');
   if(inRepo) gateInstructions=gateInstructions.replace('gate, commit and push. Use `--no-push` or `--dry-run` when needed.', 'gate, then print staging paths and a suggested commit message. In in-repo memory, checkpoint never pushes and commits only with explicit `--commit` on the current branch; follow host branch rules. Use `--dry-run` to preview.');
-  if(!/^## Memory gate/m.test(agents)) planned.push([agentsFile,appendText(agents,gateInstructions)]);
+  if(!/^## Memory gate(?:[ \t]|\r?$)/m.test(agents)) { planned.push([agentsFile,appendText(agents,gateInstructions)]);console.log('Session phrases gate line: '+(opts.check||opts['dry-run']?'would add':'added')+' in '+path.basename(agentsFile)); }
+  else { const gate=gateLinePlan(target,root,opts);if(gate) planned.push(gate); }
   if(!fs.existsSync(path.join(target,'CLAUDE.md'))) planned.push([path.join(target,'CLAUDE.md'),'@AGENTS.md\n']);
   else if(!sameFile(agentsFile,claudeFile)) {
     const claude = fs.readFileSync(claudeFile, 'utf8');
     if(!/^\s*@AGENTS\.md\s*$/m.test(claude)) planned.push([claudeFile,appendText(claude,'@AGENTS.md\n')]);
   }
-  if(addHook || guardAdded) planned.push([settingsFile,JSON.stringify(settings,null,2)+'\n']);
+  if(addHook || guardAdded || sessionChanged) planned.push([settingsFile,JSON.stringify(settings,null,2)+'\n']);
   const newRepo=!inRepo && !fs.existsSync(path.join(memory.dir,'.git'));
   const brainPaths=writeBrainIndex?brainIndexPairs(target,projectConfig,generateIndex({repo:target,config:projectConfig})).pairs.map(([file])=>path.join(target,file)):[];
   const memoryPaths=inRepo&&fs.existsSync(memory.dir)?fs.readdirSync(memory.dir).filter(f=>fs.statSync(path.join(memory.dir,f)).isFile()).map(f=>path.join(memory.dir,f)):[];
   const ignorePlan=checkInstalledIgnores(target,[...planned.map(([file])=>file),receiptFile,configFile,...brainPaths,...memoryPaths,...(inRepo?[path.join(memory.dir,'.gitignore')]:[])],{...opts,memoryDir:inRepo?memory.dir:null});
   if(ignorePlan) planned.push(ignorePlan);
-  if(opts['dry-run']) {
+  if(opts['dry-run']||opts.check) {
     for(const [file] of planned) console.log('WRITE '+file);
     console.log('WRITE '+receiptFile+' after baseline succeeds');
     for(const [file] of conflicts) console.log('BACKUP '+file);

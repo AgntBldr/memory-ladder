@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {spawnSync} from 'node:child_process';
-import {isDirect} from '../engine/lib.mjs';
+import {isDirect,normalizeEol} from '../engine/lib.mjs';
 import {kitRoot, installedManifest, ownedFiles, installedPath, hash} from './manifest.mjs';
 import {options, usage, readJSON, write, writeJSON, resolveMemory, backupDirectory, withIgnores, mergeGuardHooks} from './install.mjs';
 import {withMemoryLock} from '../engine/memory-lock.mjs';
@@ -10,6 +10,7 @@ import {migrateRoutes} from '../engine/memory-migrate.mjs';
 import {memoryFiles} from '../engine/lib.mjs';
 import {isGenerated, generateMemoryIndex, writeMemoryIndex} from '../engine/memory-index.mjs';
 import {instructions,mirrorWrites} from './install-safety.mjs';
+import {sessionSettings,skillPlan,gateLinePlan,distributionRefusals} from './install-safety.mjs';
 
 // Only new FAIL-capable ids; replace this release-specific list at the next release.
 export const NEW_CHECKS = ['config.path'];
@@ -111,6 +112,10 @@ function ensureLockIgnore(memory) {
 }
 export function upgrade(opts, root=kitRoot, hooks={}) {
   if(opts.restore) return upgradeUnlocked(opts,root,hooks);
+  if(opts.check) return upgradeUnlocked(opts,root,hooks);
+  const old=readJSON(path.join(path.resolve(opts.target),'scripts/memory/MANIFEST.json'));
+  const refusals=distributionRefusals(path.resolve(opts.target),root,old);
+  if(refusals.length) throw Error(refusals.join('\n'));
   const memory=resolveMemory(path.resolve(opts.target),opts['memory-dir']).dir;
   return withMemoryLock(memory,lock=>upgradeUnlocked(opts,root,{...hooks,lock}));
 }
@@ -122,6 +127,8 @@ function upgradeUnlocked(opts, root=kitRoot, {afterCopy=()=>{},afterMigrate=()=>
     catch(e) { throw new Error(`restore failed: ${e.message}; backup: ${backup}`); }
   }
   const receipt=readJSON(path.join(engine,'KIT.json')),oldManifest=readJSON(path.join(engine,'MANIFEST.json'));
+  const refusals=distributionRefusals(target,root,oldManifest);
+  if(!opts.check&&refusals.length) throw Error(refusals.join('\n'));
   // Installed manifests already contain installedPath-mapped destinations.
   // Validate every old key before executing project code or creating a backup.
   for(const file of Object.keys(oldManifest.files)) {
@@ -134,27 +141,40 @@ function upgradeUnlocked(opts, root=kitRoot, {afterCopy=()=>{},afterMigrate=()=>
   }
   const nextManifest=installedManifest(root),version=nextManifest.version;
   const localFile=path.join(engine,'KIT.local.json'),local=fs.existsSync(localFile)?readJSON(localFile):{};
+  const localBefore=JSON.stringify(local);
   const skipGuard=opts['no-guard'] || local.guard===false;
   const settingsFile=path.join(target,'.claude/settings.json');
-  const settings=!skipGuard && fs.existsSync(settingsFile)?readJSON(settingsFile):{};
+  const settings=fs.existsSync(settingsFile)?readJSON(settingsFile):{};
   if(!settings || typeof settings!=='object' || Array.isArray(settings)) throw new Error('settings.json must be an object');
   const guardAdded=!skipGuard && mergeGuardHooks(settings,readJSON(path.join(root,'templates/settings.guard.json')));
-  const localChanged=opts['no-guard'] && local.guard!==false;
+  if(opts['no-guard']) local.guard=false;
+  const sessionChanged=sessionSettings(settings,local,opts,root);
+  const skills=skillPlan(target,root,oldManifest,local,opts);
+  for(const file of skills.kept) delete nextManifest.files[file];
+  const localChanged=JSON.stringify(local)!==localBefore;
+  const gateUpdate=gateLinePlan(target,root,opts);
+  const mirrorSources=ownedFiles(root).filter(f=>f.startsWith('skills/')&&!skills.kept.includes(installedPath(f))).filter(f=>{
+    const file=installedPath(f),dest=path.join(target,file);
+    return !fs.existsSync(dest)||hash(dest)===oldManifest.files[file]||hash(dest)===nextManifest.files[file]||opts['force-skills']||skills.replaceSkills.includes(file.split('/')[2]);
+  }).map(f=>[path.join(target,installedPath(f)),fs.readFileSync(path.join(root,f))]);
+  const mirrors=mirrorWrites(target,mirrorSources,instructions(target),{keepDivergent:true}).filter(([file,data])=>!fs.existsSync(file)||normalizeEol(fs.readFileSync(file,'utf8'))!==normalizeEol(data));
+  for(const [file] of mirrors) console.log('skill mirror planned: '+path.relative(target,file));
   const seedMissing=!fs.existsSync(path.join(engine,'enforce-rules.json'));
-  console.log('settings: '+(opts['no-guard']?'skipped (--no-guard)':local.guard===false?'skipped (KIT.local.json guard: false)':guardAdded?`guard hooks ${opts.check ? 'would be added' : 'added'} (PreToolUse Bash|PowerShell, UserPromptSubmit)`:'present'));
+  console.log('settings: '+(opts['no-guard']?'skipped (--no-guard)':local.guard===false?'skipped (KIT.local.json guard: false)':guardAdded?`guard hooks ${opts.check ? 'would add' : 'added'} (PreToolUse Bash|PowerShell, UserPromptSubmit)`:'present'));
   const engineChanged=Object.entries(nextManifest.files).some(([file,expected])=>file.startsWith('scripts/memory/')&&(!fs.existsSync(inside(target,file))||hash(inside(target,file))!==expected));
   const edited=Object.keys(oldManifest.files).filter(f=>!fs.existsSync(inside(target,f))||hash(inside(target,f))!==oldManifest.files[f]);
-  const keptSkills=edited.filter(f=>f.endsWith('/SKILL.md')&&fs.existsSync(inside(target,f))&&!opts['force-skills']);
+  const keptSkills=edited.filter(f=>f.endsWith('/SKILL.md')&&fs.existsSync(inside(target,f))&&!opts['force-skills']&&!skills.replaceSkills.includes(f.split('/')[2]));
   const legacy=Object.keys(oldManifest.files).filter(f=>f.endsWith('/SKILL.md')&&fs.existsSync(inside(target,f))&&/^engine_version:/m.test(fs.readFileSync(inside(target,f),'utf8')));
   const legacySkills=legacy.some(f=>!keptSkills.includes(f));
   for(const f of legacy.filter(f=>keptSkills.includes(f))) console.log('WARN kept host-edited skill '+f+': manually move top-level engine_version to metadata.engine_version.');
   if(opts.check) {
+    for(const message of refusals) console.log(message);
     for(const f of edited) console.log('edited locally: '+f);
     console.log('kit '+receipt.version+' -> '+version);
-    return newer(version,receipt.version)||edited.some(f=>!keptSkills.includes(f))||engineChanged||legacySkills||guardAdded||localChanged||seedMissing ? 1 : 0;
+    return refusals.length||newer(version,receipt.version)||edited.some(f=>!keptSkills.includes(f))||engineChanged||legacySkills||guardAdded||sessionChanged||gateUpdate||mirrors.length||localChanged||seedMissing ? 1 : 0;
   }
   if(newer(receipt.version,version)) throw new Error('Refusing a downgrade');
-  if(version===receipt.version&&!engineChanged&&!legacySkills&&!opts['force-skills']&&!guardAdded&&!localChanged&&!seedMissing) {
+  if(version===receipt.version&&!engineChanged&&!legacySkills&&!opts['force-skills']&&!skills.replaceSkills.length&&!guardAdded&&!sessionChanged&&!gateUpdate&&!mirrors.length&&!localChanged&&!seedMissing) {
     ensureLockIgnore(resolveMemory(target,opts['memory-dir']).dir);
     console.log('upgrade: same version and hashes; no-op');return 0;
   }
@@ -171,19 +191,21 @@ function upgradeUnlocked(opts, root=kitRoot, {afterCopy=()=>{},afterMigrate=()=>
   const migration=!newer('3.2.0',version)&&memoryFiles(memory).some(f=>f.special==='index'&&!f.stub&&!isGenerated(f.text));
   const replace=ownedFiles(root).filter(f=>!same||f.startsWith('skills/')).filter(f=>{
     const installed=installedPath(f);
-    if(f.startsWith('skills/')&&edited.includes(installed)&&!opts['force-skills']) { if(!legacy.includes(installed)) console.log('WARN edited skill skipped: '+installed);return false; }
+    if(skills.kept.includes(installed)) return false;
+    if(f.startsWith('skills/')&&edited.includes(installed)&&!opts['force-skills']&&!skills.replaceSkills.includes(installed.split('/')[2])) { if(!legacy.includes(installed)) console.log('WARN edited skill skipped: '+installed);return false; }
     return true;
   });
   const updates=new Map(replace.map(f=>[installedPath(f),fs.readFileSync(path.join(root,f))]));
-  if(guardAdded) updates.set('.claude/settings.json',JSON.stringify(settings,null,2)+'\n');
-  if(localChanged) updates.set('scripts/memory/KIT.local.json',JSON.stringify({...local,guard:false},null,2)+'\n');
+  if(guardAdded||sessionChanged) updates.set('.claude/settings.json',JSON.stringify(settings,null,2)+'\n');
+  if(localChanged) updates.set('scripts/memory/KIT.local.json',JSON.stringify(local,null,2)+'\n');
+  if(gateUpdate) updates.set(path.relative(target,gateUpdate[0]),gateUpdate[1]);
   if(seedMissing) updates.set('scripts/memory/enforce-rules.json',fs.readFileSync(path.join(root,'templates/enforce-rules.json')));
-  for(const [file,data] of mirrorWrites(target,[...updates].map(([file,data])=>[path.join(target,file),data]),instructions(target),{keepDivergent:true})) {
+  for(const [file,data] of mirrors) {
     updates.set(path.relative(target,file).split(path.sep).join('/'),data);
     console.log('skill mirror updated: '+path.relative(target,file));
   }
   if(!same) {
-    for(const f of Object.keys(oldManifest.files)) if(!Object.hasOwn(nextManifest.files,f)) {
+    for(const f of Object.keys(oldManifest.files)) if(!Object.hasOwn(nextManifest.files,f)&&!skills.kept.includes(f)) {
       if(fs.existsSync(inside(target,f)) && hash(inside(target,f)) === oldManifest.files[f]) updates.set(f,null);
       else console.log('kept locally edited retired file: '+f);
     }

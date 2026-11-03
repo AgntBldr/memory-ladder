@@ -44,7 +44,7 @@ export function bump(f) {
   put(path.join(root,'VERSION'),nextVersion+'\n');
   const config=json(path.join(root,'engine/memory.config.json'));config.engine_version=nextVersion;config.newDefault={enabled:true};
   put(path.join(root,'engine/memory.config.json'),JSON.stringify(config,null,2)+'\n');
-  for(const name of ['memory-ladder','memory-review']) {
+  for(const name of ['memory-ladder','memory-review','new-session','handover']) {
     const p=path.join(root,'skills',name,'SKILL.md');put(p,read(p).replace('engine_version: "'+currentVersion+'"','engine_version: "'+nextVersion+'"'));
   }
   const engine=path.join(root,'engine/lib.mjs');put(engine,read(engine)+'\n// New release fixture.\n');

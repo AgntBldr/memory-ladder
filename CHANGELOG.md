@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.3.0
+
+Start with `/new-session [goal]` or the sentence "We are starting a new session - read this and let me know when we can start". The start is read-only: it shows Git and memory health, the newest handover note and nearby sessions, then waits for your go. `/handover` captures lessons, updates CURRENT from a new handover note, runs the checkpoint and pushes memory. Its SAFE verdict requires the session's own note and created lessons to be committed byte-for-byte and pushed, with the gate green and required checks complete. With no remote, the local-only SAFE variant instead says `committed locally (no remote), gate green`; it never claims a push.
+
+Notes live in memory's `handovers/` folder. The gate checks loose-note size and frontmatter and scans notes, archives and strays for secrets. Rotation keeps the newest 20 loose notes by sequence, moves older notes to monthly archives and verifies their bytes before removing the originals; archives have their own warning limit.
+
+Install and upgrade add the UserPromptSubmit phrase hook, the session gate line and both `Bash(node scripts/memory/new-session.mjs:*)` and `PowerShell(node scripts/memory/new-session.mjs:*)` permissions. `--no-new-session-hook` persists `newSessionHook: false` in KIT.local.json and removes only the exact kit hook; set it to true and upgrade to restore it. Foreign skills are kept, recorded and replaced only by `--replace-skill <name>`, with a backup. Codex session-skill mirrors are created when `.agents` or `.codex` exists; upgrade keeps divergent mirrors with a WARN naming the copy command; install refuses unless `--replace-skill <name>` is given.
+
+- Upgrade from 3.2.12 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then `node scripts/upgrade.mjs --target <PROJECT>`; run the installed gate. Preview reports planned changes without writes.
+- A wave-save refusal means a hook command contains `wave-save.mjs` in `.claude/settings.json` or `settings.local.json`; remove the hook or install a wave-save release that supports handover. The refusal names every matching event and command in either settings file: `install a wave-save release that supports handover; no override`. Only a row in the incoming kit's `engine/upgrades.json` with `"waveSave": {"supportsHandover": true}` lifts it; 3.3.0 carries no such marker. A file's presence is insufficient.
+- An unknown-owned-file refusal names the unchanged file missing from the incoming manifest. Review and remove that obsolete file, then rerun the upgrade and installed gate. Files declared retired by a later release can be removed by its upgrade; this release retires none.
+
 ## 3.2.12
 
 Path settings in memory.config.json must stay inside the project; installation refuses and the gate fails when they point outside it. Two spellings of the same folder, including macOS /tmp and /private/tmp and letter-case aliases, are recognised as one. A saved notes folder that was deleted is reported by its saved path and recreated there only when KIT.local.json is untracked and the saved path is absolute.

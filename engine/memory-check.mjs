@@ -1,4 +1,4 @@
-import {validateConfigPaths} from './lib.mjs';
+import {validateConfigPaths, handoverFiles} from './lib.mjs';
 import {normalizeEol, writeText, lessonCases} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -117,6 +117,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     archive: {"failLineChars": 300},
     topic: {"warnBytes": 8192, "failBytes": 20480, "warnLineChars": 2000},
     state: {"warnBytes": 4096, "failBytes": 8192, "maxStateHeadings": 1},
+    handovers: {"warnBytes": 3072, "failBytes": 6144, "archiveWarnBytes": 102400, "keepNotes": 20, "windowHours": 24},
     hardRule: {"warnBytes": 2048, "failBytes": 4096},
     description: {"warnChars": 200, "failChars": 400},
     repoAhead: {"warn": 1, "fail": 10},
@@ -138,6 +139,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     }
   }
   const capDefaults = {
+    handovers: groupDefaults.handovers,
     topic: {warnLineChars: 2000},
     lesson: {enforceAfterRepeats: 2, failAfterRepeats: 4, lessonOnlyReturns: true},
     guard: {kitRules: 'scripts/memory/enforce-rules.kit.json', rules: 'scripts/memory/enforce-rules.json'},
@@ -152,6 +154,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       caps[group][key] = fallback;
     }
   }
+  caps.handovers = {...groupDefaults.handovers, ...caps.handovers};
   try { loadUpgrades(upgradesFile); }
   catch (error) { add(error.code==='ENOENT'?'WARN':'FAIL', 'config.upgrades', 'upgrades.json', null, error.code==='ENOENT'?'missing deferred-upgrade ledger':'invalid deferred-upgrade ledger'); }
   let order;
@@ -332,6 +335,19 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     parseCheck(f);
     scanSecrets(f);
   }
+  const handovers = handoverFiles(memoryDir);
+  for (const f of handovers) {
+    scanSecrets(f);
+    if (f.error) { add('FAIL', 'handover.read', f.file, null, f.error); continue; }
+    if (f.kind === 'note') {
+      size('handover.size', f.file, f.bytes, caps.handovers);
+      if (!f.valid) add('FAIL', 'handover.frontmatter', f.file, null, 'invalid time, branch, sha or mode (or malformed note)');
+    } else if (f.kind === 'archive') {
+      if (f.bytes > caps.handovers.archiveWarnBytes) add('WARN', 'handover.archive-size', f.file, null, `${f.bytes} bytes (warn ${caps.handovers.archiveWarnBytes})`, f.bytes);
+    } else add('WARN', 'handover.stray', f.file, null, 'unrecognised handover file');
+  }
+  const looseCount = handovers.filter(f => f.kind === 'note').length;
+  if (looseCount > caps.handovers.keepNotes + 20) add('WARN', 'handover.count', 'handovers/', null, `${looseCount} loose notes; rotate handovers`, looseCount);
   const casebook = lessonCases();
   const generated = files.some(f => isGenerated(f.text));
   const families = routerFamilies(read(path.join(memoryDir, 'MEMORY.md')), memoryDir);
@@ -721,7 +737,9 @@ export function stagedCheck(options) {
       try {
         const root = fs.realpathSync(snapshot);
         // listMd is the memoryFiles file set, without frontmatter or link processing.
-        for (const file of listMd(snapshot)) {
+        const handovers = handoverFiles(snapshot);
+        if (handovers.some(f => f.error)) throw new Error('cannot read staged handovers');
+        for (const file of [...listMd(snapshot), ...handovers.map(f => f.file)]) {
           const absolute = path.join(snapshot, file), relative = path.relative(root, fs.realpathSync(absolute));
           if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('memory file resolves outside staged snapshot');
           fs.readFileSync(absolute, 'utf8').split(/\r?\n/).forEach((line, i) => {

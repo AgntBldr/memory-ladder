@@ -174,28 +174,28 @@
       "id": "message10",
       "from": "checkpoint",
       "to": "records",
-      "label": "4. Brain index; 5. overview",
+      "label": "4. Rotate handovers; 5. brain index; 6. overview",
       "y": 650
     },
     {
       "id": "message11",
       "from": "checkpoint",
       "to": "gate",
-      "label": "6. Gate; FAIL stops commit",
+      "label": "7. Gate; FAIL stops commit",
       "y": 698
     },
     {
       "id": "message12",
       "from": "checkpoint",
       "to": "git",
-      "label": "7. Commit memory",
+      "label": "8. Commit memory",
       "y": 746
     },
     {
       "id": "message13",
       "from": "git",
       "to": "checkpoint",
-      "label": "8. Push result",
+      "label": "9. Push result",
       "y": 794
     }
   ],
@@ -204,8 +204,8 @@
       "dot": "cyan",
       "title": "Exact checkpoint order",
       "items": [
-        "memory-index → rotate-log → rotate-roadmap → brain-index → roadmap-overview → gate → commit → push.",
-        "Steps 2–5 write project records only when their sources exist.",
+        "memory-index -> rotate-log -> rotate-roadmap -> rotate-handovers -> brain-index -> roadmap-overview -> gate -> commit -> push.",
+        "Steps 2-6 write records only when their sources exist.",
         "Source: engine/memory-checkpoint.mjs. The checkpoint invokes git push; the last arrow represents its result."
       ]
     },

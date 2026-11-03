@@ -6,7 +6,7 @@ import {execFileSync} from 'node:child_process';
 import {args, locations, isDirect, loadConfig, read, roadmapOrder, inRepoMemory, slash} from './lib.mjs';
 import {withMemoryLock} from './memory-lock.mjs';
 import {writeMemoryIndex} from './memory-index.mjs';
-import {rotateLog, rotateRoadmap, validDate} from './memory-rotate.mjs';
+import {rotateLog, rotateRoadmap, rotateHandovers, validDate} from './memory-rotate.mjs';
 import {generateIndex} from './brain-index.mjs';
 import {generateOverview} from './roadmap-overview.mjs';
 import {runCheck, counts, findingLine} from './memory-check.mjs';
@@ -18,7 +18,7 @@ export function checkpoint({memoryDir, repo, config = loadConfig(), dryRun = fal
   if (!validDate(today)) throw new Error('invalid --today date; expected YYYY-MM-DD');
   roadmapOrder(config);
   const inRepo = inRepoMemory(repo,memoryDir);
-  const steps = ['memory-index', 'rotate-log', 'rotate-roadmap', 'brain-index', 'roadmap-overview', 'gate', 'commit', 'push'];
+  const steps = ['memory-index', 'rotate-log', 'rotate-roadmap', 'rotate-handovers', 'brain-index', 'roadmap-overview', 'gate', 'commit', 'push'];
   if (dryRun) { for (const step of steps) report(step, (step === 'push' && (noPush || inRepo)) || (step === 'commit' && inRepo && !commit) ? 'skipped' : 'dry-run'); return {dryRun: true}; }
   if (fs.existsSync(repoPath(repo, config.caps.brainLog.path, 'caps.brainLog.path'))) rotateLog({repo, config});
   return withMemoryLock(memoryDir, lock => {
@@ -29,6 +29,8 @@ export function checkpoint({memoryDir, repo, config = loadConfig(), dryRun = fal
     report('rotate-log', log ? `${log.moved} moved` : 'absent');
     const roadmap = exists('roadmap') ? rotateRoadmap(options) : null;
     report('rotate-roadmap', roadmap ? `${roadmap.moved} moved; proof ${roadmap.bytesRemoved} = ${roadmap.bytesAdded} bytes; found ${roadmap.found}` : 'absent');
+    const handovers = rotateHandovers(options);
+    report('rotate-handovers', `${handovers.moved} moved`);
     if (fs.existsSync(path.join(repo, config.brain?.dir ?? 'brain'))) {
       // Use the same first-write handling as the standalone generator.
       const output = generateIndex({repo, config}), allFile = repoPath(repo, config.caps.brainIndex.allPath, 'caps.brainIndex.allPath');

@@ -1,7 +1,6 @@
-import {repoPath, validateConfigPaths} from './lib.mjs';
+import {atomicWrite, repoPath, validateConfigPaths, handoverFiles} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { normalizeEol, matchEol, args, isDirect, loadConfig, repoRoot, readRequired, utf8Bytes, locations, read, roadmapOrder } from './lib.mjs';
 import {withMemoryLock} from './memory-lock.mjs';
 import { splitSections } from './memory-conserve.mjs';
@@ -57,11 +56,7 @@ function rotateLogUnlocked({ repo = repoRoot(), config = loadConfig(), keep = co
         current += append;
       }
     }
-    const temp = `${file}.${randomUUID()}.tmp`;
-    try {
-      fs.writeFileSync(temp, parts.filter(p => p.kind === 'preamble').map(p => p.text).join('') + kept.map(p => p.text).join(''), { encoding: 'utf8', flag: 'wx' });
-      fs.renameSync(temp, file);
-    } finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
+    atomicWrite(file, parts.filter(p => p.kind === 'preamble').map(p => p.text).join('') + kept.map(p => p.text).join(''), {encoding: 'utf8'});
   }
   return { moved: moved.length, kept: kept.length, destinations };
 }
@@ -109,16 +104,60 @@ function rotateRoadmapUnlocked({repo = repoRoot(), config = loadConfig(), write 
   }
   return result;
 }
+export function rotateHandovers(options = {}) {
+  const run = () => rotateHandoversUnlocked(options);
+  return options.write && !options.dryRun ? withMemoryLock(options.memoryDir, run, {lock: options.lock}) : run();
+}
+function rotateHandoversUnlocked({memoryDir, config = loadConfig(), keep = config.caps.handovers?.keepNotes ?? 20, write = false, dryRun = false} = {}) {
+  if (typeof keep === 'string' && !/^\d+$/.test(keep)) throw new Error('--keep must be a nonnegative integer');
+  keep = Number(keep);
+  if (!Number.isSafeInteger(keep) || keep < 0) throw new Error('--keep must be a nonnegative integer');
+  const files = handoverFiles(memoryDir);
+  if (files.some(f => f.error)) throw new Error('cannot read handovers for rotation');
+  const notes = files.filter(f => f.kind === 'note').sort((a, b) => b.file.localeCompare(a.file));
+  const moved = notes.slice(Math.max(1, keep)).filter(f => f.valid), destinations = [];
+  const contains = (archive, name, raw) => {
+    const marker = Buffer.from(`## ${name}\n`), at = archive.indexOf(marker);
+    if (at < 0) return false;
+    const expected = Buffer.concat([marker, raw, Buffer.from('\n\n')]);
+    const end = at + expected.length;
+    if ((at && archive[at - 1] !== 10) || archive.indexOf(marker, at + marker.length) >= 0 || !archive.subarray(at, end).equals(expected) || (end < archive.length && archive.subarray(end, end + 3).toString() !== '## ')) throw new Error('handover archive differs from loose note: ' + name);
+    return true;
+  };
+  for (const note of [...moved].sort((a, b) => a.file.localeCompare(b.file))) {
+    const name = path.basename(note.file), relative = `handovers/archive-${note.data.time.slice(0, 7)}.md`, dest = path.join(memoryDir, relative);
+    let current = Buffer.alloc(0);
+    if (fs.existsSync(dest)) {
+      if (!fs.lstatSync(dest).isFile()) throw new Error('handover archive is not a regular file');
+      current = fs.readFileSync(dest);
+    }
+    const found = contains(current, name, note.raw);
+    if (write && !dryRun) {
+      if (!found) {
+        const next = Buffer.concat([current, Buffer.from(current.length && current.at(-1) !== 10 ? '\n' : ''), Buffer.from(`## ${name}\n`), note.raw, Buffer.from('\n\n')]);
+        atomicWrite(dest, next);
+      }
+      if (!contains(fs.readFileSync(dest), name, note.raw)) throw new Error('handover archive verification failed');
+      const source = path.join(memoryDir, note.file);
+      if (!fs.readFileSync(source).equals(note.raw)) throw new Error('handover changed during rotation');
+      fs.unlinkSync(source);
+    }
+    const destination = destinations.find(d => d.file === relative);
+    if (destination) { destination.entries++; destination.bytes += note.bytes; }
+    else destinations.push({file: relative, entries: 1, bytes: note.bytes});
+  }
+  return {moved: moved.length, kept: notes.length - moved.length, destinations};
+}
 export function main(argv = process.argv.slice(2)) {
   try {
     const opts = args(argv.filter(arg => arg !== '--write'));
-    if (opts.help) { console.log('Usage: memory-rotate.mjs log [--repo PATH] [--keep N] [--write] [--json]'); return 0; }
-    if (!['log', 'roadmap'].includes(opts._[0])) throw new Error('expected log or roadmap');
+    if (opts.help) { console.log('Usage: memory-rotate.mjs log|roadmap|handovers [--repo PATH] [--memory-dir PATH] [--keep N] [--write] [--dry-run] [--json]'); return 0; }
+    if (!['log', 'roadmap', 'handovers'].includes(opts._[0])) throw new Error('expected log, roadmap or handovers');
     const loc = locations(opts);
     const config = loadConfig(), input = opts._[0] === 'log' ? config.caps.brainLog.path : config.caps.roadmap.path;
     validateConfigPaths(loc.repo, config);
-    if (!fs.existsSync(path.join(loc.repo, input))) { console.log('nothing to rotate: no existing input'); return 0; }
-    const result = (opts._[0] === 'log' ? rotateLog : rotateRoadmap)({...loc, memoryDir: loc.memoryDir ?? loc.repo, keep: opts.keep, write: argv.includes('--write'), today: opts.today});
+    if (opts._[0] !== 'handovers' && !fs.existsSync(path.join(loc.repo, input))) { console.log('nothing to rotate: no existing input'); return 0; }
+    const result = ({log: rotateLog, roadmap: rotateRoadmap, handovers: rotateHandovers}[opts._[0]])({...loc, memoryDir: loc.memoryDir ?? loc.repo, keep: opts.keep, write: argv.includes('--write') && !opts['dry-run'], today: opts.today});
     if (opts.json) console.log(JSON.stringify(result, null, 2));
     else if (!result.moved) console.log('nothing to rotate');
     else { for (const d of result.destinations ?? []) console.log(`${d.file}: ${d.entries} entries, ${d.bytes} bytes`); console.log(`kept: ${result.kept} entries`); if (result.bytesRemoved !== undefined) console.log(`proof: ${result.bytesRemoved} bytes removed = ${result.bytesAdded} bytes added; every moved block found: ${result.found}`); }

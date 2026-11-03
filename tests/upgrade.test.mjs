@@ -41,7 +41,7 @@ test('L4 upgrade creates missing settings, plans hooks, and prints instructions 
   put(path.join(f.target, 'AGENTS.md'), 'memory-lesson.mjs new --route craft-sessions "Title"\n');
   const check = f.cli('scripts/upgrade.mjs', ['--target', f.target, '--check'], next);
   assert.equal(check.status, 1);
-  assert.ok(check.stdout.split(/\r?\n/).includes('settings: guard hooks would be added (PreToolUse Bash|PowerShell, UserPromptSubmit)'));
+  assert.ok(check.stdout.split(/\r?\n/).includes('settings: guard hooks would add (PreToolUse Bash|PowerShell, UserPromptSubmit)'));
   assert.ok(!fs.existsSync(path.join(f.target, '.claude/settings.json')));
   const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target], next));
   assert.ok(r.stdout.split(/\r?\n/).includes('WARN AGENTS.md:1 still says "memory-lesson.mjs new --route <family>"; add --kind <mistake|practice|observation>'));
@@ -182,7 +182,7 @@ test('L4 install adds guard when SessionStart is already present and when settin
     const r=ok(f.install());assert.ok(r.stdout.split(/\r?\n/).includes('settings: guard hooks added (PreToolUse Bash|PowerShell, UserPromptSubmit)'));
     const settings=json(file);assert.equal(settings.hooks.SessionStart.length,1);
     assert.deepEqual(settings.hooks.PreToolUse,json(path.resolve('templates/settings.guard.json')).hooks.PreToolUse);
-    assert.deepEqual(settings.hooks.UserPromptSubmit,json(path.resolve('templates/settings.guard.json')).hooks.UserPromptSubmit);
+    assert.deepEqual(settings.hooks.UserPromptSubmit,[...json(path.resolve('templates/settings.guard.json')).hooks.UserPromptSubmit,...json(path.resolve('templates/settings.newsession.json')).hooks.UserPromptSubmit]);
   }
 });
 
@@ -252,7 +252,8 @@ test('K1 archived generated pages upgrade and restore byte-for-byte', t => {
   put(path.join(f.memory, 'topic.md'), '---\nname: Topic\ndescription: ' + 'x'.repeat(383) + '\nmetadata:\n  type: feedback\n  route: craft-sessions\n---\nBody.\n');
   ok(f.cli('scripts/memory/memory-index.mjs', ['--write'], f.target));
   const pages = Object.fromEntries(fs.readdirSync(f.memory).filter(x => x.startsWith('INDEX-')).map(x => [x, fs.readFileSync(path.join(f.memory, x))]));
-  const result = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target]));
+  const next=bump(f),ledger=path.join(next,'engine/upgrades.json'),rows=json(ledger);rows.at(-1).retired=['scripts/memory/memory.test.mjs'];put(ledger,JSON.stringify(rows));
+  const result = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target],next));
   assert.notDeepEqual(fs.readFileSync(path.join(f.memory, 'INDEX-craft-sessions.md')), pages['INDEX-craft-sessions.md']);
   const backup = result.stdout.match(/upgrade backup: (.+)/)[1].trim();
   ok(f.cli('scripts/upgrade.mjs', ['--target', f.target, '--restore', backup]));
@@ -300,16 +301,10 @@ for(const [label,contents] of [['array','[]'],['null','null'],['empty',''],['non
     const before=tree(f.target),args=['--target',f.target,...(mode==='flag'?['--no-guard']:[])];
     const r=f.cli('scripts/upgrade.mjs',args);
     assert.doesNotMatch(r.stdout,/guard hooks added/);
-    if(mode==='enabled') {
       assert.equal(r.status,1);
       assert.match(r.stderr,label==='array'||label==='null'?/settings.json must be an object/:/cannot read .*settings.json:/);
       assert.deepEqual(tree(f.target),before);
       assert.ok(!fs.readdirSync(path.join(f.target,'scripts/memory')).some(name=>name.startsWith('.kit-backup-')));
-    } else {
-      ok(r);assert.equal(read(file),contents);
-      assert.match(r.stdout,/settings: skipped/);
-      if(mode==='flag') assert.equal(json(path.join(f.target,'scripts/memory/KIT.local.json')).guard,false);
-    }
   });
 }
 

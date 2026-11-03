@@ -16,13 +16,13 @@ Needs: Node 22 or newer, Git with a name and email set (Git for Windows on Windo
 the project folder as a Git repository (`git init` first if it is not), and a private Git remote for the memory.
 
 1. **Get the kit next to the project**, not inside it:
-   `git clone --branch <tag> <KIT_REMOTE> <KIT>` (or copy the kit folder). Use `v3.2.12` with this
+   `git clone --branch <tag> <KIT_REMOTE> <KIT>` (or copy the kit folder). Use `v3.3.0` with this
    guide, or read the guide shipped with your chosen release. The kit is the original; everything installed is a copy, so never
    edit the installed engine by hand.
 2. **Preview**: `node <KIT>/scripts/install.mjs --target <PROJECT> --dry-run` prints every file it would write
    and changes nothing.
 3. **Install**: `node <KIT>/scripts/install.mjs --target <PROJECT>`. It writes `scripts/memory/` (engine, config,
-   probes, `KIT.json` receipt, `MANIFEST.json`), the two skills under `.claude/skills/`, SessionStart, PreToolUse and UserPromptSubmit hooks in
+   probes, `KIT.json` receipt, `MANIFEST.json`), the four skills (`memory-ladder`, `memory-review`, `new-session`, `handover`) under `.claude/skills/`, SessionStart, PreToolUse and UserPromptSubmit hooks in
    `.claude/settings.json` (other settings kept), the memory-gate block in `AGENTS.md` (or `CLAUDE.md` when that
    is the only instructions file), and a starter private memory (router, one sessions index, one state file)
    with a baseline commit. When the project already has a `brain/` folder, it also writes the brain index.
@@ -34,8 +34,8 @@ the project folder as a Git repository (`git init` first if it is not), and a pr
      The full routine, including the lesson file format, is in `.claude/skills/memory-ladder/SKILL.md`.
    - `scripts/memory/memory-check.mjs`: the gate; `scripts/memory/memory-recall.mjs`: recall. Run both from
      the project root.
-   - `.claude/settings.json`: SessionStart runs the gate with `--session-start`; PreToolUse runs the command guard and UserPromptSubmit prints the clock.
-   - `.claude/skills/memory-ladder/` and `.claude/skills/memory-review/`: the two procedures.
+   - `.claude/settings.json`: SessionStart runs the gate with `--session-start`; PreToolUse runs the command guard and UserPromptSubmit prints the clock and detects session phrases.
+   - `.claude/skills/memory-ladder/`, `.claude/skills/memory-review/`, `.claude/skills/new-session/` and `.claude/skills/handover/`: the four procedures.
    - The private memory: `~/.claude/projects/<project-path-slug>/memory/` (every non-alphanumeric character
      of the absolute project path becomes `-`), holding `MEMORY.md` (the router), `INDEX-craft-sessions.md`
      and `current-state.md`. The install output prints the exact folder on its `memory:` line.
@@ -57,7 +57,8 @@ the project folder as a Git repository (`git init` first if it is not), and a pr
 
    Rerun `node <PROJECT>/scripts/memory/memory-check.mjs` and expect `0 FAIL, 0 WARN`.
 5. **Commit the project side by name**: `scripts/memory/`, `.claude/skills/memory-ladder/`,
-   `.claude/skills/memory-review/`, `.claude/settings.json`, and `AGENTS.md` or `CLAUDE.md`
+   `.claude/skills/memory-review/`, `.claude/skills/new-session/`, `.claude/skills/handover/`,
+   any installed `.agents/skills/` mirrors, `.claude/settings.json`, and `AGENTS.md` or `CLAUDE.md`
    (the installer's ignore rules live in `scripts/memory/.gitignore`). Never `git add -A`.
 6. **First session prompt**, pasted into the agent in `<PROJECT>`:
 
@@ -94,8 +95,7 @@ It generates memory indexes, rotates existing history, refreshes project navigat
 commits memory and pushes. Fix every FAIL; a refused push is reported. Use `--no-push` or `--dry-run`
 when appropriate. Commit the project by name.
 
-**Compacting or handing over.** The state block is the handover. Before a compaction or a switch of agent,
-make it current and push the memory; the next session starts from it.
+**Compacting or handing over.** Use `/handover` to capture lessons, write a note and CURRENT, and checkpoint memory. Read its verdict before compacting. In the next conversation, `/new-session` shows the latest note and waits for go. See [session commands](../README.md#starting-and-handing-over-a-session).
 
 ## When the kit publishes a new tag
 

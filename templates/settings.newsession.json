@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/scripts/memory/new-session.mjs\" detect",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
