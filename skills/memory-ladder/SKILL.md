@@ -2,7 +2,7 @@
 name: memory-ladder
 description: Use the v3 memory ladder for capture, recall, the gate, converting old memory, and installation in this project.
 metadata:
-  engine_version: "3.3.0"
+  engine_version: "3.3.1"
 ---
 
 # Memory ladder v3

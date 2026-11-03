@@ -19,7 +19,7 @@ export function checkpoint({memoryDir, repo, config = loadConfig(), dryRun = fal
   roadmapOrder(config);
   const inRepo = inRepoMemory(repo,memoryDir);
   const steps = ['memory-index', 'rotate-log', 'rotate-roadmap', 'rotate-handovers', 'brain-index', 'roadmap-overview', 'gate', 'commit', 'push'];
-  if (dryRun) { for (const step of steps) report(step, (step === 'push' && (noPush || inRepo)) || (step === 'commit' && inRepo && !commit) ? 'skipped' : 'dry-run'); return {dryRun: true}; }
+  if (dryRun) { for (const step of steps) report(step, step === 'roadmap-overview' && config.caps.roadmapOverview.enabled === false ? 'off' : (step === 'push' && (noPush || inRepo)) || (step === 'commit' && inRepo && !commit) ? 'skipped' : 'dry-run'); return {dryRun: true}; }
   if (fs.existsSync(repoPath(repo, config.caps.brainLog.path, 'caps.brainLog.path'))) rotateLog({repo, config});
   return withMemoryLock(memoryDir, lock => {
     const options = {memoryDir, repo, config, today, lock, write: true};
@@ -44,20 +44,20 @@ export function checkpoint({memoryDir, repo, config = loadConfig(), dryRun = fal
       }
     }
     report('brain-index', fs.existsSync(path.join(repo, config.brain?.dir ?? 'brain')) ? 'written' : 'absent');
-    if (exists('roadmap')) {
+    if (config.caps.roadmapOverview.enabled !== false && exists('roadmap')) {
       const file = repoPath(repo, config.caps.roadmapOverview.path, 'caps.roadmapOverview.path');
       fs.mkdirSync(path.dirname(file), {recursive: true}); writeText(file, generateOverview({repo, config}));
     }
-    report('roadmap-overview', exists('roadmap') ? 'written' : 'absent');
+    report('roadmap-overview', config.caps.roadmapOverview.enabled === false ? 'off' : exists('roadmap') ? 'written' : 'absent');
     const checked = runCheck({memoryDir, repo, config, today}), failures = checked.findings.filter(f => f.severity === 'FAIL' && !f.allowed);
     report('gate', `${counts(checked).FAIL} FAIL`);
     if (failures.length) throw new Error(failures.map(findingLine).join('\n'));
     if (inRepo) {
       const paths = [slash(path.relative(repo,memoryDir))];
       if(log) paths.push(config.caps.brainLog.path, ...log.destinations.map(d=>d.file));
-      if(roadmap) paths.push(config.caps.roadmap.path, config.caps.roadmapOverview.path, ...(roadmap.moved ? [config.caps.roadmapHistory.path] : []));
+      if(roadmap) paths.push(config.caps.roadmap.path, ...(config.caps.roadmapOverview.enabled === false ? [] : [config.caps.roadmapOverview.path]), ...(roadmap.moved ? [config.caps.roadmapHistory.path] : []));
       if(fs.existsSync(path.join(repo,config.brain?.dir ?? 'brain'))) paths.push(config.caps.brainIndex.path,config.caps.brainIndex.allPath);
-      const selected = [...new Set(paths), ':(exclude,glob)**/.memory.lock*'];
+      const selected = [...new Set(paths), ...(config.caps.roadmapOverview.enabled === false ? [':(exclude,literal)'+config.caps.roadmapOverview.path] : []), ':(exclude,glob)**/.memory.lock*'];
       const message = `memory: checkpoint ${today}`;
       if (!commit) {
         const quote = s => "'" + s.replaceAll("'", "'\\''") + "'";

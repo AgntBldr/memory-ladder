@@ -236,7 +236,7 @@ when missing or stale with `--check`. `generateOverview` reads the roadmap relea
 labels and continuations, Open work lists, Active headings, sorted shelf metadata,
 and history headings. It uses content only, never file dates or current timestamps.
 History is read from `caps.roadmapHistory.path`.
-The gate warns `repo.roadmap-overview` when an existing overview is stale and never writes it. An absent configured file produces no finding.
+The gate warns `repo.roadmap-overview` when a roadmap exists and its overview is stale or missing, and never writes it. Set `caps.roadmapOverview.enabled` to `false` to suppress that finding and checkpoint writing/staging. `--write` and `--check` then report off and exit 0 without writing; stdout preview still works. Existing overview files are left untouched. The default is `true`; other types fail `config.caps` and are treated as `true`.
 
 ## Generate the brain indexes
 
@@ -300,7 +300,7 @@ A `[[lesson|label]]` alias is dropped only when the row is otherwise just links;
 `- [[lesson|Nice label]] extra words` keeps it.
 
 `node scripts/memory/memory-checkpoint.mjs` runs indexes, log rotation, roadmap rotation, brain index,
-roadmap overview, gate, memory commit, and push in order. Missing optional project files are skipped.
+roadmap overview, gate, memory commit, and push in order. Missing optional project files and the overview when `caps.roadmapOverview.enabled` is `false` are skipped.
 A failed or timed-out push is reported and exits 2; the commit remains. --no-push skips it; --dry-run writes nothing.
 `--today YYYY-MM-DD` sets the checkpoint date, including the gate's stale checks and rotation checks.
 In in-repo memory, checkpoint prints exact staging paths and a suggested commit message

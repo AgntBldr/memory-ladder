@@ -330,3 +330,15 @@ test('upgrade NEW_CHECKS exist in gate and comparison rejects missing IDs', asyn
   assert.throws(()=>assertRegisteredChecks([...NEW_CHECKS,'lesson.typo'],source),/lesson.typo/);
   assert.throws(()=>assertRegisteredChecks(['lesson.kind'],source.replaceAll('lesson.kind','removed.kind')),/lesson.kind/);
 });
+
+for(const flag of ['--check','--dry-run']) test(`restore refuses ${flag} before touching files`,t=>{
+  const f=fixture(t),backup=path.join(f.root,'backup');
+  put(path.join(f.target,'host.txt'),'current\n');
+  put(path.join(backup,'host.txt'),'old\n');
+  put(path.join(backup,'restore.json'),JSON.stringify({files:[{file:'host.txt',existed:true}]}));
+  const before=tree(f.root,{git:true,previous:true});
+  const result=f.cli('scripts/upgrade.mjs',['--target',f.target,'--restore',backup,flag]);
+  assert.equal(result.status,1);
+  assert.equal(result.stderr.trim(),'upgrade: --restore cannot be previewed; run it without --check or --dry-run');
+  assert.deepEqual(tree(f.root,{git:true,previous:true}),before);
+});

@@ -14,12 +14,12 @@ const skill = read(path.join(kitRoot, 'skills/new-session/SKILL.md'));
 const bytes = text => Buffer.byteLength(text);
 const noDelegation = text => assert.doesNotMatch(text.replaceAll('.claude/skills/new-session/SKILL.md', ''), /\b(?:sub[ -]?agents?|Task|Sonnet|Opus|Haiku|GPT(?:-\d[^\s]*)?|Gemini|Claude|Codex)\b/i);
 
-test('T6 shipped text caps, exact reply template, entry and goal contract', () => {
+test('shipped text caps, exact reply template, entry and goal contract', () => {
   assert.ok(bytes(skill) <= 1536, `SKILL.md ${bytes(skill)} B`);
   assert.doesNotMatch(skill, /```/);
-  assert.match(skill, /plain text with no code fence/);
-  assert.ok(skill.includes("First line: start's line 1, copied exactly."));
-  assert.equal(FIRST_REPLY_TEMPLATE.split('\n')[0], '<abs path> | <branch>@<sha> | <n> changed, <n> untracked | <n> ahead/no upstream | kit <version>[ | flags: ...]');
+  assert.match(skill, /Reply in Markdown, no code fence/);
+  assert.ok(skill.includes("copy start's values exactly, add no fact"));
+  assert.equal(FIRST_REPLY_TEMPLATE.split('\n')[0], '**<abs path>** - `<branch>` @ `<sha>` - kit <version>[ - flags: ...]');
   assert.doesNotMatch(FIRST_REPLY_TEMPLATE, /^\d+[.)] /m);
   assert.doesNotMatch(skill, /\$ARGUMENTS/);
   noDelegation(skill);
@@ -29,24 +29,26 @@ test('T6 shipped text caps, exact reply template, entry and goal contract', () =
   assert.ok(skill.includes("node scripts/memory/new-session.mjs start --entry <slash|sentence> [--goal '<text>']"));
   assert.ok(skill.includes('Args "sentence": entry sentence; goal from Goal: line. Else slash; strip /new-session and leading Goal:.'));
   assert.ok(skill.includes("Single-quote goal; bash: ' as '\\''; PowerShell: ' as ''."));
-  assert.match(skill, /Run only follow-ups named by start\. Write nothing/);
-  assert.ok(skill.includes("( ) notes: do not print; fill <...>; end exactly `Waiting for your go.`."));
+  assert.match(skill, /Run only follow-ups start names; write nothing/);
+  assert.ok(skill.includes("End exactly `Waiting for your go.`"));
 });
 
-test('T6 gate line is verbatim and last; overlay has every key and precedence', () => {
+test('gate lines are verbatim and adjacent; overlay has every key and precedence', () => {
   const gate = read(path.join(kitRoot, 'templates/AGENTS-memory-gate.md'));
   assert.equal(bytes(gateLine), 356); assert.ok(bytes(gateLine) <= 360);
-  assert.equal(gate.split('\n').filter(line => line.startsWith('- ')).at(-1), gateLine);
+  assert.equal(gate.split('\n').filter(line => line.startsWith('- ')).at(-2), gateLine);
+  assert.equal(gate.split('\n').filter(line => line.startsWith('- ')).at(-1), '- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only if /handover reported it since the last change.');
+  assert.ok(gate.includes(gateLine + '\n- Reports:'));
   const overlay = read(path.join(kitRoot, 'templates/AGENTS-session-overlay.md'));
   assert.ok(bytes(overlay) <= 1536);
   assert.match(overlay, /^## Session overlay\n/);
   assert.deepEqual(overlay.split('\n').filter(line => /^[a-z-]+: /.test(line)).map(line => line.split(':')[0]), ['roadmap', 'branch', 'main-only', 'check', 'rules', 'after-go', 'close', 'push', 'log', 'board', 'public']);
   assert.match(overlay, /AGENTS.md outside overlay > overlay > rules file > kit defaults/);
   for (const line of ['branch: <branch>', 'main-only: yes|no', 'push: <memory|project|none; /handover defaults to memory; project only in-repo>', 'public: yes|no']) assert.ok(overlay.split('\n').includes(line));
-  assert.match(overlay, /A public repo carries no path, name, board or cost line/);
+  assert.match(overlay, /In a public repository, keep personal paths and private settings out of the overlay/);
 });
 
-for (const ending of [' ', '\t']) test(`S1 carryover note opener ${JSON.stringify(ending)} preserves branch 1.5`, t => {
+for (const ending of [' ', '\t']) test(`note opener ${JSON.stringify(ending)} preserves branch 1.5`, t => {
   const f = fixture(t), text = note(1).replace('---\n', '---' + ending + '\n').replace('topic-1', '1.5');
   const parsed = parseHandover(text);
   assert.equal(parsed.valid, true); assert.equal(parsed.data.branch, '1.5');
@@ -65,7 +67,7 @@ function installed(t) {
   return {...f, memory, tmp, env, cli};
 }
 
-test('S1 carryover expected refusals print bounded messages and write no log', t => {
+test('expected refusals print bounded messages and write no log', t => {
   const f = installed(t), before = tree(f.root, {git: true});
   for (const [args, message] of [
     [['open', path.join(f.root, 'outside.md')], /outside memory or brain/],
@@ -115,7 +117,7 @@ function namedCalls(output) {
   return calls;
 }
 
-test('T7 slash Goal prefix and sentence give the same goal line', t => {
+test('slash Goal prefix and sentence give the same goal line', t => {
   const f = installed(t), slash = '/new-session Goal: x';
   const goal = slash.slice('/new-session'.length).trim().replace(/^Goal:\s*/i, '');
   const slashOutput = ok(f.cli(['start', '--entry', 'slash', '--goal', goal])).stdout;
@@ -125,7 +127,7 @@ test('T7 slash Goal prefix and sentence give the same goal line', t => {
   assert.equal(line(slashOutput), 'goal: x'); assert.equal(line(sentenceOutput), line(slashOutput));
 });
 
-test('T7 real bash preserves dollar, backtick and apostrophe in the goal', t => {
+test('real bash preserves dollar, backtick and apostrophe in the goal', t => {
   const candidates = process.platform === 'win32'
     ? ['C:/Program Files/Git/bin/bash.exe', 'C:/Program Files/Git/usr/bin/bash.exe'] : ['bash'];
   const bash = candidates.find(command => spawnSync(command, ['--version'], {encoding: 'utf8', windowsHide: true}).status === 0);
@@ -139,7 +141,7 @@ test('T7 real bash preserves dollar, backtick and apostrophe in the goal', t => 
   assert.deepEqual(tree(f.root, {git: true}), before);
 });
 
-test('T7 check and board refuse unsafe characters and duplicate keys without executing', t => {
+test('check and board refuse unsafe characters and duplicate keys without executing', t => {
   const f = installed(t);
   for (const value of ['', 'rm -rf ~', 'node -e "x"', ...[';', '&', '|', '>', '<', '`', '$(', '\u2028', '\u2029', '\u0085', '\t'].map(token => 'node check.cjs ' + token + ' second')]) {
     put(path.join(f.target, 'AGENTS.md'), '## Session overlay\ncheck: ' + value + '\nboard: fixture-board\n');
@@ -160,7 +162,7 @@ test('T7 check and board refuse unsafe characters and duplicate keys without exe
   assert.match(unknown,/conflicts:.*overlay custom-key: refused \(unknown key\).*overlay custom-key: refused \(duplicate key\)/);
 });
 
-test('T7 overlay values end on their own line and filled pipes are values; commands are shown and capped',t=>{
+test('overlay values end on their own line and filled pipes are values; commands are shown and capped',t=>{
   const f=installed(t);
   put(path.join(f.target,'AGENTS.md'),'## Session overlay\ncheck: node check.cjs\nProse is not a command.\nafter-go: a | b\nboard: node board.cjs\nPrecedence: this is prose\n');
   assert.deepEqual(readOverlay(f.target),{check:'node check.cjs','after-go':'a | b',board:'node board.cjs'});
@@ -177,7 +179,7 @@ test('T7 overlay values end on their own line and filled pipes are values; comma
   }
 });
 
-test('T7 placeholder overlays are ignored and named as conflicts', t => {
+test('placeholder overlays are ignored and named as conflicts', t => {
   const f = installed(t), template = read(path.join(kitRoot, 'templates/AGENTS-session-overlay.md'));
   put(path.join(f.target, 'AGENTS.md'), template);
   const output = ok(f.cli(['start'])).stdout;
@@ -193,7 +195,7 @@ test('T7 placeholder overlays are ignored and named as conflicts', t => {
   }
 });
 
-for (const scenario of ['notes', 'current', 'failing-git', 'unreadable-memory', 'rules-error', 'long-names', 'digest-cap', 'addons']) test(`T7 executed start: ${scenario}`, t => {
+for (const scenario of ['notes', 'current', 'failing-git', 'unreadable-memory', 'rules-error', 'long-names', 'digest-cap', 'addons']) test(`executed start: ${scenario}`, t => {
   const f = installed(t), rules = largeInputs(f, scenario !== 'current');
   let env = f.env;
   if (scenario === 'addons') {

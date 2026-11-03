@@ -128,7 +128,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     brainNode: {"lengthChecks": false, "warnBodyWords": 350, "warnSummaryChars": 200},
     shelf: {"path": "docs/shelf", "reviewDays": 90},
     brainShared: {"paths": ["brain/_shared/"]},
-    roadmapOverview: {"path": "docs/ROADMAP-OVERVIEW.md"},
+    roadmapOverview: {"enabled": true, "path": "docs/ROADMAP-OVERVIEW.md"},
     roadmapHistory: {"path": "docs/ROADMAP-HISTORY.md"},
     stale: {"types": ["project", "reference"]},
   };
@@ -140,6 +140,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
   }
   const capDefaults = {
     handovers: groupDefaults.handovers,
+    roadmapOverview: {enabled: true},
     topic: {warnLineChars: 2000},
     lesson: {enforceAfterRepeats: 2, failAfterRepeats: 4, lessonOnlyReturns: true},
     guard: {kitRules: 'scripts/memory/enforce-rules.kit.json', rules: 'scripts/memory/enforce-rules.json'},
@@ -514,7 +515,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       if (order && dates.length > 1 && (order === 'newest-first' ? dates[0] < dates.at(-1) : dates[0] > dates.at(-1)))
         add('WARN', 'repo.roadmap-order', caps.roadmap.path, null, `Open work dates contradict ${order}: first ${dates[0]}, last ${dates.at(-1)}`);
     }
-    if (fs.existsSync(path.join(repo, caps.roadmap.path))) try {
+    if (caps.roadmapOverview.enabled !== false && fs.existsSync(path.join(repo, caps.roadmap.path))) try {
       if (read(path.join(repo, caps.roadmapOverview.path)) !== generateOverview({ repo, config }))
         add('WARN', 'repo.roadmap-overview', caps.roadmapOverview.path, null, 'stale or missing; regenerate with roadmap-overview.mjs --write');
     } catch (error) { add('WARN', 'repo.roadmap-overview', caps.roadmapOverview.path, null, error.message); }

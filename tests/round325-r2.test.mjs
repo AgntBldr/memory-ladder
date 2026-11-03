@@ -107,6 +107,7 @@ test('CRLF ORDER write proof rejects reordered notes and restores bytes',t=>{
 test('CRLF existing appended gate block is not duplicated',t=>{
  const f=fixture(t),agents=path.join(f.target,'AGENTS.md'),text='# Host\r\n\r\n## Memory gate\r\nKeep host instructions.\r\n';
  put(agents,text);ok(f.install());
+ const reports=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Reports:'));
  const line=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Session phrases:'));
- assert.equal(read(agents),text.replace('## Memory gate\r\n','## Memory gate\r\n'+line+'\r\n'));
+ assert.equal(read(agents),text.replace('## Memory gate\r\n','## Memory gate\r\n'+line+'\r\n'+reports+'\r\n'));
 });

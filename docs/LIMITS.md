@@ -182,7 +182,7 @@ The limits are design choices informed by observed memory growth. They are not p
 - **Limit.** WARN above 60 KiB. FAIL above 80 KiB. Rotation keeps six dated "Open work" blocks by default, and as few as
   two when the roadmap is over its warning size.
 - **Why.** The roadmap is read and refreshed at every checkpoint.
-- **Where the number came from.** The live roadmap stays within 80 KiB, with history in a separate file and a generated overview. In real memories, rotation took the live roadmap from 434.7 KB to 32.8 KB.
+- **Where the number came from.** The live roadmap stays within 80 KiB, with history in a separate file and a generated overview (optional via `caps.roadmapOverview.enabled`). In real memories, rotation took the live roadmap from 434.7 KB to 32.8 KB.
 
 ### `AGENTS.md`
 

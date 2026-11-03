@@ -38,7 +38,7 @@ export function usage(script) {
   --replace-skill <NAME> Back up and replace this kit skill, including a foreign skill.
   --no-gitignore-fix    Warn with every ignored installed file and matching .gitignore line;
                         continue even with excluded parents, without editing .gitignore.
-  --dry-run             ${installScript?'Print planned writes without writing.':'Accepted by the shared parser; unused by upgrade.'}
+  --dry-run             ${installScript?'Print planned writes without writing.':'Alias for --check; report planned changes without writing.'}
   --backup              ${installScript?'Back up conflicting kit-owned files before installing.':'Accepted by the shared parser; upgrade always backs up changes.'}
   --force-skills        ${installScript?'Accepted by the shared parser; unused by install.':'Replace edited skills, including at the same version.'}
   --check               ${installScript?'Report the installation plan without writing.':'Report hooks, gate line, mirrors, foreign and unknown files without writing.'}
@@ -195,7 +195,7 @@ export function install(opts, root = kitRoot) {
   const agentsFile=!fs.existsSync(path.join(target,'AGENTS.md'))&&fs.existsSync(claudeFile)?claudeFile:path.join(target,'AGENTS.md'), agents=fs.existsSync(agentsFile)?fs.readFileSync(agentsFile,'utf8'):'';
   let gateInstructions=fs.readFileSync(path.join(root,'templates/AGENTS-memory-gate.md'),'utf8');
   if(inRepo) gateInstructions=gateInstructions.replace('gate, commit and push. Use `--no-push` or `--dry-run` when needed.', 'gate, then print staging paths and a suggested commit message. In in-repo memory, checkpoint never pushes and commits only with explicit `--commit` on the current branch; follow host branch rules. Use `--dry-run` to preview.');
-  if(!/^## Memory gate(?:[ \t]|\r?$)/m.test(agents)) { planned.push([agentsFile,appendText(agents,gateInstructions)]);console.log('Session phrases gate line: '+(opts.check||opts['dry-run']?'would add':'added')+' in '+path.basename(agentsFile)); }
+  if(!/^## Memory gate(?:[ \t]|\r?$)/m.test(agents)) { planned.push([agentsFile,appendText(agents,gateInstructions)]);for(const label of ['Session phrases','Reports']) console.log(label+' gate line: '+(opts.check||opts['dry-run']?'would add':'added')+' in '+path.basename(agentsFile)); }
   else { const gate=gateLinePlan(target,root,opts);if(gate) planned.push(gate); }
   if(!fs.existsSync(path.join(target,'CLAUDE.md'))) planned.push([path.join(target,'CLAUDE.md'),'@AGENTS.md\n']);
   else if(!sameFile(agentsFile,claudeFile)) {

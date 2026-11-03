@@ -111,6 +111,8 @@ function ensureLockIgnore(memory) {
   if(!text.split(/\r?\n/).includes('.memory.lock*')) write(file,text+(text&&!text.endsWith('\n')?'\n':'')+'.memory.lock*\n');
 }
 export function upgrade(opts, root=kitRoot, hooks={}) {
+  if(opts.restore&&(opts.check||opts['dry-run'])) throw Error('--restore cannot be previewed; run it without --check or --dry-run');
+  if(opts['dry-run']) opts={...opts,check:true};
   if(opts.restore) return upgradeUnlocked(opts,root,hooks);
   if(opts.check) return upgradeUnlocked(opts,root,hooks);
   const old=readJSON(path.join(path.resolve(opts.target),'scripts/memory/MANIFEST.json'));

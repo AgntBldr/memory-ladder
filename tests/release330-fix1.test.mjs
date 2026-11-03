@@ -10,7 +10,7 @@ import {FIRST_REPLY_TEMPLATE} from '../engine/new-session.mjs';
 
 const permissions = ['Bash', 'PowerShell'].map(tool => `${tool}(node scripts/memory/new-session.mjs:*)`);
 const template = json(path.join(kitRoot, 'templates/settings.newsession.json'));
-test('S4.8 both permissions added once and removed; S4.19 accurate real and preview reports', () => {
+test('both permissions added once and removed; accurate real and preview reports', () => {
   const settings = {}, local = {}, lines = [], log = console.log;
   console.log = line => lines.push(line);
   try {
@@ -37,7 +37,7 @@ test('S4.8 both permissions added once and removed; S4.19 accurate real and prev
     for (const permission of permissions) assert.ok(lines.some(line => line.includes(`permission ${permission}: would allow`)));
   } finally { console.log = log; }
 });
-test('S4.16 same installed helper spellings are present and opt-out reports kept hand-wired hook', t => {
+test('same installed helper spellings are present and opt-out reports kept hand-wired hook', t => {
   const f = fixture(t);
   for (const script of ['./scripts/memory/new-session.mjs', '.\\scripts\\memory\\new-session.mjs', path.join(f.target, 'scripts/memory/new-session.mjs')]) for (const node of ['node', 'node.exe']) {
     const command = `${node} "${script}" detect`, settings = {hooks: {UserPromptSubmit: [{hooks: [{command}]}]}, permissions: {allow: [...permissions]}};
@@ -50,7 +50,7 @@ test('S4.16 same installed helper spellings are present and opt-out reports kept
   }
 });
 for (const operation of ['writeFileSync', 'statSync', 'readFileSync']) for (const code of ['EPERM', 'EBUSY']) {
-  test(`S4.9 lock retries ${operation} ${code} and preserves timeout error identity`, t => {
+  test(`lock retries ${operation} ${code} and preserves timeout error identity`, t => {
     const f = fixture(t), dir = path.join(f.root, 'memory'); fs.mkdirSync(dir);
     const file = path.join(dir, '.memory.lock'), original = fs[operation], write = fs.writeFileSync;
     const error = Object.assign(Error('pending deletion'), {code}); let attempts = 0, permanent = false;
@@ -69,19 +69,19 @@ for (const operation of ['writeFileSync', 'statSync', 'readFileSync']) for (cons
     assert.throws(() => withMemoryLock(dir, () => assert.fail('acquired'), {timeoutMs: 20}), value => value === error);
   });
 }
-test('S4.4-7 skills expose shapes verbatim report and an unnumbered start template', () => {
+test('skills expose shapes verbatim report and an unnumbered start template', () => {
   const handover = read(path.join(kitRoot, 'skills/handover/SKILL.md'));
   assert.match(handover, /strings state 240, question\/lessons 320, waits\/risks\/constraints 240 B/);
   assert.match(handover, /closed: \{step: ok\|failed\} for overlay close: steps only/);
   assert.match(handover, /Reply: printed report verbatim \+ <=1 line; never type SAFE/);
   const skill = read(path.join(kitRoot, 'skills/new-session/SKILL.md'));
-  assert.equal(FIRST_REPLY_TEMPLATE.split('\n')[0], '<abs path> | <branch>@<sha> | <n> changed, <n> untracked | <n> ahead/no upstream | kit <version>[ | flags: ...]');
+  assert.equal(FIRST_REPLY_TEMPLATE.split('\n')[0], '**<abs path>** - `<branch>` @ `<sha>` - kit <version>[ - flags: ...]');
   assert.doesNotMatch(FIRST_REPLY_TEMPLATE, /^\d+ /m);
   assert.ok(skill.includes(FIRST_REPLY_TEMPLATE));
-  assert.match(skill, /\( \) notes.*do not print/);
+  assert.match(skill, /one bullet per item.*omit empty groups and lines saying none \(not Goal\)/);
   assert.match(skill, /`Waiting for your go\.`/);
 });
-test('S4.10-13 public host setup and release remedies', () => {
+test('public host setup and release remedies', () => {
   const readme = read(path.join(kitRoot, 'README.md')), starter = read(path.join(kitRoot, 'docs/STARTER.md')), changes = read(path.join(kitRoot, 'CHANGELOG.md')).split('## 3.2.12')[0];
   assert.match(readme, /workspace-write[\s\S]*\.git[\s\S]*Claude Code/);
   for (const text of [readme, starter]) {
@@ -100,7 +100,7 @@ test('S4.10-13 public host setup and release remedies', () => {
   assert.match(changes, /install refuses unless `--replace-skill/);
   assert.match(changes, /settings\.local\.json[\s\S]*remove the hook/);
 });
-test('S4.8 both permissions persist through install upgrade opt-out and restoration', t => {
+test('both permissions persist through install upgrade opt-out and restoration', t => {
   const f = fixture(t); ok(f.install());
   const file = path.join(f.target, '.claude/settings.json');
   const upgrade = args => f.cli('scripts/upgrade.mjs', ['--target', f.target, ...args]);
@@ -115,7 +115,7 @@ test('S4.8 both permissions persist through install upgrade opt-out and restorat
   const local = path.join(f.target, 'scripts/memory/KIT.local.json'); put(local, JSON.stringify({...json(local), newSessionHook: true}));
   ok(upgrade([])); assert.deepEqual(json(file).permissions.allow, permissions);
 });
-test('S4.14 only incoming ledger accepts boolean true', t => {
+test('only incoming ledger accepts boolean true', t => {
   const f = fixture(t), root = path.join(f.root, 'kit');
   put(path.join(f.target, '.claude/settings.json'), JSON.stringify({hooks: {Stop: [{hooks: [{command: 'node wave-save.mjs'}]}]}}));
   put(path.join(f.target, 'scripts/memory/upgrades.json'), JSON.stringify([{waveSave: {supportsHandover: true}}]));
@@ -124,14 +124,14 @@ test('S4.14 only incoming ledger accepts boolean true', t => {
     assert.equal(distributionRefusals(f.target, root).length, 1);
   }
 });
-test('S4.18 CURRENT accepts lone CR line ends', t => {
+test('CURRENT accepts lone CR line ends', t => {
   const f = fixture(t);
   put(path.join(f.root, 'current-state.md'), '## CURRENT\r**State:** ready\r**Open question:** next?\r## Other\rignored\r');
   const current = readCurrent(f.root);
   assert.equal(current.fields.State, 'ready'); assert.equal(current.fields['Open question'], 'next?');
   assert.doesNotMatch(current.block, /ignored/);
 });
-test('S4.17 upgrade rechecks distribution after acquiring the lock', t => {
+test('upgrade rechecks distribution after acquiring the lock', t => {
   const f = fixture(t); ok(f.install());
   const settings = path.join(f.target, '.claude/settings.json');
   const preload = put(path.join(f.root, 'race.cjs'), `const fs = require('node:fs'); const write = fs.writeFileSync; fs.writeFileSync = function(file, ...args) { const result = write.call(this, file, ...args); if (String(file).endsWith('.memory.lock')) { const file = ${JSON.stringify(settings)}; const data = JSON.parse(fs.readFileSync(file)); data.hooks.Stop = [{hooks:[{command:'node wave-save.mjs stop'}]}]; write(file, JSON.stringify(data)); } return result; };`);

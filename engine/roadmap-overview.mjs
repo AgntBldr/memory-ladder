@@ -53,6 +53,7 @@ export function main(argv = process.argv.slice(2)) {
     if (argv.includes('--write') && opts.check) throw new Error('choose --write or --check');
     const repo = path.resolve(opts.repo || repoRoot()), config = loadConfig();
     validateConfigPaths(repo, config);
+    if (config.caps.roadmapOverview.enabled === false && (argv.includes('--write') || opts.check)) { console.log('roadmap overview: off (caps.roadmapOverview.enabled is false)'); return 0; }
     if (!fs.existsSync(repoPath(repo, config.caps.roadmap.path, 'caps.roadmap.path'))) { console.log('roadmap overview: no existing roadmap'); return 0; }
     const output = generateOverview({ repo, config });
     const file = repoPath(repo, config.caps.roadmapOverview.path, 'caps.roadmapOverview.path');

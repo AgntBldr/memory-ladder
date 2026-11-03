@@ -12,10 +12,11 @@ const command=session.hooks.UserPromptSubmit[0].hooks[0].command;
 const skillFile='.claude/skills/new-session/SKILL.md';
 const localFile='scripts/memory/KIT.local.json';
 const manifestFile='scripts/memory/MANIFEST.json';
+const reports=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Reports:'));
 const gateLine=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Session phrases:'));
 const upgrade=(f,args=[],options={})=>f.exec(process.execPath,[path.join(kitRoot,'scripts/upgrade.mjs'),'--target',f.target,...args],options);
 const snapshot=f=>tree(f.root,{git:true,previous:true});
-for (const installed of [false, true]) for (const slash of ['/', '\\']) test(`T8 fix3.1 quoted apostrophe path on ${installed ? 'upgrade' : 'install'}: ${slash}`, t => {
+for (const installed of [false, true]) for (const slash of ['/', '\\']) test(`quoted apostrophe path on ${installed ? 'upgrade' : 'install'}: ${slash}`, t => {
   const f = fixture(t), target = path.join(f.root, "O'Brien", 'project');
   fs.mkdirSync(path.dirname(target)); fs.renameSync(f.target, target); fs.mkdirSync(f.target);
   const run = () => f.cli(installed ? 'scripts/upgrade.mjs' : 'scripts/install.mjs', ['--target', target]);
@@ -57,7 +58,7 @@ require('node:module').syncBuiltinESMExports();
   return {env:{...f.env,NODE_OPTIONS:'--require '+JSON.stringify(preload)}};
 }
 
-for(const marker of [null,'.agents','.codex']) test('T-H8 T-H10 install delivers handover and preserves filled overlay/add-on: '+marker,t=>{
+for(const marker of [null,'.agents','.codex']) test('install delivers handover and preserves filled overlay/add-on: '+marker,t=>{
   const f=fixture(t);
   // Remove the helper's placeholder files to exercise an empty project too.
   fs.unlinkSync(path.join(f.target,'AGENTS.md'));fs.unlinkSync(path.join(f.target,'.claude/settings.json'));
@@ -75,14 +76,14 @@ for(const marker of [null,'.agents','.codex']) test('T-H8 T-H10 install delivers
   assert.equal(fs.existsSync(mirror),Boolean(marker));
   if(marker) {
     assert.deepEqual(fs.readFileSync(mirror),fs.readFileSync(path.join(f.target,handoverFile)));
-    assert.equal(read(path.join(f.target,'AGENTS.md')),original.replace('- Keep this rule.\n','- Keep this rule.\n'+gateLine+'\n'));
+    assert.equal(read(path.join(f.target,'AGENTS.md')),original.replace('- Keep this rule.\n','- Keep this rule.\n'+gateLine+'\n'+reports+'\n'));
     assert.equal(read(path.join(f.target,addon)),addonBytes);assert.ok(!Object.hasOwn(manifest.files,addon));
   }
   assert.equal(read(path.join(f.target,'AGENTS.md')).split(gateLine).length,2);
   handoverRouting(f);
 });
 
-test('T-H8 foreign handover survives repeated force upgrades, stays silent, and named replacement backs up',t=>{
+test('foreign handover survives repeated force upgrades, stays silent, and named replacement backs up',t=>{
   const f=fixture(t),file=path.join(f.target,handoverFile),foreign='# Hand-written handover\nKeep the project close steps.\n';
   put(file,foreign);fs.mkdirSync(path.join(f.target,'.codex'));
   ok(f.install(['--force-skills','--backup']));
@@ -107,7 +108,7 @@ test('T-H8 foreign handover survives repeated force upgrades, stays silent, and 
   assert.equal(read(path.join(f.target,'.agents/skills/handover/SKILL.md')),read(file));handoverRouting(f);
 });
 
-test('T8 hook merge keeps foreign guard and sibling commands; opt-out is exact and idempotent',()=>{
+test('hook merge keeps foreign guard and sibling commands; opt-out is exact and idempotent',()=>{
   const foreign={type:'command',command:'foreign guard'}, near={command:'node /foreign/scripts/memory/new-session.mjs detect'};
   const settings={hooks:{UserPromptSubmit:[{matcher:'host',hooks:[foreign,{command},near]}]},permissions:{allow:['Read',sessionPermission,'Write',sessionPermission],deny:['Bash(rm *)']}};
   assert.equal(mergeNewSessionHooks(settings,session),true);
@@ -120,7 +121,7 @@ test('T8 hook merge keeps foreign guard and sibling commands; opt-out is exact a
   assert.equal(mergeNewSessionHooks(settings,session,false),false);
 });
 
-test('T8 install dry-run and check report wiring and foreign skills without any writes',t=>{
+test('install dry-run and check report wiring and foreign skills without any writes',t=>{
   const f=fixture(t);put(path.join(f.target,skillFile),'# Foreign start\n');fs.mkdirSync(path.join(f.target,'.codex'));
   const before=snapshot(f);
   for(const flag of ['--dry-run','--check']) {
@@ -131,7 +132,7 @@ test('T8 install dry-run and check report wiring and foreign skills without any 
   }
 });
 
-test('T8 install preserves foreign hooks beside guard and independent phrase hook; refuses reinstall',t=>{
+test('install preserves foreign hooks beside guard and independent phrase hook; refuses reinstall',t=>{
   const f=fixture(t),file=path.join(f.target,'.claude/settings.json');
   const foreign={hooks:[{type:'command',command:'foreign guard'}]};
   put(file,JSON.stringify({hooks:{UserPromptSubmit:[foreign]},permissions:{allow:['Read'],deny:['Write']}}));
@@ -144,7 +145,7 @@ test('T8 install preserves foreign hooks beside guard and independent phrase hoo
   const before=snapshot(f);assert.equal(f.install().status,1);assert.deepEqual(snapshot(f),before);
 });
 
-test('T8 opt-out persists without guard and true restores hook and permission at equal version',t=>{
+test('opt-out persists without guard and true restores hook and permission at equal version',t=>{
   const f=fixture(t);ok(f.install(['--no-guard']));
   const file=path.join(f.target,'.claude/settings.json'),local=path.join(f.target,localFile);
   assert.equal(json(file).hooks.UserPromptSubmit.length,1);assert.equal(json(file).hooks.PreToolUse,undefined);
@@ -157,7 +158,7 @@ test('T8 opt-out persists without guard and true restores hook and permission at
   const stable=tree(f.target);ok(upgrade(f));assert.deepEqual(tree(f.target),stable);
 });
 
-test('T8 install opt-out removes only the kit phrase entry and preserves preferences',t=>{
+test('install opt-out removes only the kit phrase entry and preserves preferences',t=>{
   const f=fixture(t),file=path.join(f.target,'.claude/settings.json');
   put(file,JSON.stringify({hooks:{UserPromptSubmit:[...session.hooks.UserPromptSubmit,{hooks:[{command:'foreign guard'}]}]},permissions:{allow:[sessionPermission,'Read']}}));
   put(path.join(f.target,localFile),JSON.stringify({extra:42}));ok(f.install(['--no-new-session-hook']));
@@ -167,7 +168,7 @@ test('T8 install opt-out removes only the kit phrase entry and preserves prefere
   assert.deepEqual(json(path.join(f.target,localFile)),{extra:42,newSessionHook:false});
 });
 
-test('T8 foreign skills are kept, persisted, never adopted or force-replaced; named replacement backs up',t=>{
+test('foreign skills are kept, persisted, never adopted or force-replaced; named replacement backs up',t=>{
   const f=fixture(t),names=['memory-ladder','memory-review','new-session','handover'];
   for(const name of names) put(path.join(f.target,`.claude/skills/${name}/SKILL.md`),'# Foreign '+name+'\n');
   const r=ok(f.install(['--force-skills','--backup']));assert.match(r.stdout,/WARN foreign skill kept/);
@@ -188,28 +189,28 @@ test('T8 foreign skills are kept, persisted, never adopted or force-replaced; na
   }));
 });
 
-for(const name of ['new-session','handover']) test('T8 T-H8 explicit foreign replacement on install backs up without blanket backup flag: '+name,t=>{
+for(const name of ['new-session','handover']) test('explicit foreign replacement on install backs up without blanket backup flag: '+name,t=>{
   const f=fixture(t),skillFile=`.claude/skills/${name}/SKILL.md`;put(path.join(f.target,skillFile),'# Foreign\n');ok(f.install(['--replace-skill',name]));
   assert.equal(hash(path.join(f.target,skillFile)),hash(path.join(kitRoot,`skills/${name}/SKILL.md`)));
   const backup=fs.readdirSync(path.join(f.target,'scripts/memory')).find(n=>n.startsWith('.kit-backup-'));
   assert.equal(read(path.join(f.target,'scripts/memory',backup,skillFile)),'# Foreign\n');
 });
 
-test('T9 gate line is scoped, once, byte-preserving and warns without heading',t=>{
+test('gate line is scoped, once, byte-preserving and warns without heading',t=>{
   const f=fixture(t),file=path.join(f.target,'AGENTS.md');
   for(const eol of ['\n','\r\n']) for(const prior of ['', '- Session phrases: old\n']) {
     const original=('# Host\n- Session phrases: outside\n## Memory gate\n- First\n'+prior+'- Last\n\nProse.\n## Other rules\n- other bullet\n- Session phrases: host custom\n## Session overlay\nafter-go: a | b\n').replaceAll('\n',eol);
     put(file,original);const plan=gateLinePlan(f.target,kitRoot);assert.ok(plan);
-    const expected=prior?original.replace('- Session phrases: old',gateLine):original.replace('- Last'+eol,'- Last'+eol+gateLine+eol);
+    const expected=prior?original.replace('- Session phrases: old',gateLine+eol+reports):original.replace('- Last'+eol,'- Last'+eol+gateLine+eol+reports+eol);
     assert.equal(plan[1],expected);put(file,plan[1]);assert.equal(gateLinePlan(f.target,kitRoot),null);
   }
   put(file,'## Other\n');assert.equal(gateLinePlan(f.target,kitRoot),null);assert.equal(read(file),'## Other\n');
   put(file,'## Memory gateway\n- Other\n');assert.equal(gateLinePlan(f.target,kitRoot),null);assert.equal(read(file),'## Memory gateway\n- Other\n');
-  put(file,'## Memory gate');assert.equal(gateLinePlan(f.target,kitRoot)[1],'## Memory gate\n'+gateLine+'\n');
+  put(file,'## Memory gate');assert.equal(gateLinePlan(f.target,kitRoot)[1],'## Memory gate\n'+gateLine+'\n'+reports+'\n');
   fs.unlinkSync(file);put(path.join(f.target,'CLAUDE.md'),'## Memory gate\n- Last\n');assert.equal(path.basename(gateLinePlan(f.target,kitRoot)[0]),'CLAUDE.md');
 });
 
-test('T9 unknown unchanged files refuse before any write; edited files stay; retired files back up',t=>{
+test('unknown unchanged files refuse before any write; edited files stay; retired files back up',t=>{
   const f=fixture(t);ok(f.install());
   const extra='scripts/memory/unknown.mjs',dest=put(path.join(f.target,extra),'// unknown\n'),m=json(path.join(f.target,manifestFile));
   m.files[extra]=hash(dest);put(path.join(f.target,manifestFile),JSON.stringify(m));
@@ -223,7 +224,7 @@ test('T9 unknown unchanged files refuse before any write; edited files stay; ret
   put(dest,'// edited unknown\n');ok(upgrade(f,['--force-skills']));assert.equal(read(dest),'// edited unknown\n');
 });
 
-test('T9 T-H9 stage-2 wave-save hooks refuse install and upgrade before writes with guard disabled',t=>{
+test('stage-2 wave-save hooks refuse install and upgrade before writes with guard disabled',t=>{
   for(const installed of [false,true]) for(const settingsName of ['settings.json','settings.local.json']) {
     const f=fixture(t);if(installed) ok(f.install(['--no-guard']));
     const file=path.join(f.target,'.claude',settingsName),settings=fs.existsSync(file)?json(file):{};
@@ -248,7 +249,7 @@ test('T9 T-H9 stage-2 wave-save hooks refuse install and upgrade before writes w
   }
 });
 
-test('T9 T-H9 only a true incoming ledger marker lifts the hook refusal',t=>{
+test('only a true incoming ledger marker lifts the hook refusal',t=>{
   const f=fixture(t),root=path.join(f.root,'candidate');fs.mkdirSync(root);
   put(path.join(root,'MANIFEST.json'),JSON.stringify({files:{'engine/wave-save.mjs':{hash:'hash',supportsHandover:true}}}));
   put(path.join(root,'KIT.json'),JSON.stringify({waveSave:{supportsHandover:true}}));
@@ -262,7 +263,7 @@ test('T9 T-H9 only a true incoming ledger marker lifts the hook refusal',t=>{
   assert.deepEqual(distributionRefusals(f.target,root),[]);
 });
 
-test('T10 mirrors create for Codex only and only for current session skills',t=>{
+test('mirrors create for Codex only and only for current session skills',t=>{
   const f=fixture(t),names=['new-session','handover','memory-ladder','memory-review'];
   const planned=names.map(name=>[path.join(f.target,`.claude/skills/${name}/SKILL.md`),Buffer.from('# '+name+'\n')]);
   assert.deepEqual(mirrorWrites(f.target,planned,new Map()),[]);
@@ -278,7 +279,7 @@ test('T10 mirrors create for Codex only and only for current session skills',t=>
   }
 });
 
-test('T10 install divergent mirror refuses or backs up explicit replacement; upgrade skips',t=>{
+test('install divergent mirror refuses or backs up explicit replacement; upgrade skips',t=>{
   const f=fixture(t),mirror=put(path.join(f.target,'.agents/skills/new-session/SKILL.md'),'# Divergent\n');
   const before=snapshot(f),r=f.install();assert.equal(r.status,1);assert.match(r.stderr,/skill mirror differs/);assert.deepEqual(snapshot(f),before);
   ok(f.install(['--replace-skill','new-session']));assert.equal(read(mirror),read(path.join(f.target,skillFile)));
@@ -288,7 +289,7 @@ test('T10 install divergent mirror refuses or backs up explicit replacement; upg
   const applied=ok(upgrade(f,['--force-skills']));assert.match(applied.stdout,/WARN mirror differs:.*; kept; copy/);assert.equal(read(mirror),'# Keep divergent\n');
 });
 
-test('T10 equal-version upgrade repairs missing mirror hook permission and gate; restore round-trips',t=>{
+test('equal-version upgrade repairs missing mirror hook permission and gate; restore round-trips',t=>{
   const f=fixture(t);ok(f.install());fs.mkdirSync(path.join(f.target,'.codex'));
   const settingsFile=path.join(f.target,'.claude/settings.json'),settings=json(settingsFile);
   settings.hooks.UserPromptSubmit=settings.hooks.UserPromptSubmit.filter(e=>!e.hooks.some(h=>h.command===command));settings.permissions.allow=[];put(settingsFile,JSON.stringify(settings));
@@ -303,12 +304,12 @@ test('T10 equal-version upgrade repairs missing mirror hook permission and gate;
   ok(upgrade(f,['--restore',backup]));assert.deepEqual(tree(f.target),before);
 });
 
-test('T11 new hook template is a kit-root read, never an owned project file',()=>{
+test('new hook template is a kit-root read, never an owned project file',()=>{
   assert.ok(!ownedFiles(kitRoot).includes('templates/settings.newsession.json'));
   assert.equal(session.hooks.UserPromptSubmit.length,1);assert.deepEqual(session.hooks.UserPromptSubmit[0].hooks[0],{type:'command',shell:'bash',command,timeout:5});
 });
 
-for(const defect of ['gate','mirror','permission']) test('T10 equal-version repair of only missing '+defect,t=>{
+for(const defect of ['gate','mirror','permission']) test('equal-version repair of only missing '+defect,t=>{
   const f=fixture(t);ok(f.install());
   const agents=path.join(f.target,'AGENTS.md'),settingsFile=path.join(f.target,'.claude/settings.json');
   if(defect==='gate') put(agents,read(agents).replace(gateLine+'\n',''));
@@ -321,7 +322,7 @@ for(const defect of ['gate','mirror','permission']) test('T10 equal-version repa
   assert.equal(upgrade(f,['--check']).status,0);
 });
 
-for(const name of ['new-session','handover']) test('T9 settled foreign skill checks clean, missing foreign skill installs once: '+name,t=>{
+for(const name of ['new-session','handover']) test('settled foreign skill checks clean, missing foreign skill installs once: '+name,t=>{
   const skillFile=`.claude/skills/${name}/SKILL.md`,f=fixture(t),file=path.join(f.target,skillFile);put(file,'# Host skill\n');ok(f.install());
   const before=snapshot(f);assert.equal(upgrade(f,['--check']).status,0);assert.deepEqual(snapshot(f),before);
   fs.unlinkSync(file);const missing=snapshot(f),checked=upgrade(f,['--check']);assert.equal(checked.status,1);assert.deepEqual(snapshot(f),missing);
@@ -332,7 +333,7 @@ for(const name of ['new-session','handover']) test('T9 settled foreign skill che
   const next=ok(upgrade(f));assert.doesNotMatch(next.stdout,/foreign skill gone/);assert.equal(upgrade(f,['--check']).status,0);
 });
 
-test('T10 legacy mirrors refresh identical source and skip divergent copies',t=>{
+test('legacy mirrors refresh identical source and skip divergent copies',t=>{
   const f=fixture(t);
   for(const name of ['memory-ladder','memory-review']) {
     const source=put(path.join(f.target,`.claude/skills/${name}/SKILL.md`),'# Old kit\n');
@@ -344,7 +345,7 @@ test('T10 legacy mirrors refresh identical source and skip divergent copies',t=>
   }
 });
 
-test('T8 hook recognition accepts path quoting and variable spellings without reordering permissions',()=>{
+test('hook recognition accepts path quoting and variable spellings without reordering permissions',()=>{
   for(const prefix of ['','./','${CLAUDE_PROJECT_DIR}/','$CLAUDE_PROJECT_DIR/','${CLAUDE_PROJECT_DIR:-.}/']) for(const quote of ['',"'",'"']) {
     const own=`node ${quote}${prefix}scripts/memory/new-session.mjs${quote} ${quote}detect${quote}`;
     const settings={hooks:{UserPromptSubmit:[{hooks:[{command:own}]}]},permissions:{allow:['Read',sessionPermission,'Write',powerShellPermission]}};
@@ -353,7 +354,7 @@ test('T8 hook recognition accepts path quoting and variable spellings without re
   }
 });
 
-for (const variable of ['$CLAUDE_PROJECT_DIR', '${CLAUDE_PROJECT_DIR}']) for (const installed of [false, true]) test(`T8 fix2.2 quoted variable with unquoted path on ${installed ? 'upgrade' : 'install'}: ${variable}`, t => {
+for (const variable of ['$CLAUDE_PROJECT_DIR', '${CLAUDE_PROJECT_DIR}']) for (const installed of [false, true]) test(`quoted variable with unquoted path on ${installed ? 'upgrade' : 'install'}: ${variable}`, t => {
   const f = fixture(t);
   if (installed) ok(f.install());
   const file = path.join(f.target, '.claude/settings.json'), settings = json(file);
@@ -366,7 +367,7 @@ for (const variable of ['$CLAUDE_PROJECT_DIR', '${CLAUDE_PROJECT_DIR}']) for (co
   assert.equal(hooks[0].command, own);
 });
 
-test('T8 malformed hook entries refuse install and upgrade before any write with named errors',t=>{
+test('malformed hook entries refuse install and upgrade before any write with named errors',t=>{
   for(const installed of [false,true]) {
     const f=fixture(t);if(installed) ok(f.install());
     const file=path.join(f.target,'.claude/settings.json'),options=denyWrites(f);
@@ -379,7 +380,7 @@ test('T8 malformed hook entries refuse install and upgrade before any write with
   }
 });
 
-test('T9 check never attempts writes or a memory lock for clean and pending projects',t=>{
+test('check never attempts writes or a memory lock for clean and pending projects',t=>{
   const f=fixture(t);ok(f.install());const options=denyWrites(f);
   for(const pending of [false,true]) {
     if(pending) put(path.join(f.target,'AGENTS.md'),read(path.join(f.target,'AGENTS.md')).replace(gateLine,'- Session phrases: old'));
@@ -390,10 +391,10 @@ test('T9 check never attempts writes or a memory lock for clean and pending proj
   }
 });
 
-test('T9 install and updater recognize Memory gate with trailing text',t=>{
+test('install and updater recognize Memory gate with trailing text',t=>{
   const f=fixture(t),file=path.join(f.target,'AGENTS.md'),tail='## Other rules\n- other bullet\n- Session phrases: host custom\n';
   put(file,'## Memory gate (kit)\n- Existing rule\n'+tail);ok(f.install());
-  assert.equal(read(file),'## Memory gate (kit)\n- Existing rule\n'+gateLine+'\n'+tail);
+  assert.equal(read(file),'## Memory gate (kit)\n- Existing rule\n'+gateLine+'\n'+reports+'\n'+tail);
   put(file,read(file).replace(gateLine+'\n',''));ok(upgrade(f));
-  assert.equal(read(file),'## Memory gate (kit)\n- Existing rule\n'+gateLine+'\n'+tail);
+  assert.equal(read(file),'## Memory gate (kit)\n- Existing rule\n'+gateLine+'\n'+reports+'\n'+tail);
 });

@@ -15,7 +15,7 @@ function candidate(f) {
 }
 function gate(f) {ok(f.exec(process.execPath,[path.join(f.target,'scripts/memory/memory-check.mjs')]));}
 
-for(const installed of [false,true]) test('T-H9 ledger awareness through '+(installed?'upgrade':'install')+' and file-only refusal',t=>{
+for(const installed of [false,true]) test('ledger awareness through '+(installed?'upgrade':'install')+' and file-only refusal',t=>{
   const f=fixture(t),root=candidate(f);
   if(installed) ok(f.install());
   const file=path.join(f.target,'.claude/settings.json'),settings=json(file);
@@ -35,7 +35,7 @@ for(const installed of [false,true]) test('T-H9 ledger awareness through '+(inst
   assert.equal(hash(path.join(f.target,'.claude/skills/handover/SKILL.md')),hash(path.join(root,'skills/handover/SKILL.md')));
 });
 
-test('T8 settled permission is present and missing permission would allow',t=>{
+test('settled permission is present and missing permission would allow',t=>{
   const f=fixture(t);ok(f.install());
   const present=ok(upgrade(f,['--check']));
   assert.match(present.stdout,/permission Bash\(node scripts\/memory\/new-session.mjs:\*\): present/);
@@ -43,7 +43,7 @@ test('T8 settled permission is present and missing permission would allow',t=>{
   const missing=upgrade(f,['--check']);assert.equal(missing.status,1);assert.match(missing.stdout,/permission .*: would allow/);
 });
 
-for(const installed of [false,true]) test('T8 validates each settings file once per phase on '+(installed?'upgrade':'install'),t=>{
+for(const installed of [false,true]) test('validates each settings file once per phase on '+(installed?'upgrade':'install'),t=>{
   const f=fixture(t),root=candidate(f);if(installed) ok(f.install());
   const file=path.join(root,'scripts/install-safety.mjs');
   put(file,read(file).replace("function validateHooks(settings, file='settings.json') {","function validateHooks(settings, file='settings.json') { console.log('VALIDATED '+file);"));
@@ -55,7 +55,7 @@ for(const installed of [false,true]) test('T8 validates each settings file once 
   }
 });
 
-test('T10 replacement keeps divergent mirror with one actionable warning',t=>{
+test('replacement keeps divergent mirror with one actionable warning',t=>{
   const f=fixture(t);fs.mkdirSync(path.join(f.target,'.codex'));ok(f.install());
   const mirror=path.join(f.target,'.agents/skills/handover/SKILL.md'),source=path.join(f.target,'.claude/skills/handover/SKILL.md');
   put(mirror,'# Host mirror\n');put(source,'# Host source\n');
@@ -66,14 +66,14 @@ test('T10 replacement keeps divergent mirror with one actionable warning',t=>{
   fs.copyFileSync(source,mirror);ok(upgrade(f,['--check']));gate(f);
 });
 
-test('T9 unknown owned file removal remedy reaches a clean installed gate',t=>{
+test('unknown owned file removal remedy reaches a clean installed gate',t=>{
   const f=fixture(t);ok(f.install());
   const extra='scripts/memory/unknown.mjs',file=put(path.join(f.target,extra),'// unknown\n'),manifest=path.join(f.target,'scripts/memory/MANIFEST.json'),data=json(manifest);
   data.files[extra]=hash(file);put(manifest,JSON.stringify(data));
   assert.equal(upgrade(f).status,1);fs.unlinkSync(file);ok(upgrade(f));gate(f);
 });
 
-test('T0 T3 overlay recognizes every line ending and refuses a lone-CR duplicate',t=>{
+test('overlay recognizes every line ending and refuses a lone-CR duplicate',t=>{
   const f=fixture(t);ok(f.install());
   for(const eol of ['\r\n','\n','\r']) {
     put(path.join(f.target,'AGENTS.md'),['## Session overlay','check: node first.mjs','check: node second.mjs','board: node board.mjs','## Other','push: none'].join(eol));

@@ -1,6 +1,6 @@
 // Fixed engine fixture defaults; never load host configuration.
 export default {
-  "engine_version": "3.3.0",
+  "engine_version": "3.3.1",
   "caps": {
     "lesson": {"enforceAfterRepeats": 2, "failAfterRepeats": 4, "lessonOnlyReturns": true},
     "guard": {"kitRules": "scripts/memory/enforce-rules.kit.json", "rules": "scripts/memory/enforce-rules.json"},
@@ -92,6 +92,7 @@ export default {
       ]
     },
     "roadmapOverview": {
+      "enabled": true,
       "path": "docs/ROADMAP-OVERVIEW.md"
     },
     "roadmapHistory": {

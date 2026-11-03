@@ -7,7 +7,7 @@ import {fixture} from './helpers.mjs';
 import {withMemoryLock} from '../engine/memory-lock.mjs';
 
 for (const operation of ['writeFileSync', 'statSync', 'readFileSync']) for (const code of ['EPERM', 'EBUSY']) {
-  test(`fix2.6 fix3.5 permanent ${operation} ${code} stops under 3 seconds with a cause-specific hint`, t => {
+  test(`permanent ${operation} ${code} stops under 3 seconds with a cause-specific hint`, t => {
     const f = fixture(t), dir = path.join(f.root, 'memory'); fs.mkdirSync(dir);
     const file = path.join(dir, '.memory.lock'), original = fs[operation], write = fs.writeFileSync;
     const error = Object.assign(Error(`${code}: ${code === 'EPERM' ? 'operation not permitted' : 'resource busy'}, ${operation} '${file}'`), {code});
@@ -36,7 +36,7 @@ for (const operation of ['writeFileSync', 'statSync', 'readFileSync']) for (cons
   });
 }
 
-test('fix2.6 successful owner inspection resets the consecutive transient window', t => {
+test('successful owner inspection resets the consecutive transient window', t => {
   const f = fixture(t), dir = path.join(f.root, 'memory'); fs.mkdirSync(dir);
   const file = path.join(dir, '.memory.lock'), write = fs.writeFileSync, read = fs.readFileSync, stat = fs.statSync;
   let elapsed = 0, inspected = false;

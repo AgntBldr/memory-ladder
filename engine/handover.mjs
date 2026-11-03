@@ -345,34 +345,47 @@ function verify(ctx) {
   if (!pushed || ctx.push === 'none') failures.push('HEAD not pushed' + (ctx.push === 'none' ? ' (push: none)' : ''));
   return {failures, pushed: pushed && ctx.push !== 'none', local: !remote};
 }
-function report(ctx, failures, checks, publication) {
+function backtickRun(text, minimum = 1) {
+  return '`'.repeat(Math.max(minimum, ...[...text.matchAll(/`+/g)].map(m => m[0].length + 1)));
+}
+function codeSpan(text) {
+  const fence = backtickRun(text), pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return fence + pad + text + pad + fence;
+}
+function report(ctx, failures, checks, publication, maxOutput = Infinity) {
   failures = failures.map(singleLine);
   const mode = ctx.quick ? 'quick' : 'full', memSha = maybeGit(ctx.holder, ['rev-parse', 'HEAD'])?.slice(0, 7) || 'unknown';
-  const generated = new Set([ctx.config.caps.roadmapOverview.path, ctx.config.caps.brainIndex.path, ctx.config.caps.brainIndex.allPath]);
+  const generated = new Set([...(ctx.config.caps.roadmapOverview.enabled === false ? [] : [ctx.config.caps.roadmapOverview.path]), ctx.config.caps.brainIndex.path, ctx.config.caps.brainIndex.allPath]);
   let open;
   try { open = status(ctx.repo); }
   catch (error) { if (!failures.length) throw error; open = ctx.dirty; }
-  const names = open.slice(0, 6).map(d => singleLine(d.file) + (generated.has(d.file) ? ' [generated]' : '')).join(', ');
+  const names = open.slice(0, 6).map(d => codeSpan(singleLine(d.file)) + (generated.has(d.file) ? ' [generated]' : '')).join(', ');
   const gate = ctx.gate ? `${ctx.gate.FAIL} FAIL, ${ctx.gate.WARN} WARN` : 'not run';
   const learning = ctx.batch ? ctx.batch.created.length ? 'learning added with the WHY' : 'learning: repeats recorded' : 'learning: ' + ctx.lessons;
   const committed = publication.local ? 'committed locally (no remote), gate green' : 'committed and pushed, gate green';
   const successVerdict = ctx.quick ? QUICK_SAFE.replace('committed and pushed, gate green', committed) : FULL_SAFE(learning, checks.verdict, committed);
   const verdict = failures.length ? 'NOT SAFE TO COMPACT - ' + failures.slice(0, 3).map(x => capText(x.replace(/[\r\n]+/g, ' '), 150)).join('; ') : successVerdict;
   const lines = [
-    `${capText(singleLine(ctx.repo), 180)} | ${capText(ctx.branch, 60)} @ ${ctx.sha} | ${capText(ctx.command || 'to run: git status', 210)}`,
+    `${codeSpan(capText(singleLine(ctx.repo), 180))} | ${capText(ctx.branch, 60)} @ ${ctx.sha} | ${capText(ctx.command || 'to run: git status', 210)}`,
     `handover ${mode} ${ctx.time.slice(11, 16)} token:${ctx.digest || ctx.baseline || 'none'} note:${ctx.seq || 'none'} | Q: ${[...ctx.data.question].slice(0, 80).join('')}`,
     `lessons: ${capText(ctx.quick ? 'skipped' : ctx.lessons, 240)}  checks: ${checks.text}`,
     `close: ${capText(ctx.close, 100)}  gate: ${gate}${ctx.gateFailures?.length ? ' | FAIL: ' + capText(ctx.gateFailures.slice(0, 2).join('; '), 180) : ''}`,
     publication.pushed ? `memory ${memSha} ${publication.local ? 'local only, no remote' : 'pushed'}${ctx.waiting.length ? '; included waiting ' + ctx.waiting.slice(0, 3).join(', ') : ''}` : (ctx.written ? 'saved locally, NOT pushed: ' : 'note not written: ') + capText(failures[0] || 'publication not verified', 100),
-    `open: ${open.length} uncommitted files not committed by handover (${capText(names || 'none', 180)})`, verdict, NEXT].map(singleLine);
+    `open: ${open.length} uncommitted files not committed by handover (${capText(names || 'none', 180)})`, verdict, failures.length ? 'Next: fix the cause named in the verdict, then run the re-run line below; if there is none, run /handover again.' : NEXT].map((line, i) => (i < 6 ? '- ' : '') + singleLine(line));
   // Reserve verdict and next-step bytes even when paths or diagnostics are long.
-  const baselineLine = ctx.over === undefined ? 'token baseline: run began (no --over supplied).\n' : '';
-  const tail = lines.slice(-2).join('\n'), head = capText(lines.slice(0, -2).join('\n'), 1535 - bytes(tail) - bytes(baselineLine) - 1);
-  let output = capped(head + '\n' + tail + '\n', {max: 1536, label: 'handover-report'});
+  const baselineLine = ctx.over === undefined ? '\ntoken baseline: run began (no --over supplied).\n' : '';
+  const tail = lines.slice(-2).join('\n\n'), head = capText(lines.slice(0, -2).join('\n'), 1535 - bytes(tail) - bytes(baselineLine) - 2);
+  let output = capped(head + '\n\n' + tail + '\n', {max: 1536, label: 'handover-report'});
   if (ctx.warning && ctx.written) {
-    const warning = `warning: another session handed over at ${ctx.otherTime || 'unknown'}; both notes kept\n${capText(ctx.replaced, 1536)}`;
-    const split = output.indexOf('\n', output.indexOf('\n') + 1);
-    output = output.slice(0, split + 1) + capped(warning, {max: 2048, label: 'handover-parallel'}) + '\n' + output.slice(split + 1);
+    const warning = `- warning: another session handed over at ${ctx.otherTime || 'unknown'}; both notes kept\n`;
+    const text = ctx.replaced.replace(/(?:\r?\n)+$/, ''), fence = backtickRun(text, 3);
+    const framing = '\n' + fence + 'text\n\n' + fence + '\n';
+    const allowance = Math.min(2048, maxOutput - bytes(output) - bytes(baselineLine));
+    const block = allowance >= bytes(warning + framing) ? '\n' + fence + 'text\n' + capText(text, allowance - bytes(warning + framing)) + '\n' + fence + '\n' : '';
+    if (block) {
+      const split = output.indexOf('\n', output.indexOf('\n') + 1);
+      output = output.slice(0, split + 1) + warning + output.slice(split + 1) + block;
+    }
   }
   output += baselineLine;
   return redact(output);
@@ -462,7 +475,7 @@ export function runHandover(options = {}, dependencies = {}) {
     try { const checked = checkGate({memoryDir: ctx.memoryDir, repo: ctx.repo, config: ctx.config}); ctx.gate = counts(checked); ctx.gateFailures = checked.findings.filter(f => f.severity === 'FAIL' && !f.allowed).map(findingLine); } catch {}
     if (ctx.gateFailures?.length) failure += ctx.gateFailures.some(f => ctx.initialFailures.includes(f)) ? '\ngate FAIL pre-existed handover' : '\ngate FAIL after write';
   }
-  let output = report(ctx, failure.split('\n'), checks, publication);
+  let output = ''; // Build recovery guidance first so the parallel block yields its budget.
   if (ctx.written || ctx.created?.length) {
     const dir = path.join(os.tmpdir(), 'memory-session'); fs.mkdirSync(dir, {recursive: true});
     const log = path.join(dir, 'handover-' + randomUUID() + '.log');
@@ -474,12 +487,13 @@ export function runHandover(options = {}, dependencies = {}) {
     else if (!ctx.written && options.replace) {
       try { replaceFile(ctx); args.push('--replace', options.replace); } catch {}
     }
-    if (ctx.created?.length) output += `lessons already written: ${singleLine(ctx.created.join(', '))}; set input lessons: none (already written: ${singleLine(ctx.created.join(', '))}) before retry.\n`;
+    if (ctx.created?.length) output += `\nlessons already written: ${ctx.created.map(file => codeSpan(singleLine(file))).join(', ')}; set input lessons: none (already written: ${ctx.created.map(file => codeSpan(singleLine(file))).join(', ')}) before retry.\n`;
     else if (options.lessons) args.push('--lessons', quote(path.resolve(options.lessons)));
-    if (ctx.closeFailures.length) output += 'After doing the close step(s), set each step to ok in closed, remove --skip-close, then re-run.\n';
-    output += `full output: ${singleLine(log)}\nre-run: ${args.join(' ')}\n`;
+    if (ctx.closeFailures.length) output += '\nAfter doing the close step(s), set each step to ok in closed, remove --skip-close, then re-run.\n';
+    output += `\nfull output: ${codeSpan(singleLine(log))}\n\nre-run: ${codeSpan(args.join(' '))}\n`;
   }
-  if (/memory lock timed out/.test(failure)) output += failure.split('\n').map(singleLine).join('; ') + '\n';
+  if (/memory lock timed out/.test(failure)) output += '\n' + failure.split('\n').map(singleLine).join('; ').replaceAll(singleLine(path.join(ctx.memoryDir, '.memory.lock')), codeSpan(singleLine(path.join(ctx.memoryDir, '.memory.lock')))) + '\n';
+  output = report(ctx, failure.split('\n'), checks, publication, 4000 - bytes(output)) + output;
   emit(capped(output, {label: 'handover-failure'}));
   return {code: 1, ...ctx, token: ctx.digest};
 }

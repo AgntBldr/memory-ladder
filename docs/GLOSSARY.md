@@ -116,7 +116,7 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 **caps.roadmapHistory** - History location: `caps.roadmapHistory.path` defaults to `docs/ROADMAP-HISTORY.md`. Where: `memory.config.json`. See also: roadmap history.
 
-**caps.roadmapOverview** - Overview location: `caps.roadmapOverview.path` defaults to `docs/ROADMAP-OVERVIEW.md`. Where: `memory.config.json`. See also: overview.
+**caps.roadmapOverview** - `enabled` is boolean and defaults to `true`; `false` disables checkpoint writing/staging and gate findings, and makes `--write`/`--check` no-ops. Existing files are kept; stdout preview still works. Overview location: `caps.roadmapOverview.path` defaults to `docs/ROADMAP-OVERVIEW.md`. Where: `memory.config.json`. See also: overview.
 
 **caps.router** - Router limits: `caps.router.warnBytes` is 12,288 bytes, `caps.router.failBytes` is 16,384 bytes and `caps.router.failLineChars` is 600 characters per line; `caps.router.warnLines` is 150 and `caps.router.failLines` is 200. Where: `memory.config.json`. See also: router.size, router.line.
 
@@ -212,7 +212,7 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 **repo.roadmap-order** - WARN when the first and last valid dated blocks in Open work contradict configured order, default `newest-first`; reconcile the file and setting (this is an endpoint check, not a full sort proof). Where: `docs/ROADMAP.md`; `caps.roadmap.order`. See also: config.roadmap-order.
 
-**repo.roadmap-overview** - WARN when a roadmap exists but its overview is missing/stale or generation errors; run `roadmap-overview.mjs --write`, with no numeric threshold. Where: `caps.roadmapOverview.path`. See also: overview.
+**repo.roadmap-overview** - Disabled when `caps.roadmapOverview.enabled` is `false`; otherwise WARN when a roadmap exists but its overview is missing/stale or generation errors; run `roadmap-overview.mjs --write`, with no numeric threshold. Where: `caps.roadmapOverview.path`. See also: overview.
 
 **repo.skill-version** - WARN when either existing installed skill has missing/mismatched `engine_version` against config; update instructions and version together, with no numeric threshold (absent skills and hook/memory-only runs are skipped). Where: `.claude/skills/memory-ladder/SKILL.md` and `.claude/skills/memory-review/SKILL.md`. See also: upgrade.
 
@@ -304,13 +304,13 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 ## Project records the kit manages
 
-**checkpoint** - The end-of-work save: first update the handoff and live records, then the command runs `memory-index`, `rotate-log`, `rotate-roadmap`, `rotate-handovers`, `brain-index`, `roadmap-overview`, `gate`, memory `commit`, and `push` in that order under one lock, skipping absent optional sources. Unallowed FAILs stop before commit; `--dry-run` only reports steps, `--no-push` skips push, and a failed push exits 2 with the commit retained. In-repo memory instead prints staging paths by default; explicit `--commit` commits on the current branch and never pushes. Where: `memory-checkpoint.mjs`. See also: CURRENT block, rotation, gate.
+**checkpoint** - The end-of-work save: first update the handoff and live records, then the command runs `memory-index`, `rotate-log`, `rotate-roadmap`, `rotate-handovers`, `brain-index`, `roadmap-overview`, `gate`, memory `commit`, and `push` in that order under one lock, skipping absent optional sources and the overview when `caps.roadmapOverview.enabled` is `false`. Unallowed FAILs stop before commit; `--dry-run` only reports steps, `--no-push` skips push, and a failed push exits 2 with the commit retained. In-repo memory instead prints staging paths by default; explicit `--commit` commits on the current branch and never pushes. Where: `memory-checkpoint.mjs`. See also: CURRENT block, rotation, gate.
 
 **log** - An append-oriented record of completed actions and decisions, kept separate from the current handoff and future work. Where: configured brain log, normally `brain/00-system/log.md`. See also: brain log, Open work, CURRENT block.
 
 **Open work** - The roadmap's live pending work, including pending decisions and actions; keep unfinished items here rather than only inside dated blocks that will rotate away. Where: `docs/ROADMAP.md`, `## Open work`. See also: roadmap, shelf.
 
-**overview** - A generated short navigation page combining roadmap releases, Open work, active headings, shelf metadata and history headings; regenerate after changing those sources. Where: `docs/ROADMAP-OVERVIEW.md`, `roadmap-overview.mjs --write` (`--check` detects drift). See also: roadmap history, shelf.
+**overview** - A generated short navigation page combining roadmap releases, Open work, active headings, shelf metadata and history headings; regenerate after changing those sources when `caps.roadmapOverview.enabled` is `true` (the default). Where: `docs/ROADMAP-OVERVIEW.md`, `roadmap-overview.mjs --write` (`--check` detects drift). See also: roadmap history, shelf.
 
 **roadmap** - The project record of planned work, active work and dated progress, with live decisions kept visible. Where: `docs/ROADMAP.md`. See also: Open work, overview, rotation.
 

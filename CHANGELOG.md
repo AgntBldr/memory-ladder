@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.3.1
+
+Start replies and /handover reports now use grouped bullets. A new Reports line in AGENTS.md asks for short groups, file and board links, and a statement about whether it is safe to compact.
+
+The Session phrases line no longer splits a wrapped bullet during installation or upgrade, and a line 3.3.0 put inside a wrapped bullet is moved below that bullet. Known limits: the exact kit Session phrases line followed by indented lines (a blank line may precede them) is treated as the old insertion bug and moved; a custom Session phrases line with indented lines is kept with a warning; a custom Reports bullet with indented lines is kept with a warning, and one without is replaced by the kit line.
+
+In `scripts/memory/memory.config.json`, set `caps.roadmapOverview.enabled` to `false` to skip overview writing, staging and gate warnings. Existing files are kept and stdout preview remains available. The setting defaults to `true`, and upgrades preserve a project's `false`.
+
+`upgrade.mjs --dry-run` now previews changes; in 3.3.0 it ran a real upgrade. `--restore` refuses both `--dry-run` and `--check` before changing files.
+
+- Upgrade from 3.3.0 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then
+  `node scripts/upgrade.mjs --target <PROJECT>`; kit-owned files are replaced with a backup; edited skills are kept. Run the installed gate.
+
 ## 3.3.0
 
 Start with `/new-session [goal]` or the sentence "We are starting a new session - read this and let me know when we can start". The start is read-only: it shows Git and memory health, the newest handover note and nearby sessions, then waits for your go. `/handover` captures lessons, updates CURRENT from a new handover note, runs the checkpoint and pushes memory. Its SAFE verdict requires the session's own note and created lessons to be committed byte-for-byte and pushed, with the gate green and required checks complete. With no remote, the local-only SAFE variant instead says `committed locally (no remote), gate green`; it never claims a push.

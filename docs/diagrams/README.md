@@ -2,6 +2,8 @@
 
 These six diagrams were made with [Archify v3.2.0](https://github.com/tt-a1i/archify), licensed under Apache-2.0. The light and dark PNGs are 1440 x 900. Validation, finalize with browser check, check and visual-check passed for the supplied renders.
 
+The session sequence shows the default checkpoint. Setting `caps.roadmapOverview.enabled` to `false` skips overview writing and staging; the other steps still run.
+
 To re-render one source, choose its Archify type and run from the kit root:
 
 ```sh

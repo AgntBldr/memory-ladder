@@ -153,25 +153,57 @@ export function skillPlan(target,root,oldManifest,local,opts) {
   if(foreign.size||local.foreignSkills) local.foreignSkills=[...foreign].sort();
   return {next,kept,replaceSkills};
 }
+// Every Session phrases line shipped by the kit; append when the wording changes.
+const shippedSessionLines = [
+  "- Session phrases: when a message is only \"We are starting a new session - read this and let me know when we can start\" or \"handover\" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message \"<the message>\"` and follow its output; never inside a subagent or `codex exec` brief. Offer /handover at a stage end or on wrap-up.", // 3.3.0 and 3.3.1
+];
+// Every Reports line shipped by the kit; append when the wording changes.
+const shippedReportsLines = [
+  "- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only if /handover reported it since the last change.", // 3.3.1
+];
 export function gateLinePlan(target,root,opts={}) {
   const file=path.join(target,fs.existsSync(path.join(target,'AGENTS.md'))?'AGENTS.md':'CLAUDE.md');
   const text=exists(file)?fs.readFileSync(file,'utf8'):'';
-  const line=fs.readFileSync(path.join(root,'templates/AGENTS-memory-gate.md'),'utf8').split(/\r?\n/).find(line=>line.startsWith('- Session phrases:'));
+  const template=fs.readFileSync(path.join(root,'templates/AGENTS-memory-gate.md'),'utf8');
+  const labels=['Session phrases','Reports'];
+  const lines=labels.map(label=>template.split(/\r?\n/).find(line=>line.startsWith('- '+label+':')));
   const block=/^## Memory gate(?:[ \t][^\r\n]*)?(?:\r?\n|$)[\s\S]*?(?=^#{1,2} |$(?![\s\S]))/m.exec(text);
-  if(!block) { console.log('WARN Memory gate heading missing; add: '+line);return null; }
+  if(!block) { console.log('WARN Memory gate heading missing; add: '+lines.join('\n'));return null; }
   const old=block[0],eol=old.includes('\r\n')?'\r\n':'\n';
-  let updated;
-  if(/^- Session phrases:[^\r\n]*/m.test(old)) updated=old.replace(/^- Session phrases:[^\r\n]*/m,line);
-  else {
-    const bullets=[...old.matchAll(/^- [^\r\n]*(?:\r?\n|$)/gm)],last=bullets.at(-1);
-    const at=last?last.index+last[0].length:old.includes('\n')?old.indexOf('\n')+1:old.length;
-    updated=old.slice(0,at)+(at&&!old.slice(0,at).endsWith('\n')?eol:'')+line+eol+old.slice(at);
+  let updated=old;
+  const continuations=/^(?:(?:[ \t]*\r?\n)*[ \t](?=[^\r\n]*\S)[^\r\n]*(?:\r?\n|$))*/;
+  for(const [i,label] of labels.entries()) {
+    const line=lines[i],pattern=new RegExp('^- '+label+':[^\\r\\n]*(?:\\r?\\n|$)','m');
+    const prior=updated,existing=pattern.exec(prior);
+    if(existing) {
+      const before=prior.slice(0,existing.index),after=prior.slice(existing.index+existing[0].length);
+      const previous=before.replace(/\r?\n$/,'').split(/\r?\n/).at(-1);
+      const wrapped=continuations.exec(after)[0];
+      // Only shipped bytes identify the 3.3.0 insertion bug. A matching line
+      // followed by a user's nested bullet is indistinguishable (known limit).
+      const shipped=(label==='Session phrases'?shippedSessionLines:shippedReportsLines).includes(existing[0].replace(/\r?\n$/,'').replace(/[ \t]+$/,''));
+      if(!shipped&&wrapped) {
+        console.log('WARN custom '+label+' line has continuation lines; kept as is; replace the whole bullet, including its indented lines, with: '+line);
+        continue;
+      }
+      const move=label==='Session phrases'&&shipped&&wrapped&&/^(?:- |[ \t])/.test(previous)&&previous.trim();
+      updated=move?before+wrapped+(wrapped.endsWith('\n')?'':eol)+line+eol+after.slice(wrapped.length):prior.replace(new RegExp('^- '+label+':[^\\r\\n]*','m'),line);
+    } else {
+      const following=i===0?/^- Reports:/m.exec(prior):null;
+      const anchor=i?new RegExp('^- Session phrases:[^\\r\\n]*(?:\\r?\\n|$)','m').exec(prior):null;
+      const last=anchor??[...prior.matchAll(/^- [^\r\n]*(?:\r?\n|$)/gm)].at(-1);
+      if(last) last[0]+=continuations.exec(prior.slice(last.index+last[0].length))[0];
+      const at=following?following.index:last?last.index+last[0].length:prior.includes('\n')?prior.indexOf('\n')+1:prior.length;
+      updated=prior.slice(0,at)+(at&&!prior.slice(0,at).endsWith('\n')?eol:'')+line+eol+prior.slice(at);
+    }
+    // Preserve an existing unterminated last bullet, including the repair path.
+    if(!old.endsWith('\n')&&/^- /m.test(old)) updated=updated.replace(/\r?\n$/,'');
+    const preview=opts.check||opts['dry-run'];
+    console.log(label+' gate line: '+(updated===prior?'present':preview?(existing?'would update':'would add'):(existing?'updated':'added'))+' in '+path.basename(file));
   }
-  if(updated===old) {console.log('Session phrases gate line: present');return null;}
-  const updating=/^- Session phrases:/m.test(old),preview=opts.check||opts['dry-run'];
-  console.log('Session phrases gate line: '+(preview?(updating?'would update':'would add'):(updating?'updated':'added'))+' in '+path.basename(file));
-  return [file,text.slice(0,block.index)+updated+text.slice(block.index+old.length)];
+  return updated===old?null:[file,text.slice(0,block.index)+updated+text.slice(block.index+old.length)];
 }
+
 export function distributionRefusals(target,root,oldManifest) {
   const read=readJSON;
   const ledger=read(path.join(root,'engine/upgrades.json'));

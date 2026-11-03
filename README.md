@@ -64,7 +64,7 @@ In these steps, `<PROJECT>` is the full path of your project folder. The engine 
      character that is not a letter or a digit replaced by `-`. On Windows, `~` is your `%USERPROFILE%` folder,
      and the slug is derived from the project path. The label in brackets after the path says
      how the folder was chosen; on a first install it can read `(--memory-dir)` even when you passed no flag.
-   - The gate summary looks like `memory-check 3.3.0 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
+   - The gate summary looks like `memory-check 3.3.1 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
      install worked.** The one WARN is `repo.remote`: the new memory repository has no remote yet. Step 4 adds it.
 
 4. Back up the memory. Replace `<PRIVATE_REMOTE>` with the clone URL of your private remote:
@@ -151,7 +151,7 @@ Fill the TODO description and why/how body. Metadata routes determine generated 
 
 **At the end, run a checkpoint.** Update the single current-state block, then run
 `node scripts/memory/memory-checkpoint.mjs`. It generates hot pages and catalogs, rotates the brain log and
-roadmap, refreshes the brain index and roadmap overview, runs the gate, commits the memory repo, and pushes.
+roadmap, refreshes the brain index and roadmap overview (unless `caps.roadmapOverview.enabled` is `false`), runs the gate, commits the memory repo, and pushes.
 A gate FAIL stops the commit; a failed or timed-out push exits 2 and keeps the commit. `--no-push` skips
 push; `--dry-run` writes nothing. Capture and checkpoint accept `--today YYYY-MM-DD` for a simulated
 lesson date or checkpoint gate/rotation date; the default is today. Commit the project's own changes separately, by name.

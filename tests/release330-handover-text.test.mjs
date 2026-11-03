@@ -9,8 +9,8 @@ import {stateToken, listNotes, readCurrent} from '../engine/session-core.mjs';
 const skill = read(path.join(kitRoot, 'skills/handover/SKILL.md'));
 const bytes = text => Buffer.byteLength(text);
 
-test('fix4.4 NOT SAFE instruction tells the reader to do the printed edits', () => {
-  assert.match(skill, /NOT SAFE: do printed edits, then printed re-run;/);
+test('NOT SAFE instruction names verdict cause and fallback handover', () => {
+  assert.match(skill, /NOT SAFE: fix verdict cause; re-run \(none: \/handover\); never re-pass --lessons once written\./);
 });
 const phrases = ['handover', 'hand over', 'do a handover', 'lets do a handover', 'end session', 'end of session', 'session end', 'quick handover'];
 const wave = ['save memory', 'prepare for compact', 'safe to compact', 'add to memory, learning, and update roadmap'];
@@ -28,7 +28,7 @@ function routed(t) {
   return {...f, targetSkill: target, detect, dispatch};
 }
 
-test('T-H1 all eight phrases in case spacing and Note variants through detect and dispatch', t => {
+test('all eight phrases in case spacing and Note variants through detect and dispatch', t => {
   const f = routed(t); assert.ok(positives.length >= 20);
   for (const message of positives) {
     const quick = message.trim().toLowerCase().replace(/\s+/g, ' ').startsWith('quick handover');
@@ -39,7 +39,7 @@ test('T-H1 all eight phrases in case spacing and Note variants through detect an
   }
 });
 
-test('T-H1 negatives never trigger handover and subagent hook payloads stay silent', t => {
+test('negatives never trigger handover and subagent hook payloads stay silent', t => {
   const f = routed(t); assert.ok(negatives.length >= 30);
   for (const message of negatives) {
     assert.equal(f.detect({prompt: message}), '', message);
@@ -48,7 +48,7 @@ test('T-H1 negatives never trigger handover and subagent hook payloads stay sile
   for (const extra of [{agent_id: ''}, {agent_type: null}, {agent_id: 'worker'}]) assert.equal(f.detect({prompt: 'handover', ...extra}), '');
 });
 
-test('T-H1 slash commands invoke the skill directly, frozen hook and dispatch stay silent', t => {
+test('slash commands invoke the skill directly, frozen hook and dispatch stay silent', t => {
   const f = routed(t);
   for (const message of ['/handover', '/handover quick', '/handover\nNote: Resume', '/handover quick\nNote: Resume']) {
     assert.equal(f.detect({prompt: message}), ''); assert.equal(f.dispatch(message), '');
@@ -58,19 +58,19 @@ test('T-H1 slash commands invoke the skill directly, frozen hook and dispatch st
   assert.match(skill, /Full by default: \/handover, phrases without "quick"/);
 });
 
-test('T-H1 foreign skill hash gets neither nudge nor dispatch', t => {
+test('foreign skill hash gets neither nudge nor dispatch', t => {
   const f = routed(t); fs.appendFileSync(f.targetSkill, '\nForeign change.\n');
   for (const message of positives) { assert.equal(f.detect({prompt: message}), ''); assert.equal(f.dispatch(message), ''); }
 });
 
-test('T-H7 text caps contract and forbidden delegation', () => {
+test('text caps contract and forbidden delegation', () => {
   assert.ok(bytes(skill) <= 1280, `SKILL.md ${bytes(skill)} B`);
   assert.doesNotMatch(skill, /\$ARGUMENTS|\b(?:(?:sub[ -]?)?agents?|Task|Sonnet|Opus|Haiku|GPT(?:-\d[^\s]*)?|Gemini|Claude|Codex)\b|codex exec|claude -p/i);
   assert.match(skill, new RegExp('engine_version: "' + currentVersion.replaceAll('.', '\\.') + '"'));
   const description = skill.split('\n').find(line => line.startsWith('description:'));
   for (const p of wave) assert.ok(!description.toLowerCase().includes(p));
   for (const p of phrases) assert.ok(description.includes(p));
-  for (const text of ['owner decides', 'Omit constraints for default.', 'close: steps first', 'ok/failed in closed', 'recall twice', '<=3 lessons outside memory', 'Write temp JSON outside the project', '--quick', '--lessons <batch>', '--over <last token> (start line or last handover report)', 'printed report verbatim + <=1 line', 'never type SAFE yourself', 'do printed edits, then printed re-run; never re-pass --lessons once lessons written', 'full 2 (5 with lessons), quick 2']) assert.ok(skill.includes(text), text);
+  for (const text of ['the user decides', 'Omit constraints for default.', 'close: steps first', 'ok/failed in closed', 'recall twice', '<=3 lessons outside memory', 'Write temp JSON outside the project', '--quick', '--lessons <batch>', '--over <last token> (start line or last handover report)', 'printed report verbatim + <=1 line', 'never type SAFE yourself', 'fix verdict cause; re-run (none: /handover); never re-pass --lessons once written', 'full 2 (5 with lessons), quick 2']) assert.ok(skill.includes(text), text);
   const overlay = read(path.join(kitRoot, 'templates/AGENTS-session-overlay.md'));
   assert.ok(bytes(overlay) <= 1536);
   assert.match(overlay, /close: .*run these before \/handover's run, reports each ok\|failed, missing\/failed is NOT SAFE/);
@@ -136,9 +136,11 @@ function interaction(f, {quick = false, lessons = false, over = stateToken(f.mem
   assert.match(result.stdout, quick ? /learning, roadmap and log not checked/ : /roadmap current/);
   let warning = '';
   if (parallel) {
-    const start = result.stdout.indexOf('warning: another session handed over at '), end = result.stdout.indexOf('\nlessons:', start);
-    assert.ok(start > 0 && end > start); warning = result.stdout.slice(start, end + 1);
-    assert.ok(bytes(warning) <= 2048); assert.match(warning, /both notes kept\n## CURRENT\n/);
+    const bullet = result.stdout.match(/^- warning: another session handed over at .*; both notes kept\n/m)?.[0];
+    const block = result.stdout.match(/\n```text\n[\s\S]*?\n```\n/)?.[0];
+    assert.ok(bullet && block);warning = bullet + block;
+    assert.ok(result.stdout.indexOf(block) > result.stdout.indexOf('Next:'));
+    assert.ok(bytes(warning) <= 2048);assert.match(block, /```text\n## CURRENT\n/);
   } else assert.doesNotMatch(result.stdout, /warning: another session/);
   const output = calls.reduce((n, c) => n + c.stdout + c.stderr, 0) - bytes(warning);
   const parts = {hook: bytes(hook.stdout) + bytes(hook.stderr), skill: bytes(skill), input: bytes(input), batch: bytes(batch),
@@ -160,7 +162,7 @@ function interaction(f, {quick = false, lessons = false, over = stateToken(f.mem
   return {total, parts, calls, warning: bytes(warning), budget: quick ? 5120 : 12288, planned: quick ? 4464 : 11388};
 }
 
-for (const mode of ['full-none', 'full-lessons', 'quick', 'parallel']) test('T-H7 executed ' + mode + ' counts every byte and call', t => {
+for (const mode of ['full-none', 'full-lessons', 'quick', 'parallel']) test('executed ' + mode + ' counts every byte and call', t => {
   const f = installed(t), over = stateToken(f.memory);
   if (mode === 'parallel') {
     interaction(f, {over});
@@ -172,7 +174,7 @@ for (const mode of ['full-none', 'full-lessons', 'quick', 'parallel']) test('T-H
 });
 
 
-for (const quick of [false, true]) test('T-H7 executed worst-case ' + (quick ? 'quick' : 'full') + ' budgets', t => {
+for (const quick of [false, true]) test('executed worst-case ' + (quick ? 'quick' : 'full') + ' budgets', t => {
   const f = installed(t);
   for (let i = 1; i <= 5; i++) put(path.join(f.memory, `recall-${i}.md`), `---\nname: recall-${i}\ndescription: ${'verify committed bytes handover publication ' + 'x'.repeat(87)}\nmetadata:\n  type: reference\n---\n\n# Publication checks\nVerify committed bytes and handover publication.\n`);
   ok(f.cli('memory-index.mjs', ['write']));

@@ -109,8 +109,9 @@ test('K.2 environment custom path and existing AGENTS, CLAUDE and duplicate hook
   put(path.join(f.target,'AGENTS.md'),'## Memory gate\nExisting rules.\n');put(path.join(f.target,'CLAUDE.md'),'Existing import.\n');
   const settings=json(path.join(kitRoot,'templates/settings.sessionstart.json'));settings.extra=42;put(path.join(f.target,'.claude/settings.json'),JSON.stringify(settings));
   ok(f.install());assert.equal(json(path.join(f.target,'scripts/memory/KIT.local.json')).memoryDir,f.env.CLAUDE_MEMORY_DIR);
+  const reports=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Reports:'));
   const line=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Session phrases:'));
-  assert.equal(read(path.join(f.target,'AGENTS.md')),'## Memory gate\n'+line+'\nExisting rules.\n');assert.equal(read(path.join(f.target,'CLAUDE.md')),'Existing import.\n\n' + '@AGENTS.md\n');assert.equal(json(path.join(f.target,'.claude/settings.json')).hooks.SessionStart.length,1);
+  assert.equal(read(path.join(f.target,'AGENTS.md')),'## Memory gate\n'+line+'\n'+reports+'\nExisting rules.\n');assert.equal(read(path.join(f.target,'CLAUDE.md')),'Existing import.\n\n' + '@AGENTS.md\n');assert.equal(json(path.join(f.target,'.claude/settings.json')).hooks.SessionStart.length,1);
 });
 test('K.2 missing git identity uses commit-only fallback',t=>{
   const f=fixture(t);put(f.env.GIT_CONFIG_GLOBAL,'[core]\n autocrlf = false\n');

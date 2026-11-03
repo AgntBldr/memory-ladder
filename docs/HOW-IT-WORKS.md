@@ -51,18 +51,18 @@ Use `/new-session` for a read-only start and `/handover` to save lessons, CURREN
 2. Ask recall before opening an index. Open the activity index required by the router, then the relevant lesson.
 3. Do the work and capture a lesson when something reusable is learned. Fill its description, why and how-to-apply body.
 4. Overwrite the CURRENT block with the task, next action and handoff.
-5. Checkpoint: regenerate memory indexes, rotate log, roadmap and handovers, refresh brain index and roadmap overview, gate, commit memory, push. Missing optional records are skipped; commit project changes separately.
+5. Checkpoint: indexes, log/roadmap/handover rotation, brain index, roadmap overview, gate, memory commit and push. Absent records are skipped; `caps.roadmapOverview.enabled: false` skips the overview. Commit project changes separately.
 
 That order comes from [memory-checkpoint.mjs](../engine/memory-checkpoint.mjs). `--no-push` still commits; `--dry-run` does neither. A failed push leaves the commit and exits 2.
 
-These synthetic excerpts use engine 3.3.0 and `~/memory`; timings vary. `--no-git` skips Git health and committed-age checks.
+These synthetic excerpts use engine 3.3.1 and `~/memory`; timings vary. `--no-git` skips Git health and committed-age checks.
 
 Install output (excerpt; paths abbreviated):
 
 ```text
 memory: ~/memory (--memory-dir)
 WARN repo.remote . memory repo has no remote
-memory-check 3.3.0 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 159 ms
+memory-check 3.3.1 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 159 ms
 memory gate hook installed; checks before saving a Git commit: ~/memory/.git/hooks/pre-commit
 Self-test: node --test scripts/memory/memory.selftest.mjs
 ```
@@ -76,7 +76,7 @@ node scripts/memory/memory-check.mjs --no-git --memory-dir ~/memory
 ```text
 memory: ~/memory (--memory-dir)
 WARN repo.git-skipped . git health and committed-age checks skipped (--no-git)
-memory-check 3.3.0 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 29 ms
+memory-check 3.3.1 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 29 ms
 ```
 
 Startup of the same fixture:
@@ -86,7 +86,7 @@ node scripts/memory/memory-check.mjs --no-git --session-start --memory-dir ~/mem
 ```
 
 ```text
-memory gate: ok (0 allowed, 1 warn, engine 3.3.0)
+memory gate: ok (0 allowed, 1 warn, engine 3.3.1)
 ```
 
 The warning reports the skipped Git checks. “ok” means no unallowed FAIL, not zero warnings.
@@ -225,7 +225,7 @@ Running the normal gate with `--no-git` in the demo after replacing the first le
 memory: ~/memory (--memory-dir)
 FAIL desc.length lesson-001-quote-shell-arguments.md description is 401 chars (max 400)
 WARN repo.git-skipped . git health and committed-age checks skipped (--no-git)
-memory-check 3.3.0 [all]: 1 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 3 KB, 42 ms
+memory-check 3.3.1 [all]: 1 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 3 KB, 42 ms
 ```
 
 The normal command exited 1; the same failure under `--session-start` exited 0. Restoring its concise description and regenerating produced:
@@ -233,7 +233,7 @@ The normal command exited 1; the same failure under `--session-start` exited 0. 
 ```text
 memory: ~/memory (--memory-dir)
 WARN repo.git-skipped . git health and committed-age checks skipped (--no-git)
-memory-check 3.3.0 [all]: 0 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 2 KB, 47 ms
+memory-check 3.3.1 [all]: 0 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 2 KB, 47 ms
 ```
 
 The cap failure is clean again. The intentional skipped-Git warning remains, and the shelf example adds a second warning.

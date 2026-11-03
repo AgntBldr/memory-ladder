@@ -10,6 +10,7 @@
 - Capture with `node scripts/memory/memory-lesson.mjs new --kind <mistake|practice|observation> --route <family> "<title>"`; fill the TODO description and body.
 - At checkpoints run `node scripts/memory/memory-checkpoint.mjs`: generate indexes, rotate history, refresh overviews, gate, commit and push. Use `--no-push` or `--dry-run` when needed.
 - Session phrases: when a message is only "We are starting a new session - read this and let me know when we can start" or "handover" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message "<the message>"` and follow its output; never inside a subagent or `codex exec` brief. Offer /handover at a stage end or on wrap-up.
+- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only if /handover reported it since the last change.
 
 For several lessons use `node scripts/memory/memory-lesson.mjs batch <scratch>/lessons.md`; record recurrence with `node scripts/memory/memory-lesson.mjs repeat <id> "<cause>: <note>"`.
 Claude Code runs the command guard and the clock line from .claude/settings.json; other agents are guarded by the hard-rule cards, the git hooks and the gate.
