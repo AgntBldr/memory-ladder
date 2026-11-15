@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {args, locations, isDirect, loadConfig, memoryFiles, fmGet, mdLinks, listMd, requireMemory} from './lib.mjs';
+import {args, locations, isDirect, loadConfig, memoryFiles, fmGet, mdLinks, listMd, requireMemory, cleanGitEnv} from './lib.mjs';
 import {withMemoryLock} from './memory-lock.mjs';
+import {writerClaim} from './memory-session.mjs';
 import {lessonIdentity, isGenerated, writeMemoryIndex} from './memory-index.mjs';
 
 const patterns = [/^(.+)-background-(\d+)\.md$/, /^(.+)-background\.md$/, /^(.+)-part-(\d+)\.md$/, /^(.+)-(\d+)\.md$/];
@@ -56,11 +57,13 @@ function bodyStart(raw) {
   const match = /^---[^\S\r\n]*\r?\n[\s\S]*?^---[^\S\r\n]*(?:\r?\n|$)/m.exec(raw.slice(bom));
   return match?.index === 0 ? bom + match[0].length : bom;
 }
-function transaction({memoryDir,config,write}, prepare) {
+function transaction({memoryDir,repo,config,write}, prepare) {
   requireMemory(memoryDir);
   const run = lock => {
     const result = prepare();
     if (!write || !result.changes.length) return result;
+    // Kit 3.3.5 E2.4: claim every file this repair edits, inside the lock, before writing.
+    writerClaim({memoryDir,repo,config,lock}, result.changes.map(change=>change.file), 'memory-chains');
     const originals = new Map(listMd(memoryDir).map(file=>[file,fs.readFileSync(path.join(memoryDir,file))]));
     try {
       for (const change of result.changes) fs.writeFileSync(path.join(memoryDir,change.file),change.next);
@@ -74,8 +77,8 @@ function transaction({memoryDir,config,write}, prepare) {
   };
   return write ? withMemoryLock(memoryDir,run,{timeoutMs:1000}) : run();
 }
-export function repairChains({memoryDir,write=false,config=loadConfig()} = {}) {
-  return transaction({memoryDir,write,config},()=> {
+export function repairChains({memoryDir,repo,write=false,config=loadConfig()} = {}) {
+  return transaction({memoryDir,repo,write,config},()=> {
     const scan=scanChains(memoryDir), changes=[];
     for (const part of scan.parts) {
       if (part.n === null || !scan.problems.some(p=>p.file===part.file && p.kind==='backlink')) continue;
@@ -148,15 +151,15 @@ function linePlan(memoryDir,max,loadedFiles) {
   return result;
 }
 export function scanLines(memoryDir,max=2000,loadedFiles) { requireMemory(memoryDir); return linePlan(memoryDir,max,loadedFiles).map(({next,changed,...r})=>r); }
-export function repairLines({memoryDir,write=false,max=2000,config=loadConfig()} = {}) {
-  return transaction({memoryDir,write,config},()=> {
+export function repairLines({memoryDir,repo,write=false,max=2000,config=loadConfig()} = {}) {
+  return transaction({memoryDir,repo,write,config},()=> {
     const plans=linePlan(memoryDir,max);
     return {files:plans.map(({next,changed,...r})=>r),changes:plans.filter(p=>p.changed).map(({file,next})=>({file,next}))};
   });
 }
 export function main(argv=process.argv.slice(2)) {
   try {
-    const opts=args(argv.filter(x=>x!=='--write')), command=opts._.shift(), loc=locations(opts);
+    const opts=args(argv.filter(x=>x!=='--write')), command=opts._.shift(), loc=locations(opts,{env:cleanGitEnv()});
     const config=opts.config?JSON.parse(fs.readFileSync(opts.config,'utf8')):loadConfig(), write=argv.includes('--write');
     let result;
     if (command==='scan') result=scanChains(loc.memoryDir);

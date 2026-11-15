@@ -49,7 +49,7 @@ test('install ships glossary and upgrade replaces it with the new release bytes'
   const next = bump(f), updated = glossary() + '\nUpgrade fixture text.\n';
   put(path.join(next, 'docs/GLOSSARY.md'), updated);
   ok(f.cli('scripts/manifest.mjs', [], next));
-  ok(f.cli('scripts/upgrade.mjs', ['--target', f.target], next));
+  ok(f.cli('scripts/upgrade.mjs', ['--target', f.target, '--live-memory'], next));
   assert.equal(read(dest), updated);
   assert.equal(json(path.join(f.target, 'scripts/memory/MANIFEST.json')).files['scripts/memory/GLOSSARY.md'],
     json(path.join(next, 'MANIFEST.json')).files['docs/GLOSSARY.md']);

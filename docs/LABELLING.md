@@ -67,3 +67,48 @@ People may include an optional `takeaways` map keyed by the same filenames as
 `kinds`, with values `fix`, `method` or `know`. `classify --write` writes it to
 `metadata.takeaway`; omission preserves existing values. Preview and write summaries
 report `; takeaways N`, counting values they would set or change. Models never set `takeaway` by default. Keep takeaways out of blind labeller copies as well.
+
+## Reading harm
+
+How to read K0 steps 2 to 5 and K2 to K5 (clarification added after calibration, attempt 1; the cases are unchanged):
+- Harm means someone relied on or acted on the wrong thing: a verdict was reported or accepted, code was pushed or
+  merged, work was built on it, money or quota was spent, or the person had to decide again. A plan, spec or command
+  that was wrong but was caught and corrected before anyone used it is NOT harm.
+- So when the body shows a problem caught before reliance, and the title names the step that caught it ("Verify X",
+  "One query before writing Y"), label it practice (K4). If a verdict was accepted and later overturned ("I called it
+  done", "reported green, then..."), it is mistake (K5).
+- Observation (K2) is how a tool, service or platform behaves under normal use. It stays observation even when finding
+  it out cost time. Choose mistake (K3) only when the trouble came from the shape of OUR command or our known trap.
+- Format: put a `trigger` only on rows where `lesson` is true, and start it with exactly "before " or "when ". If no
+  honest trigger starts that way, leave the row out of `trigger`.
+
+## 2. Per-row output schema
+
+One JSON object per bundle, in the labeller's final message. Maps are keyed by opaque row id.
+
+```json
+{"version":1,"bundle":"b07","labeller":"A",
+ "kinds":{"row-0412.md":"mistake"},
+ "cases":{"row-0412.md":"K6"},
+ "confidence":{"row-0412.md":0.8},
+ "lesson":{"row-0412.md":true},
+ "trigger":{"row-0412.md":"before renaming an env var"},
+ "disposition":{"row-0077.md":"brain"},
+ "reason":{"row-0077.md":"account ids, no rule"},
+ "route":{"row-0301.md":"craft-demo"},
+ "extract":{"row-0009.md":"Before X, do Y."}}
+```
+
+- `kinds` and `confidence` are required for every row, including non-lessons (LABELLING.md: label every row; K1 rows
+  get a provisional kind). `cases` is given when a K-case decides.
+- `lesson` is required for every row. The test is the selection rule in the bundle header: one reusable takeaway that changes later
+  behaviour and stays true whatever the project state.
+- `trigger` applies to lesson rows only and must start with "before " or "when ". Omit it if none is honest.
+- `disposition` applies to non-lesson rows only: `topic` | `brain` | `archive` | `other`. `reason` (20 words at most)
+  is required for all but `topic`.
+- `route` applies only to rows the bundle marks `needs_route`. The value is a family name from the
+  list in the bundle header, `archive`, or `none`. The linking topic is chosen at settlement from the census
+  `inbound` field, not by the labeller.
+- `extract` applies only to rows marked `no_rename`. The value is a one-line rule, or `""` for none. If
+  non-empty, `kinds` and `trigger` describe the new lesson.
+- Labellers never set `pin` or `takeaway`.

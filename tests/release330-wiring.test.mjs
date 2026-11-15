@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {fixture,ok,put,read,json,tree,kitRoot,hash} from './helpers.mjs';
-import {mergeNewSessionHooks,sessionPermission,gateLinePlan,mirrorWrites,distributionRefusals} from '../scripts/install-safety.mjs';
+import {createHash} from 'node:crypto';
+import {fixture,ok,put,read,json,tree,kitRoot,hash,assertInstructionSpans} from './helpers.mjs';
+import {mergeNewSessionHooks,sessionPermission,standardBlockPlan,mirrorWrites,distributionRefusals} from '../scripts/install-safety.mjs';
 import {ownedFiles} from '../scripts/manifest.mjs';
 import {withMemoryLock} from '../engine/memory-lock.mjs';
 const powerShellPermission='PowerShell(node scripts/memory/new-session.mjs:*)';
@@ -16,6 +17,9 @@ const reports=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('
 const gateLine=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Session phrases:'));
 const upgrade=(f,args=[],options={})=>f.exec(process.execPath,[path.join(kitRoot,'scripts/upgrade.mjs'),'--target',f.target,...args],options);
 const snapshot=f=>tree(f.root,{git:true,previous:true});
+// 3.3.4: lines that are not kit wording need a keep or drop decision before the old section becomes the kit block.
+const unitId=text=>createHash('sha256').update(text).digest('hex').slice(0,12);
+const decisionsFile=(f,decisions)=>put(path.join(f.root,'decisions.json'),JSON.stringify({version:1,project:'fixture',decisions:Object.fromEntries(Object.entries(decisions).map(([text,outcome])=>[unitId(text),{outcome,reason:'fixture '+outcome,decidedBy:'fixture'}]))}));
 for (const installed of [false, true]) for (const slash of ['/', '\\']) test(`quoted apostrophe path on ${installed ? 'upgrade' : 'install'}: ${slash}`, t => {
   const f = fixture(t), target = path.join(f.root, "O'Brien", 'project');
   fs.mkdirSync(path.dirname(target)); fs.renameSync(f.target, target); fs.mkdirSync(f.target);
@@ -67,7 +71,7 @@ for(const marker of [null,'.agents','.codex']) test('install delivers handover a
   const addon='.claude/skills/project-check/SKILL.md',addonBytes='# Project check\nRun the private close check.\n';
   if(marker) put(path.join(f.target,addon),addonBytes);
   const original=marker?read(path.join(f.target,'AGENTS.md')):null;
-  ok(f.install());
+  ok(f.install(marker?['--instructions-decisions',decisionsFile(f,{'- Keep this rule.':'keep'})]:[]));
   assert.deepEqual(fs.readFileSync(path.join(f.target,handoverFile)),fs.readFileSync(path.join(kitRoot,'skills/handover/SKILL.md')));
   const manifest=json(path.join(f.target,manifestFile));
   assert.equal(Object.keys(manifest.files).length,Object.keys(json(path.join(kitRoot,'MANIFEST.json')).files).length);
@@ -76,7 +80,8 @@ for(const marker of [null,'.agents','.codex']) test('install delivers handover a
   assert.equal(fs.existsSync(mirror),Boolean(marker));
   if(marker) {
     assert.deepEqual(fs.readFileSync(mirror),fs.readFileSync(path.join(f.target,handoverFile)));
-    assert.equal(read(path.join(f.target,'AGENTS.md')),original.replace('- Keep this rule.\n','- Keep this rule.\n'+gateLine+'\n'+reports+'\n'));
+    assertInstructionSpans(original,read(path.join(f.target,'AGENTS.md')),{kept:['- Keep this rule.']});
+    assert.ok(read(path.join(f.target,'AGENTS.md')).endsWith('\n\n'+overlay));
     assert.equal(read(path.join(f.target,addon)),addonBytes);assert.ok(!Object.hasOwn(manifest.files,addon));
   }
   assert.equal(read(path.join(f.target,'AGENTS.md')).split(gateLine).length,2);
@@ -126,7 +131,7 @@ test('install dry-run and check report wiring and foreign skills without any wri
   const before=snapshot(f);
   for(const flag of ['--dry-run','--check']) {
     const r=ok(f.install([flag]));
-    for(const pattern of [/new-session hook: would add/,/Bash\(node scripts\/memory\/new-session.mjs:\*\)/,/Session phrases gate line: would add/,/WRITE/,/WARN foreign skill kept/,/Session overlay template:/]) assert.match(r.stdout,pattern);
+    for(const pattern of [/new-session hook: would add/,/Bash\(node scripts\/memory\/new-session.mjs:\*\)/,/INSTRUCTIONS AGENTS.md: standard block add; first update: yes/,/WRITE/,/WARN foreign skill kept/,/Session overlay template:/]) assert.match(r.stdout,pattern);
     assert.doesNotMatch(r.stdout,/\badded\b|\bupdated\b/);
     assert.deepEqual(snapshot(f),before);
   }
@@ -196,18 +201,24 @@ for(const name of ['new-session','handover']) test('explicit foreign replacement
   assert.equal(read(path.join(f.target,'scripts/memory',backup,skillFile)),'# Foreign\n');
 });
 
-test('gate line is scoped, once, byte-preserving and warns without heading',t=>{
-  const f=fixture(t),file=path.join(f.target,'AGENTS.md');
+test('standard block is scoped to the gate section, written once, byte-preserving elsewhere',t=>{
+  const f=fixture(t),file=path.join(f.target,'AGENTS.md'),plan=(opts={})=>standardBlockPlan(f.target,kitRoot,{quiet:true,...opts});
   for(const eol of ['\n','\r\n']) for(const prior of ['', '- Session phrases: old\n']) {
     const original=('# Host\n- Session phrases: outside\n## Memory gate\n- First\n'+prior+'- Last\n\nProse.\n## Other rules\n- other bullet\n- Session phrases: host custom\n## Session overlay\nafter-go: a | b\n').replaceAll('\n',eol);
-    put(file,original);const plan=gateLinePlan(f.target,kitRoot);assert.ok(plan);
-    const expected=prior?original.replace('- Session phrases: old',gateLine+eol+reports):original.replace('- Last'+eol,'- Last'+eol+gateLine+eol+reports+eol);
-    assert.equal(plan[1],expected);put(file,plan[1]);assert.equal(gateLinePlan(f.target,kitRoot),null);
+    put(file,original);
+    const kept=['- First',...(prior?['- Session phrases: old']:[]),'- Last','Prose.'];
+    assert.equal(plan().refusalKind,'unclear');
+    const result=plan({'instructions-decisions':decisionsFile(f,Object.fromEntries(kept.map(text=>[text,'keep'])))});
+    assert.equal(result.writes.length,1);assertInstructionSpans(original,result.writes[0][1],{kept});
+    assert.ok(result.writes[0][1].startsWith(('# Host\n- Session phrases: outside\n').replaceAll('\n',eol)));
+    assert.ok(result.writes[0][1].endsWith(('## Other rules\n- other bullet\n- Session phrases: host custom\n## Session overlay\nafter-go: a | b\n').replaceAll('\n',eol)));
+    put(file,result.writes[0][1]);assert.deepEqual(plan().writes,[]);
   }
-  put(file,'## Other\n');assert.equal(gateLinePlan(f.target,kitRoot),null);assert.equal(read(file),'## Other\n');
-  put(file,'## Memory gateway\n- Other\n');assert.equal(gateLinePlan(f.target,kitRoot),null);assert.equal(read(file),'## Memory gateway\n- Other\n');
-  put(file,'## Memory gate');assert.equal(gateLinePlan(f.target,kitRoot)[1],'## Memory gate\n'+gateLine+'\n'+reports+'\n');
-  fs.unlinkSync(file);put(path.join(f.target,'CLAUDE.md'),'## Memory gate\n- Last\n');assert.equal(path.basename(gateLinePlan(f.target,kitRoot)[0]),'CLAUDE.md');
+  for(const text of ['## Other\n','## Memory gateway\n- Other\n']) {
+    put(file,text);const result=plan();assert.equal(result.refusal,null);assertInstructionSpans(text,result.writes[0][1]);assert.equal(read(file),text);
+  }
+  put(file,'## Memory gate');assertInstructionSpans('## Memory gate',plan().writes[0][1]);
+  fs.unlinkSync(file);put(path.join(f.target,'CLAUDE.md'),'## Memory gate\n- Last\n');assert.equal(path.basename(plan().file),'CLAUDE.md');
 });
 
 test('unknown unchanged files refuse before any write; edited files stay; retired files back up',t=>{
@@ -295,13 +306,13 @@ test('equal-version upgrade repairs missing mirror hook permission and gate; res
   settings.hooks.UserPromptSubmit=settings.hooks.UserPromptSubmit.filter(e=>!e.hooks.some(h=>h.command===command));settings.permissions.allow=[];put(settingsFile,JSON.stringify(settings));
   const agents=path.join(f.target,'AGENTS.md');put(agents,read(agents).replace(gateLine+'\n',''));
   const before=tree(f.target),checked=upgrade(f,['--check']);assert.equal(checked.status,1);assert.deepEqual(tree(f.target),before);
-  const applied=ok(upgrade(f));assert.match(applied.stdout,/Session phrases gate line: added/);
+  const applied=ok(upgrade(f));assert.match(applied.stdout,/INSTRUCTIONS AGENTS.md: standard block replace; first update: no/);
   assert.equal(read(agents).split(gateLine).length,2);
   assert.equal(read(path.join(f.target,'.agents/skills/new-session/SKILL.md')),read(path.join(f.target,skillFile)));
   const mirror=path.join(f.target,'.agents/skills/new-session/SKILL.md');put(mirror,read(mirror).replace(/\r?\n/g,'\r\n'));
   const stable=tree(f.target,{previous:true});assert.match(ok(upgrade(f)).stdout,/same version and hashes; no-op/);assert.deepEqual(tree(f.target,{previous:true}),stable);
   const backup=path.join(f.target,'scripts/memory',fs.readdirSync(path.join(f.target,'scripts/memory')).find(n=>n.startsWith('.kit-backup-')));
-  ok(upgrade(f,['--restore',backup]));assert.deepEqual(tree(f.target),before);
+  ok(upgrade(f,['--restore',backup,'--live-memory']));assert.deepEqual(tree(f.target),before);
 });
 
 test('new hook template is a kit-root read, never an owned project file',()=>{
@@ -386,15 +397,18 @@ test('check never attempts writes or a memory lock for clean and pending project
     if(pending) put(path.join(f.target,'AGENTS.md'),read(path.join(f.target,'AGENTS.md')).replace(gateLine,'- Session phrases: old'));
     const before=snapshot(f),result=upgrade(f,['--check'],options);
     assert.equal(result.status,pending?1:0,result.stdout+result.stderr);assert.doesNotMatch(result.stderr,/forbidden write/);
-    if(pending) assert.match(result.stdout,/Session phrases gate line: would update/);
+    if(pending) assert.match(result.stdout,/INSTRUCTIONS AGENTS.md: standard block replace; first update: no\n[^]*WARN AGENTS.md standard block differs from kit/);
     assert.deepEqual(snapshot(f),before);assert.deepEqual(lockFiles(f),[]);
   }
 });
 
 test('install and updater recognize Memory gate with trailing text',t=>{
   const f=fixture(t),file=path.join(f.target,'AGENTS.md'),tail='## Other rules\n- other bullet\n- Session phrases: host custom\n';
-  put(file,'## Memory gate (kit)\n- Existing rule\n'+tail);ok(f.install());
-  assert.equal(read(file),'## Memory gate (kit)\n- Existing rule\n'+gateLine+'\n'+reports+'\n'+tail);
-  put(file,read(file).replace(gateLine+'\n',''));ok(upgrade(f));
-  assert.equal(read(file),'## Memory gate (kit)\n- Existing rule\n'+gateLine+'\n'+reports+'\n'+tail);
+  const original='## Memory gate (kit)\n- Existing rule\n'+tail;
+  put(file,original);assert.equal(f.install().status,1);assert.equal(read(file),original);
+  ok(f.install(['--instructions-decisions',decisionsFile(f,{'## Memory gate (kit)':'drop','- Existing rule':'keep'})]));
+  const installed=read(file);assertInstructionSpans(original,installed,{kept:['- Existing rule']});assert.ok(installed.endsWith(tail));
+  assert.equal(installed.split(gateLine+'\n'+reports+'\n').length,2);
+  put(file,installed.replace(gateLine+'\n',''));ok(upgrade(f));
+  assert.equal(read(file),installed);
 });

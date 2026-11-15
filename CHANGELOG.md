@@ -1,5 +1,162 @@
 # Changelog
 
+## 3.3.7
+
+**A file the update cannot read is named once: `upgrade: cannot read <file> (not a regular file)`, not `upgrade: cannot read <file>: cannot read <file> (not a regular file)`. 3.3.7 adds no gate check and widens none.**
+
+- Upgrade from 3.3.6 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then, from the project's main checkout, `node scripts/upgrade.mjs --target <PROJECT> --live-memory`. Run the installed gate afterwards.
+
+Changed behaviour
+
+- A file that cannot be read is named once. A fifo, socket or device at `scripts/memory/memory.config.json` made the update print the file's name twice (`upgrade: cannot read <file>: cannot read <file> (not a regular file)`); it now prints `upgrade: cannot read <file> (not a regular file)`. A missing file or a folder in the same place is likewise named once, and a reason that follows the name (invalid JSON, `expected an object`) is unchanged.
+
+Documentation
+
+- The 3.3.6 entry carries a correction: 3.3.6 also widened an existing check, `hardrule.size`. [docs/UPGRADE.md](docs/UPGRADE.md), "Checks a release widens", says what widening means, lists it, and gives a check to run on a copy of the memory before updating: an update from 3.3.5 or older whose `[[wikilinked]]` hard-rule card is over 4096 bytes fails the new gate and restores itself.
+
+Gate checks
+
+- New checks: none.
+- Widened checks: none.
+
+Maintainers
+
+- The kit's own `npm test` runs the public test files once, through the export's test gate, and the other test files directly. The public package's `npm test` is unchanged.
+
+## 3.3.6
+
+**An all-sessions checkpoint with in-repository memory and `--commit` excludes already-modified output groups from its commit. It still rewrites those outputs. Dry runs can identify modified project outputs before you proceed.**
+
+- Upgrade from 3.3.5 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then, from the project's main checkout, `node scripts/upgrade.mjs --target <PROJECT> --live-memory`. Run the installed gate afterwards.
+- Update planning now checks the memory hook and planned destinations before reading them, refusing a fifo, socket or device found at that check. A file replaced with a special file between the check and the read can still make the read wait; see Known limits in UPGRADE.
+
+Changed behaviour
+
+- A link at a generated page (`INDEX-*.md`) that leads to a file the kit does not generate is refused (item 1). A link to a marked generated page is still updated.
+- A same-version run exits 1 when a stale or obsolete generated page fails the replay's replacement checks, including an unmarked stub at that destination. A pending route migration without that refusal still exits 3 and prints the replay command.
+- The preview and `restore --check` name the claims, downgrade and restore-output refusals, and exit 1 when one applies (item 12b).
+- A restore refuses a fifo, socket or device at any destination, with one message (item 7).
+- The gate reports WARNs instead of reading special files at its checked repository inputs. Those WARNs alone do not stop a checkpoint. A checkpoint refuses a special file when its own checked read or output write encounters it; in session mode, memory may already have been committed.
+- Outside the gate's actual hook path, the kit's Git calls ignore `GIT_NAMESPACE`, `GIT_CONFIG` and the four pathspec-mode variables. The read-only commands also discard inherited repository redirects. Combining `--hook` with `--session-start` now uses session-start behavior, including the cleaned Git environment and ahead-of-upstream check.
+- Scratch space must be outside both the project and memory folder, including after resolving links. The check uses Node's effective system temporary directory. Real checkpoints check before starting; updates check before creating required scratch space. An all-sessions checkpoint dry run that fails this check prints `would change: could not be planned (...)` but still exits 0. Set the temporary-directory environment variables to an outside folder before retrying.
+- Outside instruction files are compared by digest, not copied (item 23).
+- In all-sessions mode, `--commit` with memory inside the project asks Git about three output groups before writing: the brain log and its archives; the roadmap, its history and its enabled overview; and the brain index with index-all. A group Git reports as modified is excluded from the commit, but its outputs are still rewritten. If any status query fails, all three groups are excluded. When the commit step completes and excluded groups have written outputs, `commit: left out ...` names those outputs and the reason. Matching has the limits listed in UPGRADE.
+- A dry run can name planned project outputs that Git reports as already modified. It omits the `already modified` line if any status query fails, so silence does not mean those files are clean (item 24).
+- Restore skips memory lock paths even when their names include `./` or subfolders. Promotion rehearsals skip memory lock names, including tracked locks, except for the junction case documented in UPGRADE.
+- `/new-session` reports both the operation lock and `.memory.lock.push`. Handover timeout reports name each existing lock and its age. Checkpoint change reports recognize lock names without regard to case; the obsolete `.memory.push.lock` name is treated as an ordinary file.
+- Failed cleanup of update snapshots, install audit folders, promotion rehearsals and stale-lock files now names what remains without replacing the operation's result. A failed atomic log write preserves its original error and reports a temporary file it could not remove.
+- Initial memory setup checks both author and committer identities before choosing its fallback identity.
+- Checkpoint file reports now record outputs at the writer, fixing reports that included another writer's changes or missed newly appearing outputs. Dry-run planning accounts for configured non-Markdown system files.
+- When checkpoint folder resolution fails without `--repo`, the command prints its header and the underlying error instead of `repoRoot is not defined`.
+- In-repository checkpoint staging lists include a generated roadmap overview even when rotation is skipped. Explicit `--commit` treats included paths literally, including names containing glob characters.
+- Update planning checks named configuration, instruction, decision and ledger files before reading special files. Instruction-folder listing order no longer causes false planning drift.
+- Cards reached through wikilinks under `## Hard rules` are classified as hard rules rather than ordinary topics.
+
+Known limits in 3.3.6 are listed in [docs/UPGRADE.md](docs/UPGRADE.md).
+
+Correction (2026-11-15): 3.3.6 also widens an existing check. `hardrule.size` (FAIL over 4096 bytes, WARN over 2048) now covers a card reached through a `[[wikilink]]` under the router's `## Hard rules`; before 3.3.6 only a card reached through a Markdown link was a hard rule. An update from 3.3.5 or older whose linked card is over 4096 bytes fails the new gate and restores itself (`new FAIL: hardrule.size <card>`). To fix it, move the card's detail into another file first, writing the new file before shortening the card, then run the update again. [docs/UPGRADE.md](docs/UPGRADE.md), "Checks a release widens", gives a check to run before updating.
+
+## 3.3.5
+
+**Every checkpoint run now prints a first line, `checkpoint: repo <checkout>; memory <folder> (<source>)`, and a run against memory outside the project repo ends with `repo files changed in <checkout>: <files> - commit them in that checkout` (or `none`), except in a dry run, which prints `would change: ...` instead.** Scripts that parse checkpoint output must allow both lines. With no `caps.checkpoint.mode`, or with `"all"`, a checkpoint commits what 3.3.4 committed: session mode is opt-in.
+
+- Upgrade from 3.3.4 or 3.3.3 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then, from the project's main checkout, `node scripts/upgrade.mjs --target <PROJECT> --live-memory`. Run the installed gate afterwards. The update sets `engine_version` to 3.3.5 in `scripts/memory/memory.config.json` and adds any missing default, keeping every value already set; from 3.3.4 or 3.3.3 that adds three: `caps.checkpoint` (`{"mode": "all"}`), `caps.index.hotReserveBytes` (1024) and `caps.router.targetBytes` (11264). What a checkpoint commits is unchanged unless `caps.checkpoint.mode` is `"session"`.
+- This release includes the 3.3.4 fix that compares the files an update's instructions reach with the plan's prediction.
+
+Checkpoint output
+
+- `<source>` in the first line says where the memory folder came from: `--memory-dir`, `CLAUDE_MEMORY_DIR`, `memory.inRepoDir`, `KIT.local.json` or `default`. The closing line lists the project files the run changed and left uncommitted. The first line also appears for a refused run, and so does the closing line when the memory folder is known and the run is not a dry run.
+- `--dry-run` that reaches its plan prints `would change: <files>` (or `nothing`): the memory and project files a real run would change. In the default mode the plan is made with the real writers on private copies, so nothing in memory or the project is written, locked or removed; a plan that cannot be made prints `would change: could not be planned (...)`. A dry run commits and pushes nothing.
+- A checkpoint now refuses a bare option it does not know (`unknown option ...`) and any extra word, with exit 1; 3.3.4 ignored both. An option written `--name=value` was already refused. New options: `--session`, `--all`, `--files`, `--take`, `--files-only`, `--memory-only` and `--no-rotate`.
+
+Session mode and claims (opt-in)
+
+- With `caps.checkpoint.mode` set to `"session"`, or `--session` for one run, a checkpoint commits only the memory files this session has claimed, files named with `--files` or `--take`, and the generated pages those changes affect. It never commits another session's edits and does no rotation (log, roadmap or hand-overs). A session is one checkout on one branch; a detached HEAD is refused, and so is a memory repository with no commit yet.
+- `--files`, `--take`, `--files-only` and `--memory-only` need session mode. `--files <file>...` claims and saves named files; `--take <file>...` saves files another live session claims and takes the claim over, with the file as it is in the shared folder. `--files-only` saves only the named files and leaves other claims for later; with nothing selected it only publishes. `--memory-only` saves memory and defers the brain index and roadmap overview; it also needs memory outside the project repo. `--all` runs the all-pending save of 3.3.4 for one run, and cannot be combined with `--session`. `--no-rotate` skips the log, roadmap and hand-over rotations for one run.
+- `memory-session.mjs` has `claim <file>...`, `list`, `release <file>...` and `prune [--apply]`. Claims are kept per session in the memory folder's `.sessions/` folder, which ignores itself. `claim` refuses a file another live session holds. `list` shows this session's claims and every other live, stale, malformed or unreadable ledger. `prune --apply` moves stale ledgers to `.sessions/stale/`. A ledger that cannot be read makes claims and saves refuse until it is repaired.
+- In session mode `memory-lesson.mjs`, `memory-chars.mjs`, `memory-chains.mjs`, `memory-migrate.mjs`, `memory-promote.mjs` and `/handover` claim the files they write. If another live session holds `current-state.md`, `/handover` writes only its own note and says so.
+- `memory-init.mjs`, `memory-setup.mjs`, hand-over rotation and a live update refuse while another session's ledger holds unresolved claims. In the default mode a checkpoint skips rotation with `rotation waits: ...` while another session's claims are pending.
+- `/handover` now writes a `**Branch:**` line into the current block of `current-state.md`. `/new-session` reads only the current branch's hand-over notes, and `current-state.md` leads only when its `**Branch:**` line names the current branch, so a `current-state.md` written by 3.3.4 or earlier supplies no lead until the next hand-over rewrites it. With no note for the branch it prints `no hand-over note for <branch>` and up to two notes from other branches, marked not picked. `handover.mjs` accepts `--no-rotate`.
+
+Push and locks
+
+- A checkpoint's push runs after the memory lock is released, under a separate push lock, `.memory.lock.push`. The existing `.memory.lock*` line in the memory folder's `.gitignore` covers it, so the update adds no ignore line. The push never forces: it then checks the real remote branch, and when the saved commit is not there the run reports the publication error and exits 2.
+- `upgrade.mjs --live-memory` (a full update, a `--memory-only` replay or a `--restore`) is exclusive maintenance. It holds the push lock together with the memory lock and refuses after a short wait when the push lock is held, and it writes nothing while any live, malformed or unreadable session ledger holds unresolved claims. A rehearsal with `--memory-dir <copy>` is not checked for claims. Backup, restore and the protected-scope comparison leave out both lock files.
+- The update, a restore and the standalone `memory-index.mjs` replace or remove a generated page only when its working copy and its staged copy carry the generated marker; a page without it is refused (the route migration still converts hand-written index pages). `memory-index.mjs` applies all its outputs as one step that is undone if a write fails. Git calls of the session tools and the update drop `GIT_DIR`, `GIT_WORK_TREE` and the other redirecting git variables.
+
+New gate checks (all WARN only: they never block a commit or fail an update)
+
+- `repo.roadmap-no-rotation`: the roadmap is over `caps.roadmap.warnBytes` and rotation, planned without writes, has nothing it may move. `docs/ROADMAPS.md` lists what to do instead; the optional `caps.roadmap.procedure` names your own procedure in the message.
+- `repo.roadmap-rotation`: rotation refuses its input, for example `caps.roadmap.keepBlocks` below two, a block with an impossible date or a history path that is not a regular file.
+- `config.roadmap-procedure`: `caps.roadmap.procedure` is present but not a non-empty string; it is ignored.
+- `index.hot-reserve`: a generated hot page has fewer than `caps.index.hotReserveBytes` bytes free before the newest lessons fill it.
+- `router.target`: the router is over `caps.router.targetBytes` (11264 bytes) and not yet over the 12288-byte warning line.
+- The roadmap overview freshness check reads CRLF as LF, so line endings alone no longer make an overview stale.
+
+### Known limits
+
+- A generated index page (`INDEX-*.md`) that is a link to a hand-written file inside memory is read as a missing page, so an update or a restore can write generated text through the link over that file. The kit never makes such a link.
+- A restore skips lock files only when `restore.json` lists them by plain name; a hand-edited entry with a folder or `./` in front is restored or deleted like any other file.
+- `memory-check.mjs --hook --session-start` (both flags together) lets the session-start summary follow an inherited `GIT_DIR` or `GIT_WORK_TREE` and skip the ahead-of-upstream check. The kit's own setting passes `--session-start` alone.
+- The checkpoint's `repo files changed` line can be wrong in two rare timing cases: an all-sessions run with no brain folder and the overview off can name a file another writer changed meanwhile, and a session-mode run can miss a file it created when the brain folder appears between its planning and writing steps.
+- A dry run makes its scratch copy under the system temporary folder; if `TEMP` or `TMP` points inside the checkout or the memory folder, the copy is written there.
+- The dry run's copy holds markdown files only, so a brain index that depends on another kind of file can be listed as `would change` when the real run changes nothing.
+- When an atomic write fails and its temporary file cannot be removed either, the leftover `*.tmp` file is not named in the files line.
+- When the folders cannot be resolved and no `--repo` is given, the checkpoint stops with `repoRoot is not defined` instead of its own message; pass `--repo`.
+- Still open from 3.3.4: a fifo, socket or other special file at the memory hook path or at a planned destination can make update planning wait on a read before the refusal is reached. Nothing is written.
+- An unchanged instruction file that two `.claude/rules` links reach can be reported as "changed while planning" when the folder's listing order changes between the plan and the lock. Nothing is written; run the update again.
+- Git's own input files (its ignore and configuration files) are chosen from the disk before the writes, so a planned change to which of them git reads is not predicted. If the files git reads after the writes differ from the prediction, the update refuses, undoes its changes as for any unplanned change, and exits 1.
+- The instruction walk can follow an absolute or `../` mention to a file outside the project. A file outside both the project and the memory folder is only read and copied into the temporary snapshot; the update never writes or restores it. A mention that resolves into the memory folder is protected and restored like any other memory file.
+
+## 3.3.4
+
+**An upgrade that writes live memory now needs `--live-memory`.** Scripts that call `upgrade.mjs` must add the flag (or pass `--memory-dir <copy>` to rehearse on a copy). Without it the update writes nothing and exits 1.
+
+- Upgrade from 3.3.3 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then, from the project's main checkout, `node scripts/upgrade.mjs --target <PROJECT> --live-memory`. Run the installed gate afterwards.
+
+Safe updates
+
+- `upgrade.mjs --check` and `--dry-run` print a `planned writes` block before the version line: every project file, the backup folder, every memory file and the memory hook the run would write or delete, with counts. A route migration is computed on a temporary copy that is deleted before the preview exits. Exit 1 means something is planned.
+- A real update or `--restore` that would write live memory or its hook needs `--live-memory`. Every destination is resolved through links and junctions first; a destination that resolves into live memory (or outside the folder you rehearse in), a path that cannot be resolved and a file with other hard links are refused before any write.
+- Only planned operations run, with the planned bytes; unchanged files are not rewritten. The plan is made again under the memory lock, and if any input changed meanwhile nothing is written and the update exits 1. `--restore` is planned again the same way and can be previewed with `--check`.
+- The memory hook is never pointed at a linked worktree: `--live-memory` from a worktree is refused, `install-hooks.mjs` refuses `--repo <worktree>`, and an install into a worktree finishes without a hook and prints the command to run from the main checkout.
+- Before the first write the update copies its protected scope (the git-visible project files, kit and host configuration, planned destinations and the whole memory folder), compares it with the plan afterwards and restores from the copy on any difference. States a rollback would overwrite are kept under `<backup>/unplanned/` with a manifest. A special file (fifo, socket or device) in that scope is refused before anything reads it, except at the memory hook path and at planned destinations (see Known limits). Git calls drop `GIT_DIR` and the other git environment variables, and the gate runs with `GIT_OPTIONAL_LOCKS=0`.
+- An update whose instructions reach a kit document no longer rolls back when the kit's documents mention new `.md` names: the update compares the files its instructions reach after the writes with the files its plan predicted, not with the files before the writes.
+- A same-version run with stale memory (a pending route migration, stale or obsolete generated pages) writes nothing, exits 3 and prints the replay command; `--memory-only --live-memory` runs only the memory steps, with a backup and the gate before and after. A same-version run with nothing pending still ends with `upgrade: same version and hashes; no-op`.
+
+Standard block
+
+- `AGENTS.md` carries one kit-owned block between `<!-- kit standard block (memory kit <version>): begin. ... -->` and `<!-- kit standard block: end -->`. Install and every update write the kit's text there. Rules for one project go under `## Project rules`, which the kit never edits. `CLAUDE.md` gets a block holding only the `@AGENTS.md` import when `AGENTS.md` exists.
+- The first update of a file without the markers sorts its old memory section unit by unit. Kit wording, as any release shipped it, is replaced by the block; a unit with a keep decision moves word for word into Project rules; a drop decision removes it; any other unit is unclear and stops the update until decided. `node scripts/instructions-sort.mjs preview --target <PROJECT> --out <FOLDER>` writes `sort-report.json` and `decisions.json` outside the project; pass the edited file with `--instructions-decisions`. A byte proof runs before any write, and the first update writes `instructions-report.json` into its backup folder. A sorting ledger (`ledger/*.json` in the kit folder, or `--instructions-ledger <FILE>`) can settle the same line for later projects.
+- Damaged markers, a file that is not UTF-8 text and a bad decisions or ledger file refuse before any write. `--check` reports a local edit inside the block (a changed, added, deleted, duplicated or reordered line); the real run replaces it and the original stays in the backup.
+
+Session start and install
+
+- When the overlay's `board:` value is a board link, `/new-session` prints one read-only block with exact rules for reading both board shapes, and a reply line for a shape or tool it does not recognise. A value that starts with http or https but is not a board link is refused with `overlay board: refused (not a board link)`. With no `board` key in `AGENTS.md` the helper reads a link from the main checkout's untracked `KIT.local.json`. The command form is unchanged.
+- Install, in its preview too, prints linter scope hints for ESLint, Biome and Prettier when their configuration does not already exclude `scripts/memory`, and one Windows note about Git's line-ending warning. Install and update never write `.gitattributes`.
+
+Maintainers
+
+- The public export's test gate runs with bounded concurrency (at most 4) under a fixed time limit that no option can raise, and a failing run names the failing files.
+
+Known limits
+
+- A fifo, socket or other special file at the memory hook path or at a planned destination can make update planning wait on a read before the refusal is reached. Nothing is written. Tracked for 3.3.5.
+
+## 3.3.3
+
+- `memory-migrate.mjs promote` turns selected one-note-per-file topics into numbered lessons, ordered by map date, metadata date, body date, first commit, then modified date. Dry run is the default; the map supplies each kind and optional route, slug, trigger, case, pin and date.
+- Promotion changes bodies only by reversible filename and link rewrites, including exact filenames in prose and code spans; bare slugs and unrelated frontmatter values stay intact. State, hard-rule, chain and protected files stay in place; optional `--stubs` retains old-name pointers.
+- Both modes prove expected body hashes and inverse byte recovery, and report remaining references, per-probe recall, gate FAIL differences, date sources and bounded rehearsal cost. Failed writes restore inputs; the name map, `metadata.source` and a prior git tag provide recovery.
+
+- `memory-census.mjs` classifies files, searches configured reference roots and projects hot pages. Output can live outside the repository; errors name the cause.
+- `memory-label.mjs` carries blind build, validation, partial merge, dispute sheets, settlement, third labelling and emission. Bundle headers explain reading harm; emission previews the dates promotion will use.
+- `memory-selfrecall.mjs` saves top-10 ranks and compares the same queries after conversion, following the name map and failing on any worse rank.
+- Promotion scans repository reference roots and repeated `--scan` paths after rehearsal. Unprotected old-name hits fail the write proof.
+- Hot-budget warnings show topic and pin bytes and explain why topics need numbered lessons. Findings carry a measured byte value for allow ceilings.
+- Owned hooks embed their installing engine version and refuse older checkout engines before running the gate. Reinstallation refreshes the template; upgrades refresh existing owned hooks on a best-effort basis, preserving foreign hooks and memory files.
+- Install includes LESSON-CONVERSION.md and its reusable prompt, with the measured procedure and proofs.
+
 ## 3.3.2
 
 - Saving a first lesson no longer makes pull-request or deploy numbers fail the memory gate.

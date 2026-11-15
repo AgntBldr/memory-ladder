@@ -421,16 +421,20 @@ test('real process crash between note and CURRENT leaves recoverable note and no
   success(f.run({replace: '000001'})); assert.equal(listNotes(f.memoryDir).length, 1);
 });
 
-for (const change of ['CURRENT', 'note', 'unpushed']) test('verdict uses only committed own note and pushed HEAD: ' + change, t => {
+// Kit 3.3.5 E8 (Codex review P2-10): the verdict reads the SHA the checkpoint saved and that SHA's verified publication on
+// the actual remote, in both modes; a commit made after the save (another session's) never changes it. The failing cases
+// therefore change what the checkpoint saves or publishes, and 'later commit' pins that a later unpushed HEAD is ignored.
+for (const change of ['CURRENT', 'note', 'unpushed', 'later commit']) test('verdict uses only committed own note and pushed HEAD: ' + change, t => {
   const f = setup(t);
-  const r = f.run({}, {beforeVerify(ctx) {
-    if (change === 'CURRENT') { put(ctx.currentFile, 'hand-edited unrelated CURRENT\n'); return; }
-    if (change === 'note') put(ctx.noteFile, read(ctx.noteFile).replace(input.state, 'Tampered state'));
-    else put(path.join(f.memoryDir, 'unrelated.txt'), 'waiting commit\n');
-    f.commit(f.memoryDir);
-    if (change === 'note') f.git(f.memoryDir, 'push');
+  let noteFile;
+  const r = f.run({}, {afterNote(ctx) { noteFile = ctx.noteFile; }, checkpoint(options) {
+    if (change === 'note') put(noteFile, read(noteFile).replace(input.state, 'Tampered state'));
+    return checkpoint(change === 'unpushed' ? {...options, noPush: true} : options);
+  }, beforeVerify(ctx) {
+    if (change === 'CURRENT') put(ctx.currentFile, 'hand-edited unrelated CURRENT\n');
+    if (change === 'later commit') { put(path.join(f.memoryDir, 'unrelated.txt'), 'waiting commit\n'); f.commit(f.memoryDir); }
   }});
-  if (change === 'CURRENT') success(r);
+  if (change === 'CURRENT' || change === 'later commit') success(r);
   else { assert.equal(r.code, 1); assert.match(r.output, change === 'note' ? /own note not byte-identical/ : /HEAD not pushed/); }
 });
 
@@ -472,9 +476,8 @@ test('repeat-of existing schema is reused and published', t => {
   const r = success(f.run({lessons: batch})); assert.deepEqual(r.created, first.created);
   assert.match(f.git(f.memoryDir, 'show', 'HEAD:' + first.created[0]), /Validation was skipped/);
   const different = f.batch(); put(different, read(different).replace('## Capture 1', '## Another capture'));
-  const lost = f.run({lessons: different}, {beforeVerify(ctx) {
-    f.git(f.memoryDir, 'rm', '--', ctx.created[0]); f.commit(f.memoryDir); f.git(f.memoryDir, 'push');
-  }});
+  // Kit 3.3.5 E8 (Codex review P2-10): the saved SHA is the evidence, so the lesson is lost before the save, not after it.
+  const lost = f.run({lessons: different}, {afterCurrent(ctx) { fs.rmSync(path.join(f.memoryDir, ctx.created[0])); }});
   assert.equal(lost.code, 1); assert.match(lost.output, /lesson missing in HEAD/);
 });
 
@@ -1006,12 +1009,26 @@ test('retry none-form fits three maximum-length lesson names', t => {
   }
 });
 
+// Kit 3.3.5 E2.8 (e): lib.mjs holds the one git environment cleaner, which names configuration variables only to delete
+// them. That definition and its function are matched word for word and left out of the scan; any other mention, and
+// any change to them, is still refused.
+const CLEANER = String.raw`export const GIT_REDIRECTS = /^(?:GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_COMMON_DIR|GIT_OBJECT_DIRECTORY|GIT_ALTERNATE_OBJECT_DIRECTORIES|GIT_CEILING_DIRECTORIES|GIT_DISCOVERY_ACROSS_FILESYSTEM|GIT_NAMESPACE|GIT_CONFIG|GIT_CONFIG_COUNT|GIT_CONFIG_PARAMETERS|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+|GIT_LITERAL_PATHSPECS|GIT_GLOB_PATHSPECS|GIT_NOGLOB_PATHSPECS|GIT_ICASE_PATHSPECS)$/i;
+export function cleanGitEnv(env = process.env) {
+  const clean = {...env};
+  for (const name of Object.keys(clean)) if (GIT_REDIRECTS.test(name)) delete clean[name];
+  return clean;
+}`;
 test('imported engine graph cannot add git fence workarounds', () => {
   const visited = new Set();
   const scan = file => {
     if (visited.has(file)) return;
     visited.add(file);
-    const source = read(file);
+    let source = read(file);
+    if (file === path.join(kitRoot, 'engine', 'lib.mjs')) {
+      source = source.replace(/\r\n/g, '\n');
+      assert.ok(source.includes(CLEANER), 'lib.mjs keeps the git environment cleaner word for word');
+      source = source.replace(CLEANER, '');
+    }
     // Join every adjacent quoted literal, including multi-part and mixed quotes.
     let joined = source, previous;
     do { previous = joined; joined = joined.replace(/(['"`])\s*\+\s*(['"`])/g, ''); } while (joined !== previous);

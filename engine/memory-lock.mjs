@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {requireMemory, pathKey} from './lib.mjs';
+import {requireMemory, pathKey, removeQuietly} from './lib.mjs';
 
 const held = new WeakSet();
 const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -11,14 +11,35 @@ function alive(pid) {
   try { process.kill(pid, 0); return true; }
   catch (error) { return error.code !== 'ESRCH'; }
 }
-export function withMemoryLock(memoryDir, run, {lock, timeoutMs = 30000, note = console.error} = {}) {
+// name selects the lock file: '.memory.lock' serialises memory writers; '.memory.lock.push' serialises publication
+// (kit 3.3.5 E7) and never blocks memory writers. Both use the same ownership, staleness and timeout rules, and each is
+// only ever opened, read, broken or removed by its exact name. The push lock's name starts with the memory lock's, so the
+// one .memory.lock* ignore line every memory already has covers it, and no existing .gitignore needs a new line.
+export const LOCK_NAMES = ['.memory.lock', '.memory.lock.push'];
+export const PUSH_LOCK = '.memory.lock.push';
+// E2.8 (c): the one predicate for lock files (both locks, and the .stale-<id> names a stale break leaves). Every scope
+// comparison, fingerprint, backup, restore, created-file record and claim key uses it; case is ignored, as claim keys
+// always did.
+export const isLockName = name => /^\.memory\.lock/i.test(String(name));
+// Kit 3.3.6 step 0: the same predicate for a relative path (a restore map entry, a scope path, a changed-path list). A path
+// names a lock when any of its components does, whichever of / and \ separates them; an empty component and a . component
+// (as in ./.memory.lock.x or sub//.memory.lock) are never lock names, so the name test itself skips them.
+export const isLockPath = relative => String(relative).split(/[\\/]/).some(part => isLockName(part));
+// The memory .gitignore line that keeps both locks out of git; setup and the upgrade append it when it is missing.
+export const LOCK_IGNORES = ['.memory.lock*'];
+export function withLockIgnores(text) {
+  const lines = text.split(/\r?\n/), missing = LOCK_IGNORES.filter(line => !lines.includes(line));
+  return missing.length ? text + (text && !text.endsWith('\n') ? '\n' : '') + missing.map(line => line + '\n').join('') : text;
+}
+export function withMemoryLock(memoryDir, run, {lock, timeoutMs = 30000, note = console.error, name = '.memory.lock'} = {}) {
   requireMemory(memoryDir);
-  const file = path.join(memoryDir, '.memory.lock');
+  if (!LOCK_NAMES.includes(name)) throw new Error('invalid lock name ' + name);
+  const file = path.join(memoryDir, name);
   if (lock) {
-    if (!held.has(lock) || lock.dir !== pathKey(memoryDir)) throw new Error('invalid memory lock ownership');
+    if (!held.has(lock) || lock.dir !== pathKey(memoryDir) || (lock.name ?? '.memory.lock') !== name) throw new Error('invalid memory lock ownership');
     return run(lock);
   }
-  const started = Date.now(), token = {dir: pathKey(memoryDir)};
+  const started = Date.now(), token = {dir: pathKey(memoryDir), name};
   const transient = error => ['EPERM', 'EBUSY'].includes(error.code);
   let transientSince;
   const retry = error => {
@@ -70,16 +91,28 @@ export function withMemoryLock(memoryDir, run, {lock, timeoutMs = 30000, note = 
         }
         remove = true;
         note('memory lock: broke stale dead-pid lock'); continue;
-      } finally { if (remove) fs.rmSync(stale, {force: true}); }
+      } finally { if (remove) removeQuietly(stale, {note}); } // kit 3.3.6 item 9: a stale file that cannot be removed is noted; the acquire goes on
     }
     if (Date.now() - started >= timeoutMs) throw new Error('memory lock timed out waiting for ' + file);
     sleep(Math.min(50, timeoutMs));
   }
   held.add(token);
-  try { return run(token); }
-  finally {
+  // Kit 3.3.5 class sweep: a failed release never replaces the error run() threw; it is attached to
+  // that error as cleanupErrors and noted. After a successful run the release failure is thrown as before.
+  const release = original => {
     held.delete(token);
     try { if (fs.readFileSync(file, 'utf8') === text) fs.unlinkSync(file); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
-  }
+    catch (error) {
+      if (error.code === 'ENOENT') return;
+      if (original === null) throw error;
+      const message = `memory lock ${file} was not released: ${error.message}`;
+      if (original && typeof original === 'object') (original.cleanupErrors ??= []).push(message);
+      try { note(message); } catch {}
+    }
+  };
+  let value;
+  try { value = run(token); }
+  catch (error) { release(error ?? {}); throw error; }
+  release(null);
+  return value;
 }

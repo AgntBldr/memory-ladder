@@ -1,6 +1,6 @@
 // Fixed engine fixture defaults; never load host configuration.
 export default {
-  "engine_version": "3.3.2",
+  "engine_version": "3.3.7",
   "caps": {
     "lesson": {"enforceAfterRepeats": 2, "failAfterRepeats": 4, "lessonOnlyReturns": true},
     "guard": {"kitRules": "scripts/memory/enforce-rules.kit.json", "rules": "scripts/memory/enforce-rules.json"},
@@ -9,7 +9,8 @@ export default {
       "failBytes": 16384,
       "failLineChars": 600,
       "warnLines": 150,
-      "failLines": 200
+      "failLines": 200,
+      "targetBytes": 11264
     },
     "index": {
       "pinSlackBytes": 1024,
@@ -17,7 +18,8 @@ export default {
       "warnLineChars": 300,
       "failLineChars": 450,
       "failBytesAbsolute": 24576,
-      "hotBytes": 8192
+      "hotBytes": 8192,
+      "hotReserveBytes": 1024
     },
     "archive": {
       "failLineChars": 300

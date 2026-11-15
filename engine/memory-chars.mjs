@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {args, locations, isDirect, loadConfig, memoryFiles, listMd, requireMemory, pathSpelling} from './lib.mjs';
+import {args, locations, isDirect, loadConfig, memoryFiles, listMd, requireMemory, pathSpelling, cleanGitEnv} from './lib.mjs';
 import {withMemoryLock} from './memory-lock.mjs';
+import {writerClaim} from './memory-session.mjs';
 import {isGenerated, writeMemoryIndex} from './memory-index.mjs';
 
 // The five undefined bytes in the Windows-1252 extension block are not mappings.
@@ -90,7 +91,7 @@ const allowed = (file,config) => (config.allow ?? []).some(a=> {
   const rx=new RegExp('^'+pathSpelling(a.file).split('*').map(p=>p.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('.*')+'$');
   return rx.test(pathSpelling(file));
 });
-export function repairChars({memoryDir,write=false,config=loadConfig()} = {}) {
+export function repairChars({memoryDir,repo,write=false,config=loadConfig()} = {}) {
   requireMemory(memoryDir);
   const run=lock=> {
     const changes=[],items=[];
@@ -125,6 +126,8 @@ export function repairChars({memoryDir,write=false,config=loadConfig()} = {}) {
       changes.push({file:f.file,next});
     }
     if(write && changes.length) {
+      // Kit 3.3.5 E2.4: claim every file this repair edits, inside the lock, before writing.
+      writerClaim({memoryDir,repo,config,lock},changes.map(c=>c.file),'memory-chars');
       const originals=new Map(listMd(memoryDir).map(file=>[file,fs.readFileSync(path.join(memoryDir,file))]));
       try {
         for(const c of changes) fs.writeFileSync(path.join(memoryDir,c.file),c.next);
@@ -144,7 +147,7 @@ export function main(argv=process.argv.slice(2)) {
   try {
     const opts=args(argv.filter(x=>x!=='--write')), command=opts._.shift();
     if(command!=='repair') throw new Error('usage: memory-chars.mjs repair [--write] [--json] [--memory-dir PATH] [--repo PATH]');
-    const result=repairChars({...locations(opts),write:argv.includes('--write'),config:opts.config?JSON.parse(fs.readFileSync(opts.config,'utf8')):loadConfig()});
+    const result=repairChars({...locations(opts,{env:cleanGitEnv()}),write:argv.includes('--write'),config:opts.config?JSON.parse(fs.readFileSync(opts.config,'utf8')):loadConfig()});
     if(opts.json) console.log(JSON.stringify(result,null,2));
     else {
       for(const i of result.items) console.log(`${i.file}:${i.line}: ${i.message}`);

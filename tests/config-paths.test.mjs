@@ -46,8 +46,11 @@ test('each generator refuses invalid paths before writing or skipping absent inp
     assert.match(r.stderr, /caps.roadmapHistory.path must be a relative path inside the repo/);
     assert.deepEqual(tree(f.root, {git: true}), before);
   }
-  for (const run of [rotateLog, rotateRoadmap, checkpoint])
+  for (const run of [rotateLog, rotateRoadmap])
     assert.throws(() => run({repo: f.target, memoryDir: f.memory, config, write: true, dryRun: true}), /caps.roadmapHistory.path/);
+  // Kit 3.3.5 E12.1: the checkpoint returns the same refusal as status 1 instead of throwing.
+  const refused = checkpoint({repo: f.target, memoryDir: f.memory, config, write: true, dryRun: true});
+  assert.equal(refused.status, 1); assert.match(refused.error, /caps.roadmapHistory.path/);
 });
 test('config.path fails and cannot be allowlisted in either scope', t => {
   const f = fixture(t); fs.mkdirSync(f.memory, {recursive: true});

@@ -70,7 +70,7 @@ test('text caps contract and forbidden delegation', () => {
   const description = skill.split('\n').find(line => line.startsWith('description:'));
   for (const p of wave) assert.ok(!description.toLowerCase().includes(p));
   for (const p of phrases) assert.ok(description.includes(p));
-  for (const text of ['the user decides', 'Omit constraints for default.', 'close: steps first', 'ok/failed in closed', 'recall twice', '<=3 lessons outside memory', 'Write temp JSON outside the project', '--quick', '--lessons <batch>', '--over <last token> (start line or last handover report)', 'printed report verbatim + <=1 line', 'never type SAFE yourself', 'fix verdict cause; re-run (none: /handover); never re-pass --lessons once written', 'full 2 (5 with lessons), quick 2']) assert.ok(skill.includes(text), text);
+  for (const text of ['Run only when asked; never offered unprompted.', 'Omit constraints for default.', 'close: steps first', 'ok/failed in closed', 'recall twice', '<=3 lessons outside memory', 'Write temp JSON outside the project', '--quick', '--lessons <batch>', '--over <last token> (start line or last handover report)', 'printed report verbatim + <=1 line', 'never type SAFE yourself', 'fix verdict cause; re-run (none: /handover); never re-pass --lessons once written', 'full 2 (5 with lessons), quick 2']) assert.ok(skill.includes(text), text);
   const overlay = read(path.join(kitRoot, 'templates/AGENTS-session-overlay.md'));
   assert.ok(bytes(overlay) <= 1536);
   assert.match(overlay, /close: .*run these before \/handover's run, reports each ok\|failed, missing\/failed is NOT SAFE/);

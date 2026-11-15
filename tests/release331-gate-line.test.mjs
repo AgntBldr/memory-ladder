@@ -1,32 +1,48 @@
+// 3.3.1 tested line-level repairs of two gate lines. Since 3.3.4 the kit owns one marked standard block and sorts
+// an old section into units on a first update. Each 3.3.1 scenario is kept below in its block-model form.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {fixture,ok,put,read,tree,kitRoot} from './helpers.mjs';
-import {gateLinePlan} from '../scripts/install-safety.mjs';
-const reports=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split(/\r?\n/).find(s=>s.startsWith('- Reports:'));
-const line=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split(/\r?\n/).find(s=>s.startsWith('- Session phrases:'));
-for(const eol of ['\n','\r\n']) for(const indent of ['  ','\t']) for(const repair of [false,true]) test(`wrapped gate ${repair?'repair':'insertion'} ${JSON.stringify(eol)} ${JSON.stringify(indent)}`,t=>{
-  const f=fixture(t),file=path.join(f.target,'AGENTS.md');
-  const head='# Host\n## Memory gate\n- Run the gate at session start.\n- Never\n';
-  const tail=indent+"restore the old state without the operator's word.\n"+indent+'Keep this clause too.\n';
-  const end='\n## Other\n- Keep host wording.\n';
+import {fixture,ok,put,read,tree,kitRoot,assertInstructionSpans} from './helpers.mjs';
+import {standardBlockPlan} from '../scripts/install-safety.mjs';
+const template=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md'));
+const reports=template.split(/\r?\n/).find(s=>s.startsWith('- Reports:'));
+const line=template.split(/\r?\n/).find(s=>s.startsWith('- Session phrases:'));
+const units=result=>result.plans[0].plan.units.map(unit=>[unit.raw,unit.outcome]);
+// Plans AGENTS.md (or CLAUDE.md) in a fixture; decisions keep or drop units by their exact text.
+function plan(f,text,decisions={},{name='AGENTS.md',root=kitRoot}={}) {
+  if(name==='CLAUDE.md') fs.rmSync(path.join(f.target,'AGENTS.md'),{force:true});
+  put(path.join(f.target,name),text);
+  const first=standardBlockPlan(f.target,root,{quiet:true});
+  if(!Object.keys(decisions).length) return first;
+  const ids=Object.fromEntries(first.plans[0].plan.units.map(unit=>[unit.raw,unit.id]));
+  const file=put(path.join(f.root,'decisions.json'),JSON.stringify({version:1,project:'fixture',decisions:Object.fromEntries(Object.entries(decisions).map(([raw,outcome])=>{
+    assert.ok(ids[raw],'no unit '+JSON.stringify(raw));return [ids[raw],{outcome,reason:'fixture '+outcome,decidedBy:'fixture'}];
+  }))}));
+  return {...standardBlockPlan(f.target,root,{quiet:true,'instructions-decisions':file}),decisions:file};
+}
+const written=(result,name='AGENTS.md')=>result.writes.find(([file])=>path.basename(file)===name)?.[1];
+
+for(const eol of ['\n','\r\n']) for(const indent of ['  ','\t']) for(const repair of [false,true]) test(`wrapped bullet is one unit, never split ${repair?'(3.3.0 insertion shape)':'(plain)'} ${JSON.stringify(eol)} ${JSON.stringify(indent)}`,t=>{
+  const f=fixture(t),head='# Host\n## Memory gate\n- Run the gate at session start.\n- Never\n';
+  const tail=indent+"restore the old state without the operator's word.\n"+indent+'Keep this clause too.\n',end='\n## Other\n- Keep host wording.\n';
   const source=(head+(repair?line+'\n':'')+tail+end).replaceAll('\n',eol);
-  const expected=(head+tail+line+'\n'+reports+'\n'+end).replaceAll('\n',eol);
-  put(file,source);
-  for(const opts of [{check:true},{'dry-run':true},{}]) {
-    assert.equal(gateLinePlan(f.target,kitRoot,opts)[1],expected);
-    assert.equal(read(file),source);
-  }
-  put(file,expected);assert.equal(gateLinePlan(f.target,kitRoot),null);assert.equal(read(file),expected);
-  // A line after an existing continuation is also a misplaced line.
-  if(repair) {
-    put(file,(head+indent+'First clause.\n'+line+'\n'+tail+end).replaceAll('\n',eol));
-    assert.equal(gateLinePlan(f.target,kitRoot)[1],(head+indent+'First clause.\n'+tail+line+'\n'+reports+'\n'+end).replaceAll('\n',eol));
-    put(file,gateLinePlan(f.target,kitRoot)[1]);assert.equal(gateLinePlan(f.target,kitRoot),null);
-  }
+  const wrapped=(repair?line+'\n':'- Never\n')+tail.slice(0,-1);
+  const expected=[['## Memory gate','replace'],['- Run the gate at session start.','unclear'],...(repair?[['- Never','unclear']]:[]),[wrapped.replaceAll('\n',eol),'unclear']];
+  const sorted=plan(f,source);
+  assert.deepEqual(units(sorted),expected);assert.equal(sorted.refusalKind,'unclear');assert.deepEqual(sorted.writes,[]);
+  assert.equal(read(path.join(f.target,'AGENTS.md')),source);
+  const keep=Object.fromEntries(expected.filter(([,outcome])=>outcome==='unclear').map(([raw])=>[raw,'keep']));
+  const applied=plan(f,source,keep),after=written(applied);
+  assert.equal(applied.refusal,null);
+  assertInstructionSpans(source,after,{kept:Object.keys(keep)});
+  assert.ok(after.includes(wrapped.replaceAll('\n',eol)+eol),'continuation stays with its bullet');
+  assert.ok(after.endsWith(('\n## Other\n- Keep host wording.\n').replaceAll('\n',eol)));
+  if(eol==='\r\n') assert.ok(!after.replaceAll('\r\n','').includes('\n'));
 });
-for(const command of ['install','upgrade']) for(const name of ['AGENTS.md','CLAUDE.md']) test(`${command} repairs wrapped gate in ${name}, previews and repeat are byte preserving`,t=>{
+
+for(const command of ['install','upgrade']) for(const name of ['AGENTS.md','CLAUDE.md']) test(`${command} sorts a wrapped gate in ${name}; previews and repeat are byte preserving`,t=>{
   const f=fixture(t);
   if(command==='upgrade') ok(f.install());
   const file=path.join(f.target,name);
@@ -37,119 +53,117 @@ for(const command of ['install','upgrade']) for(const name of ['AGENTS.md','CLAU
   for(const flag of ['--check','--dry-run']) {
     const before=tree(f.root,{git:true,previous:true}),result=run([flag]);
     assert.ok([0,1].includes(result.status),result.stderr);
-    assert.ok(result.stdout.includes('Session phrases gate line: would update in '+name));
-    assert.ok(result.stdout.includes('Reports gate line: would add in '+name));
+    assert.ok(result.stdout.includes(`INSTRUCTIONS ${name}: standard block add; first update: yes`));
+    assert.equal(result.stdout.split(/\r?\n/).filter(s=>s.startsWith('UNCLEAR ')).length,2);
     assert.deepEqual(tree(f.root,{git:true,previous:true}),before);
   }
-  assert.ok(ok(run([])).stdout.includes('Session phrases gate line: updated in '+name));
-  const expected=source.replace(line+'\r\n','')+line+'\r\n'+reports+'\r\n';
-  assert.equal(read(file),expected);
+  const refused=run([]);assert.equal(refused.status,1);assert.match(refused.stderr,new RegExp(`${name} has 2 unclear lines in its old memory section`));
+  const decisions=plan(f,source,{'- Never':'keep',[line+"\r\n\trestore the old state without the operator's word."]:'keep'},{name}).decisions;
+  put(file,source);
+  ok(run(['--instructions-decisions',decisions]));
+  assertInstructionSpans(source,read(file),{kept:['- Never',line+"\r\n\trestore the old state without the operator's word."]});
   const before=tree(f.target);
-  const repeat=ok(f.cli('scripts/upgrade.mjs',['--target',f.target]));
-  assert.match(repeat.stdout,/Session phrases gate line: present/);
+  assert.match(ok(f.cli('scripts/upgrade.mjs',['--target',f.target])).stdout,new RegExp(`INSTRUCTIONS ${name}: standard block unchanged; first update: no`));
   assert.deepEqual(tree(f.target),before);
 });
 
-for(const label of ['Session phrases','Reports']) for(const eol of ['\n','\r\n']) test(`${label} custom continuation stays with its bullet ${JSON.stringify(eol)}`,t=>{
-  const f=fixture(t),file=path.join(f.target,'AGENTS.md'),managed='- '+label+': first half';
-  const prefix='## Memory gate\n- X\n'+(label==='Reports'?line+'\n':'');
-  const source=(prefix+'- '+label+': first half\n  second half\n  - user child\n').replaceAll('\n',eol);
-  put(file,source);
-  const result=gateLinePlan(f.target,kitRoot)?.[1]??source;
-  assert.ok(result.includes(managed+eol+'  second half'+eol+'  - user child'+eol));
-  assert.ok(result.includes('- X'+eol+(label==='Reports'?line+eol:'')+managed));
-  put(file,result);assert.equal(gateLinePlan(f.target,kitRoot),null);
+for(const ending of ['', '\n','\r\n']) test(`an unterminated last unit is kept whole and gets the file's line ending ${JSON.stringify(ending)}`,t=>{
+  const f=fixture(t),eol=ending||'\n';
+  const source='## Memory gate'+eol+'- Never'+eol+line+'  '+eol+'  restore'+ending;
+  const unit=line+'  '+eol+'  restore',applied=plan(f,source,{'- Never':'keep',[unit]:'keep'});
+  const after=written(applied);
+  assert.equal(after,source.slice(0,0)+applied.plans[0].plan.spans.new1);
+  assert.ok(after.endsWith('- Never'+eol+unit+eol));
+  assertInstructionSpans(source,after,{kept:['- Never',unit]});
 });
-for(const label of ['Session phrases','Reports']) for(const ending of ['', '\n','\r\n']) test(`${label} shipped repair preserves ending ${JSON.stringify(ending)}`,t=>{
-  const f=fixture(t),file=path.join(f.target,'AGENTS.md'),eol=ending||'\n';
-  const source='## Memory gate'+eol+(label==='Reports'?line+eol:'')+'- Never'+eol+(label==='Reports'?reports:line)+'  '+eol+'  restore'+ending;
-  put(file,source);
-  const result=gateLinePlan(f.target,kitRoot)[1];
-  assert.ok(result.includes(label==='Session phrases'?'- Never'+eol+'  restore'+eol:reports+eol+'  restore'));
-  assert.equal(result.endsWith('\n'),Boolean(ending));
-  if(ending==='\r\n') assert.ok(!result.replaceAll('\r\n','').includes('\n'));
-  put(file,result);assert.equal(gateLinePlan(f.target,kitRoot),null);
-});
-test('both lines are named by missing-heading warning without writes',t=>{
+
+test('without a Memory gate heading there is no warning and the block is appended',t=>{
   const f=fixture(t),file=path.join(f.target,'AGENTS.md');put(file,'## Other\n');
   const messages=[],log=console.log;console.log=message=>messages.push(message);
-  try {for(let i=0;i<2;i++) assert.equal(gateLinePlan(f.target,kitRoot),null);} finally {console.log=log;}
-  assert.deepEqual(messages,Array(2).fill('WARN Memory gate heading missing; add: '+line+'\n'+reports));
+  let result;
+  try {result=standardBlockPlan(f.target,kitRoot);} finally {console.log=log;}
+  assert.ok(!messages.some(message=>/heading missing/.test(message)));
+  assert.deepEqual(messages,['INSTRUCTIONS AGENTS.md: standard block add; first update: yes']);
+  assertInstructionSpans('## Other\n',written(result));
   assert.equal(read(file),'## Other\n');
 });
-for(const command of ['install','upgrade']) test(`${command} Reports refresh previews and repeat`,t=>{
+
+for(const command of ['install','upgrade']) test(`${command}: an old custom Reports line is unclear; dropped, the block holds the template line`,t=>{
   const f=fixture(t);if(command==='upgrade') ok(f.install());
-  const file=path.join(f.target,'AGENTS.md');put(file,'## Memory gate\n'+line+'\n- Reports: old\n');
+  const file=path.join(f.target,'AGENTS.md'),source='## Memory gate\n'+line+'\n- Reports: old\n';put(file,source);
   const run=args=>f.cli(`scripts/${command}.mjs`,['--target',f.target,...args]);
   for(const flag of ['--check','--dry-run']) {
     const before=tree(f.root,{git:true,previous:true}),result=run([flag]);
     assert.ok([0,1].includes(result.status),result.stderr);
-    assert.match(result.stdout,/Reports gate line: would update in AGENTS.md/);
+    assert.match(result.stdout,/^UNCLEAR [0-9a-f]{12}: - Reports: old$/m);assert.match(result.stdout,/^REPLACE [0-9a-f]{12} \(current template\): - Session phrases/m);
     assert.deepEqual(tree(f.root,{git:true,previous:true}),before);
   }
-  assert.match(ok(run([])).stdout,/Reports gate line: updated in AGENTS.md/);
-  assert.ok(read(file).includes(line+'\n'+reports));
-  const before=tree(f.target);assert.match(ok(f.cli('scripts/upgrade.mjs',['--target',f.target])).stdout,/Reports gate line: present in AGENTS.md/);
+  const decisions=plan(f,source,{'- Reports: old':'drop'}).decisions;
+  ok(run(['--instructions-decisions',decisions]));
+  assert.ok(read(file).includes(line+'\n'+reports+'\n'));assert.ok(!read(file).includes('- Reports: old'));
+  assertInstructionSpans(source,read(file));
+  const before=tree(f.target);assert.match(ok(f.cli('scripts/upgrade.mjs',['--target',f.target])).stdout,/standard block unchanged/);
   assert.deepEqual(tree(f.target),before);
 });
 
-for(const eol of ['\n','\r\n']) test(`missing Session phrases is restored before existing Reports ${JSON.stringify(eol)}`,t=>{
-  const f=fixture(t),file=path.join(f.target,'AGENTS.md');
-  const source=['## Memory gate','- Host rule',reports,'## Other','Keep.',''].join(eol);
-  put(file,source);
-  const result=gateLinePlan(f.target,kitRoot)[1];
-  assert.equal(result,source.replace(reports,line+eol+reports));
-  put(file,result);assert.equal(gateLinePlan(f.target,kitRoot),null);
+for(const eol of ['\n','\r\n']) test(`the block holds every template line in order, whatever was missing ${JSON.stringify(eol)}`,t=>{
+  const f=fixture(t),source=['## Memory gate','- Host rule',reports,'## Other','Keep.',''].join(eol);
+  const after=written(plan(f,source,{'- Host rule':'keep'}));
+  assert.ok(after.includes(line+eol+reports+eol));
+  assert.ok(after.endsWith('## Other'+eol+'Keep.'+eol));
+  assertInstructionSpans(source,after,{kept:['- Host rule']});
 });
 
-for(const indent of ['  - my sub','\tmy note']) test(`Reports never moves: ${JSON.stringify(indent)}`,t=>{
-  const f=fixture(t),file=path.join(f.target,'AGENTS.md');
+for(const indent of ['  - my sub','\tmy note']) test(`a template line followed by an indented line is one unit and stays whole: ${JSON.stringify(indent)}`,t=>{
+  const f=fixture(t);
   for(const source of [`## Memory gate\n- A\n${line}\n${reports}\n${indent}\n`, `## Memory gate\n- A\n${reports}\n${indent}\n`]) {
-    put(file,source);const result=gateLinePlan(f.target,kitRoot)?.[1]??source;
-    assert.ok(result.includes(reports+'\n'+indent+'\n'));
-    put(file,result);assert.equal(gateLinePlan(f.target,kitRoot),null);
+    const sorted=plan(f,source);
+    assert.deepEqual(units(sorted).at(-1),[reports+'\n'+indent,'unclear']);
+    const after=written(plan(f,source,{'- A':'keep',[reports+'\n'+indent]:'keep'}));
+    assert.ok(after.includes(reports+'\n'+indent+'\n'));
+    assertInstructionSpans(source,after,{kept:['- A',reports+'\n'+indent]});
   }
 });
-test('custom Session continuation warns exactly and stays intact on two runs',t=>{
-  const f=fixture(t),file=path.join(f.target,'AGENTS.md');
-  const source='## Memory gate\n- X\n- Session phrases: custom first half\n  custom second half\n';
-  put(file,source);
+
+test('a custom Session phrases bullet with continuation is one unclear unit, intact on two plans',t=>{
+  const f=fixture(t),source='## Memory gate\n- X\n- Session phrases: custom first half\n  custom second half\n',unit='- Session phrases: custom first half\n  custom second half';
   for(let i=0;i<2;i++) {
-    const messages=[],log=console.log;console.log=s=>messages.push(s);let plan;
-    try {plan=gateLinePlan(f.target,kitRoot);} finally {console.log=log;}
-    assert.deepEqual(messages.filter(s=>s.startsWith('WARN')),['WARN custom Session phrases line has continuation lines; kept as is; replace the whole bullet, including its indented lines, with: '+line]);
-    if(i===0) {assert.equal(plan[1],source+reports+'\n');put(file,plan[1]);}
-    else assert.equal(plan,null);
+    const sorted=plan(f,source);
+    assert.deepEqual(units(sorted),[['## Memory gate','replace'],['- X','unclear'],[unit,'unclear']]);
+    assert.equal(read(path.join(f.target,'AGENTS.md')),source);
   }
+  const after=written(plan(f,source,{'- X':'drop',[unit]:'keep'}));
+  assert.ok(after.endsWith('\n'+unit+'\n'));
+  put(path.join(f.target,'AGENTS.md'),after);assert.deepEqual(standardBlockPlan(f.target,kitRoot,{quiet:true}).writes,[]);
 });
 
-test('historical kit Session phrases remain repairable when template wording changes',t=>{
-  const f=fixture(t),file=path.join(f.target,'AGENTS.md'),future=path.join(f.root,'future-kit');
-  const newer=line+' New kit wording.';
-  put(path.join(future,'templates/AGENTS-memory-gate.md'),'## Memory gate\n'+newer+'\n'+reports+'\n');
-  put(file,'## Memory gate\n- Never\n'+line+'\n  lose this clause.\n');
-  const result=gateLinePlan(f.target,future)[1];
-  assert.equal(result,'## Memory gate\n- Never\n  lose this clause.\n'+newer+'\n'+reports+'\n');
-  put(file,result);assert.equal(gateLinePlan(f.target,future),null);
+test('old shipped wording stays kit wording when the template wording changes',t=>{
+  const f=fixture(t),future=path.join(f.root,'future-kit');
+  for(const file of ['VERSION','templates/shipped-instruction-lines.json','templates/CLAUDE-standard-block.md']) put(path.join(future,file),fs.readFileSync(path.join(kitRoot,file)));
+  put(path.join(future,'templates/AGENTS-memory-gate.md'),'## Memory gate\n'+line+' New kit wording.\n'+reports+'\n');
+  const old330='- Session phrases: when a message is only "We are starting a new session - read this and let me know when we can start" or "handover" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message "<the message>"` and follow its output; never inside a subagent or `codex exec` brief. Offer /handover at a stage end or on wrap-up.';
+  const source='## Memory gate\n- Never\n'+old330+'\n  lose this clause.\n- Keep\n'+old330+'\n';
+  const sorted=plan(f,source,{},{root:future});
+  assert.deepEqual(units(sorted),[['## Memory gate','replace'],['- Never','unclear'],[old330+'\n  lose this clause.','unclear'],['- Keep','unclear'],[old330,'replace']]);
+  assert.equal(sorted.plans[0].plan.units.at(-1).label,'kit v3.3.0..v3.3.3');
 });
 
-for(const eol of ['\n','\r\n']) for(const kind of ['missing','shipped','custom']) test(`loose continuation ${kind} ${JSON.stringify(eol)} on two runs`,t=>{
-  const f=fixture(t),file=path.join(f.target,'AGENTS.md');
-  const custom='- Session phrases: custom';
+for(const eol of ['\n','\r\n']) for(const kind of ['missing','shipped','custom']) test(`a blank line then an indented line continues the bullet: ${kind} ${JSON.stringify(eol)}`,t=>{
+  const f=fixture(t),custom='- Session phrases: custom';
   const source=('## Memory gate\n- A\n'+(kind==='missing'?'':(kind==='shipped'?line:custom)+'\n')+'\n  loose para of A\n').replaceAll('\n',eol);
-  const expected=(kind==='custom'?source:'## Memory gate'+eol+'- A'+eol+eol+'  loose para of A'+eol+line+eol)+reports+eol;
-  put(file,source);
-  const result=gateLinePlan(f.target,kitRoot)[1];assert.equal(result,expected);
-  put(file,result);assert.equal(gateLinePlan(f.target,kitRoot),null);assert.equal(read(file),expected);
+  const last=(kind==='missing'?'- A':kind==='shipped'?line:custom)+eol+eol+'  loose para of A';
+  const sorted=plan(f,source);
+  assert.deepEqual(units(sorted).at(-1),[last,'unclear']);
+  const decided=Object.fromEntries(units(sorted).filter(([,outcome])=>outcome==='unclear').map(([raw])=>[raw,'keep']));
+  const after=written(plan(f,source,decided));
+  assert.ok(after.includes(last+eol));
+  assertInstructionSpans(source,after,{kept:Object.keys(decided)});
 });
-for(const eol of ['\n','\r\n']) for(const continuation of ['  user note','  - nested bullet','\n  loose note']) test(`custom Reports keeps whole bullet ${JSON.stringify(eol)} ${JSON.stringify(continuation)}`,t=>{
-  const f=fixture(t),file=path.join(f.target,'AGENTS.md');
-  const source=('## Memory gate\n- A\n'+line+'\n- Reports: custom\n'+continuation+'\n').replaceAll('\n',eol);
-  put(file,source);
-  for(let i=0;i<2;i++) {
-    const messages=[],log=console.log;console.log=s=>messages.push(s);
-    try {assert.equal(gateLinePlan(f.target,kitRoot),null);} finally {console.log=log;}
-    assert.deepEqual(messages,['Session phrases gate line: present in AGENTS.md','WARN custom Reports line has continuation lines; kept as is; replace the whole bullet, including its indented lines, with: '+reports]);
-    assert.equal(read(file),source);
-  }
+for(const eol of ['\n','\r\n']) for(const continuation of ['  user note','  - nested bullet','\n  loose note']) test(`a custom Reports bullet keeps its whole continuation ${JSON.stringify(eol)} ${JSON.stringify(continuation)}`,t=>{
+  const f=fixture(t),source=('## Memory gate\n- A\n'+line+'\n- Reports: custom\n'+continuation+'\n').replaceAll('\n',eol);
+  const unit=('- Reports: custom\n'+continuation).replaceAll('\n',eol);
+  assert.deepEqual(units(plan(f,source)).at(-1),[unit,'unclear']);
+  const after=written(plan(f,source,{'- A':'drop',[unit]:'keep'}));
+  assert.ok(after.endsWith(eol+unit+eol));
+  assertInstructionSpans(source,after,{kept:[unit]});
 });

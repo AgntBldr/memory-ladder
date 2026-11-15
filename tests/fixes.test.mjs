@@ -65,31 +65,31 @@ test('F5 failed baseline can retry install and create its first commit',t=>{
 });
 test('F6 pre-existing FAIL is reported and does not roll back upgrade',t=>{
   const f=fixture(t);ok(f.install());const next=bump(f);put(path.join(f.memory,'current-state.md'),read(path.join(f.memory,'current-state.md'))+'\n## RESUME old\nHistory\n');
-  const r=ok(f.cli('scripts/upgrade.mjs',['--target',f.target],next));assert.match(r.stdout,/pre-existing FAIL.*state.headings/);assert.equal(json(path.join(engine(f),'KIT.json')).version,nextVersion); // 3.2.1: version from VERSION
+  const r=ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--live-memory'],next));assert.match(r.stdout,/pre-existing FAIL.*state.headings/);assert.equal(json(path.join(engine(f),'KIT.json')).version,nextVersion); // 3.2.1: version from VERSION
 });
 test('F6 NEW FAIL rolls back despite existing failures',t=>{
   const f=fixture(t);ok(f.install());put(path.join(f.memory,'current-state.md'),read(path.join(f.memory,'current-state.md'))+'\n## RESUME old\nHistory\n');
   const next=bump(f),before=tree(f.target);const check=path.join(next,'engine/memory-check.mjs');
   put(check,read(check).replace('const originals = [...findings];',"add('FAIL', 'test.new', 'MEMORY.md', null, 'new regression');\n  const originals = [...findings];"));ok(f.cli('scripts/manifest.mjs',[],next));
-  const r=f.cli('scripts/upgrade.mjs',['--target',f.target],next);assert.equal(r.status,1);assert.match(r.stderr,/new FAIL.*test.new/);assert.deepEqual(tree(f.target),before);
+  const r=f.cli('scripts/upgrade.mjs',['--target',f.target,'--live-memory'],next);assert.equal(r.status,1);assert.match(r.stderr,/new FAIL.*test.new/);assert.deepEqual(tree(f.target),before);
 });
 test('F6 unique backups, removed files, restore command and ignore rules',t=>{
   const f=fixture(t);ok(f.install());const next=bump(f),obsolete=put(path.join(engine(f),'obsolete.mjs'),'old release\r\n');
   const ledger=path.join(next,'engine/upgrades.json'),rows=json(ledger);rows.at(-1).retired=['scripts/memory/obsolete.mjs'];put(ledger,JSON.stringify(rows));
   put(path.join(next,'engine/added.mjs'),'// new release file\n');ok(f.cli('scripts/manifest.mjs',[],next));
   const mp=path.join(engine(f),'MANIFEST.json'),m=json(mp);m.files['scripts/memory/obsolete.mjs']=hash(obsolete);put(mp,JSON.stringify(m));const before=tree(f.target);
-  ok(f.cli('scripts/upgrade.mjs',['--target',f.target],next));assert.ok(!fs.existsSync(obsolete));assert.ok(fs.existsSync(path.join(engine(f),'added.mjs')));const first=backups(f)[0];
+  ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--live-memory'],next));assert.ok(!fs.existsSync(obsolete));assert.ok(fs.existsSync(path.join(engine(f),'added.mjs')));const first=backups(f)[0];
   assert.ok(json(path.join(first,'restore.json')).files.some(x=>x.file==='scripts/memory/obsolete.mjs'&&x.existed));
-  const saved=tree(first);ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--force-skills'],next));assert.equal(backups(f).length,2);assert.deepEqual(tree(first),saved);
+  const saved=tree(first);ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--force-skills','--live-memory'],next));assert.equal(backups(f).length,2);assert.deepEqual(tree(first),saved);
   assert.match(read(path.join(engine(f),'.gitignore')),/\.kit-backup-\*\//);assert.match(f.git(f.target,'check-ignore',path.join(first,'restore.json')),/restore.json/);
-  ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--restore',first],next));assert.deepEqual(tree(f.target),before);assert.equal(read(obsolete),'old release\r\n');
+  ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--restore',first,'--live-memory'],next));assert.deepEqual(tree(f.target),before);assert.equal(read(obsolete),'old release\r\n');
 });
 test('F6 rollback EPERM reports recoverable backup and restore works later',t=>{
   const f=fixture(t);ok(f.install());const next=bump(f),before=tree(f.target);
   const driver=put(path.join(f.root,'locked.mjs'),`import fs from 'node:fs'; import {upgrade} from ${JSON.stringify(pathToFileURL(path.join(next,'scripts/upgrade.mjs')).href)};
-process.exitCode=upgrade({target:${JSON.stringify(f.target)}},${JSON.stringify(next)},{afterCopy:n=>{if(n===2){fs.writeFileSync=()=>{throw Object.assign(Error('EPERM locked'),{code:'EPERM'})};throw Error('interrupted')}}});`);
+process.exitCode=upgrade({target:${JSON.stringify(f.target)},'live-memory':true},${JSON.stringify(next)},{afterCopy:n=>{if(n===2){fs.writeFileSync=()=>{throw Object.assign(Error('EPERM locked'),{code:'EPERM'})};throw Error('interrupted')}}});`);
   const r=f.exec(process.execPath,[driver]);assert.equal(r.status,1);assert.match(r.stderr,/rollback.*EPERM.*\.kit-backup-/);assert.doesNotMatch(r.stderr,/at upgrade/);
-  ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--restore',backups(f)[0]],next));assert.deepEqual(tree(f.target),before);
+  ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--restore',backups(f)[0],'--live-memory'],next));assert.deepEqual(tree(f.target),before);
 });
 test('F6 prerelease ordering and invalid versions never use NaN',()=>{
   assert.equal(updater.newer('3.1.0','3.1.0-beta'),true);assert.equal(updater.newer('3.1.0-beta','3.1.0'),false);

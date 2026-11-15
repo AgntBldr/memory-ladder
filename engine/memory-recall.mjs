@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {KINDS} from './memory-index.mjs';
 import { args, locations, isDirect, toolDir, requireMemory, memoryFiles, brainPaths,
-  parseFrontmatter, fmGet, read, utf8Bytes, pathIncludes, loadConfig } from './lib.mjs';
+  parseFrontmatter, fmGet, read, utf8Bytes, pathIncludes, loadConfig, cleanGitEnv } from './lib.mjs';
 
 const stopwords = new Set(('how why where whom does did should would could a an and are as at be been but by can do for from had has have he her his i if in into is it its me my no not of on or our she so than that the their them then there these they this to too us was we were what when which who will with you your').split(' '));
 export function tokenize(text) {
@@ -91,7 +91,7 @@ export function main(argv = process.argv.slice(2)) {
   try {
     const opts = args(argv);
     if (opts.help) { console.log('Usage: memory-recall.mjs "query" [--k 5] [--json] [--kind mistake|practice|observation] [--takeaway fix|method|know] [--memory-only|--brain-only] [--probe [FILE]] [--memory-dir PATH] [--repo PATH]'); return 0; }
-    const loc = locations(opts);
+    const loc = locations(opts, {env: cleanGitEnv()});
     if (opts['memory-only'] && opts['brain-only']) throw new Error('Choose one source filter');
     if (opts['memory-only']) requireMemory(loc.memoryDir);
     if (opts.kind !== undefined && !KINDS.includes(opts.kind)) throw new Error('kind must be mistake, practice or observation');

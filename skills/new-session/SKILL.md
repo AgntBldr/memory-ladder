@@ -2,7 +2,7 @@
 name: new-session
 description: /new-session or the whole message "We are starting a new session - read this and let me know when we can start".
 metadata:
-  engine_version: "3.3.2"
+  engine_version: "3.3.7"
 ---
 `node scripts/memory/new-session.mjs start --entry <slash|sentence> [--goal '<text>']`
 Args "sentence": entry sentence; goal from Goal: line. Else slash; strip /new-session and leading Goal:.
@@ -21,7 +21,7 @@ Run only follow-ups start names; write nothing. Reply in Markdown, no code fence
 
 **Waiting on you**
 - <item>: <link>
-- Rulings: <n|board: not readable here>
+- Rulings: <start's board reply line>
 - Conflicts: <AGENTS.md vs overlay vs rules file>
 
 **This session**

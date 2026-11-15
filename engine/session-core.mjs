@@ -95,7 +95,8 @@ export function matchPhrase(message) {
 }
 export function listNotes(memoryDir, opts) {
   try {
-    const {sinceHours = 24, max = 3} = opts ?? {};
+    // Kit 3.3.5 E9: branch (or excludeBranch) filters BEFORE truncation and the time window.
+    const {sinceHours = 24, max = 3, branch: onlyBranch, excludeBranch} = opts ?? {};
     const dir = path.join(memoryDir, 'handovers');
     const names = fs.readdirSync(dir).filter(name => /^\d{6}-\d{4}-\d{2}-\d{2}-\d{4}\.md$/.test(name)).sort().reverse();
     let cap = 6144;
@@ -111,6 +112,7 @@ export function listNotes(memoryDir, opts) {
         const {data, body, valid} = parseHandover(raw.toString('utf8'));
         const {time, branch, sha, mode} = data;
         if (!valid) continue;
+        if ((onlyBranch !== undefined && data.branch !== onlyBranch) || (excludeBranch !== undefined && data.branch === excludeBranch)) continue;
         if (notes.length && (Date.parse(time) < cutoff || Date.parse(time) > now)) continue;
         notes.push({file, seq: name.slice(0, 6), time, branch, sha, mode, question: parseBlock(body).fields['Open question'] ?? '', body: capText(body, 2048), bytes: raw.length});
       } catch {}

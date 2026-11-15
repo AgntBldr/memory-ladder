@@ -132,7 +132,7 @@ test('325 in-repo gate, SessionStart, recall, fleet, upgrade, worktree and clone
   assert.match(ok(f.cli('scripts/memory/memory-recall.mjs',['current'],f.target)).stdout,/current-state/);
   const fleetResult=JSON.parse(ok(f.cli('engine/memory-fleet.mjs',['--root',f.root,'--memory-home',path.join(f.root,'absent'),'--json'])).stdout);
   assert.equal(fleetResult.projects.find(p=>p.project===f.target).status,'in-repo, current');
-  const next=bump(f);ok(f.cli('scripts/upgrade.mjs',['--target',f.target],next));
+  const next=bump(f);ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--live-memory'],next));
   assert.equal(json(path.join(f.target,'scripts/memory/memory.config.json')).memory.inRepoDir,'memory');
   f.git(f.target,'add','.');f.git(f.target,'commit','-m','installed');
   const wt=path.join(f.root,'worktree');f.git(f.target,'worktree','add','-b','other',wt);

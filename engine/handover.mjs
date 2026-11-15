@@ -5,13 +5,14 @@ import {randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {stateToken, readCurrent, parseBlock, readOverlay, capText, capOutput, listNotes} from './session-core.mjs';
-import {localTime, atomicWrite as atomic, porcelainEntries, redact, parseHandover, memoryLocation, loadConfig, inRepoMemory, repoPath, validateConfigPaths, isDirect, mainWorktree, pathKey, memoryFiles} from './lib.mjs';
-import {withMemoryLock} from './memory-lock.mjs';
+import {localTime, atomicWrite as atomic, porcelainEntries, redact, parseHandover, memoryLocation, loadConfig, inRepoMemory, repoPath, validateConfigPaths, isDirect, mainWorktree, pathKey, memoryFiles, cleanGitEnv} from './lib.mjs';
+import {withMemoryLock, LOCK_NAMES} from './memory-lock.mjs';
 import {batchLessons, parseBatch} from './memory-lesson.mjs';
 import {rotateRoadmap, rotateLog} from './memory-rotate.mjs';
-import {checkpoint} from './memory-checkpoint.mjs';
+import {checkpoint, publish} from './memory-checkpoint.mjs';
 import {runCheck, counts, findingLine} from './memory-check.mjs';
 import {isGenerated} from './memory-index.mjs';
+import {sessionMode, sessionOf, foreignClaims, claimFiles} from './memory-session.mjs';
 
 export const QUICK_SAFE = 'SAFE TO COMPACT (quick) - state written; learning, roadmap and log not checked; committed and pushed, gate green';
 export const FULL_SAFE = (learning, dates = 'roadmap and log current', publication = 'committed and pushed, gate green') => `SAFE TO COMPACT - state written; ${learning}; ${dates}; ${publication}`;
@@ -24,7 +25,7 @@ const capped = (text, options) => {
   return capOutput(text, options).replaceAll(logDir, singleLine(logDir));
 };
 const quote = text => '"' + singleLine(text).replaceAll('"', '\\"') + '"';
-const git = (dir, argv, options = {}) => execFileSync('git', ['--no-optional-locks', '-C', dir, ...argv], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, timeout: 120000, ...options});
+const git = (dir, argv, options = {}) => execFileSync('git', ['--no-optional-locks', '-C', dir, ...argv], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, timeout: 120000, env: cleanGitEnv(), ...options});
 const maybeGit = (dir, argv, {trim = true, ...options} = {}) => { try { const text = git(dir, argv, options); return trim ? text.trim() : text; } catch { return null; } };
 const relative = (dir, file) => path.relative(dir, file).replaceAll('\\', '/');
 const hasHead = (dir, file) => maybeGit(dir, ['cat-file', '-e', 'HEAD:' + relative(dir, file)]) !== null;
@@ -123,10 +124,12 @@ export function currentFromNote(note) {
   if (!parsed.valid) throw Error('invalid note frontmatter');
   return currentBlock(parsed.body, parsed.data);
 }
-function currentBlock(body, {time, sha, mode}) {
+function currentBlock(body, {time, sha, mode, branch}) {
   const fields = parseBlock(body).fields;
   const lines = [`## CURRENT`, `**${time.slice(0, 16).replace('T', ' ')} | @${sha} | ${mode}. ${fields.State}**`];
   for (const key of ['Open question', 'Next action', 'Constraints', 'In flight', 'Waits on the user', 'Context']) if (fields[key]) lines.push(`**${key}:** ${fields[key]}`);
+  // Kit 3.3.5 E9: the branch is written in the same atomic write as the block, so the start helper can filter by it.
+  if (typeof branch === 'string' && branch.trim()) lines.push(`**Branch:** ${singleLine(branch)}`);
   return lines.join('\n') + '\n';
 }
 export function mergeCurrent(original, block) {
@@ -191,8 +194,8 @@ function nextSeq(ctx) {
   return String(highest + 1).padStart(6, '0');
 }
 function dirtyPreflight(ctx) {
-  const {repo, config, inRepo, dirty, memoryDir} = ctx, touched = new Set();
-  const exists = key => fs.existsSync(repoPath(repo, config.caps[key].path, key));
+  const {repo, config, inRepo, dirty, memoryDir, noRotate} = ctx, touched = new Set();
+  const exists = key => !noRotate && fs.existsSync(repoPath(repo, config.caps[key].path, key));
   if (exists('roadmap')) {
     const rotation = rotateRoadmap({repo, config});
     if (rotation.moved) { touched.add(config.caps.roadmap.path); touched.add(config.caps.roadmapHistory.path); }
@@ -246,7 +249,7 @@ function validateInput(options, memoryDir, overlay, context) {
 }
 function prepare(options) {
   const repo = path.resolve(options.repo || process.env.CLAUDE_PROJECT_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'));
-  const memoryDir = memoryLocation(repo, options.memoryDir).dir;
+  const memoryDir = memoryLocation(repo, options.memoryDir, {env: cleanGitEnv()}).dir;
   const missingMemory = !memoryDir || !fs.existsSync(memoryDir) || !fs.statSync(memoryDir).isDirectory();
   if (missingMemory) {
     const refusal = Error('memory folder missing; run node scripts/memory/memory-init.mjs');
@@ -279,19 +282,21 @@ function prepare(options) {
   validateConfigPaths(repo, config);
   const branch = git(repo, ['branch', '--show-current']).trim(), sha = git(repo, ['rev-parse', 'HEAD']).trim().slice(0, 7);
   if (!branch) throw Error('detached HEAD: select a branch first');
-  if (overlay['main-only'] === 'yes' && pathKey(mainWorktree(repo)) !== pathKey(repo)) throw Error('main-only overlay requires the main worktree');
+  if (overlay['main-only'] === 'yes' && pathKey(mainWorktree(repo, {env: cleanGitEnv()})) !== pathKey(repo)) throw Error('main-only overlay requires the main worktree');
   const push = overlay.push || 'memory';
   if (!['memory', 'project', 'none'].includes(push)) throw Error('invalid overlay push policy');
   const inRepo = inRepoMemory(repo, memoryDir), holder = inRepo ? repo : memoryDir;
   git(holder, ['rev-parse', '--verify', 'HEAD']);
   const dirty = status(repo);
-  dirtyPreflight({repo, config, inRepo, dirty, memoryDir});
+  // Kit 3.3.5 E4/E6: session mode never rotates; --no-rotate skips rotation and its preflight.
+  const session = sessionMode(config) === 'session' ? sessionOf(repo) : null;
+  dirtyPreflight({repo, config, inRepo, dirty, memoryDir, noRotate: Boolean(options.noRotate || session)});
   const notesDir = repoPath(memoryDir, 'handovers', 'handovers'), currentFile = repoPath(memoryDir, 'current-state.md', 'CURRENT');
   const preflight = {...options, repo, memoryDir, holder, branch, notesDir};
   replaceFile(preflight);
   if (!options.replace) nextSeq(preflight);
   const {data, closeFailures, close, sections} = validateInput(options, memoryDir, overlay, {...preflight, sha});
-  const ctx = {...options, repo, memoryDir, config, overlay, branch, sha, data, baseline, inRepo, holder, push,
+  const ctx = {...options, repo, memoryDir, config, overlay, branch, sha, data, baseline, inRepo, holder, push, session,
     notesDir, currentFile,
     time: localTime(options.now ?? new Date()), dirty, closeFailures, close};
   ctx.waiting = !inRepo ? (maybeGit(holder, ['log', '--format=%h', '@{upstream}..HEAD']) || '').split('\n').filter(Boolean) : [];
@@ -335,13 +340,16 @@ function fullChecks(ctx) {
   return {text: results.join(', '), failures, verdict};
 }
 function verify(ctx) {
-  const failures = [], note = maybeGit(ctx.holder, ['show', 'HEAD:' + relative(ctx.holder, ctx.noteFile)]);
+  // Kit 3.3.5 E8 (review P2-10, both modes): verify the SHA the checkpoint saved and its verified publication on the
+  // actual remote, never a later HEAD or a cached upstream ref: another session may commit after this save.
+  const saved = /^[0-9a-f]{40,64}$/.test(ctx.result?.sha ?? '') ? ctx.result.sha : 'HEAD';
+  const failures = [], note = maybeGit(ctx.holder, ['show', saved + ':' + relative(ctx.holder, ctx.noteFile)]);
   // Compare raw blobs, never CURRENT, status or a marker in the note.
-  if (note === null || !git(ctx.holder, ['show', 'HEAD:' + relative(ctx.holder, ctx.noteFile)], {encoding: null}).equals(Buffer.from(ctx.note))) failures.push('own note not byte-identical in HEAD');
-  for (const file of ctx.created) if (!hasHead(ctx.holder, path.join(ctx.memoryDir, file))) failures.push('lesson missing in HEAD: ' + file);
+  if (note === null || !git(ctx.holder, ['show', saved + ':' + relative(ctx.holder, ctx.noteFile)], {encoding: null}).equals(Buffer.from(ctx.note))) failures.push('own note not byte-identical in HEAD');
+  for (const file of ctx.created) if (maybeGit(ctx.holder, ['cat-file', '-e', saved + ':' + relative(ctx.holder, path.join(ctx.memoryDir, file))]) === null) failures.push('lesson missing in HEAD: ' + file);
   const remote = git(ctx.holder, ['remote']).trim();
   let pushed = !remote;
-  if (remote) pushed = maybeGit(ctx.holder, ['merge-base', '--is-ancestor', 'HEAD', '@{upstream}']) !== null;
+  if (remote) pushed = ctx.result?.publication?.verified === true && ctx.result.publication.sha === saved;
   if (!pushed || ctx.push === 'none') failures.push('HEAD not pushed' + (ctx.push === 'none' ? ' (push: none)' : ''));
   return {failures, pushed: pushed && ctx.push !== 'none', local: !remote};
 }
@@ -371,7 +379,10 @@ function report(ctx, failures, checks, publication, maxOutput = Infinity) {
     `lessons: ${capText(ctx.quick ? 'skipped' : ctx.lessons, 240)}  checks: ${checks.text}`,
     `close: ${capText(ctx.close, 100)}  gate: ${gate}${ctx.gateFailures?.length ? ' | FAIL: ' + capText(ctx.gateFailures.slice(0, 2).join('; '), 180) : ''}`,
     publication.pushed ? `memory ${memSha} ${publication.local ? 'local only, no remote' : 'pushed'}${ctx.waiting.length ? '; included waiting ' + ctx.waiting.slice(0, 3).join(', ') : ''}` : (ctx.written ? 'saved locally, NOT pushed: ' : 'note not written: ') + capText(failures[0] || 'publication not verified', 100),
-    `open: ${open.length} uncommitted files not committed by handover (${capText(names || 'none', 180)})`, verdict, failures.length ? 'Next: fix the cause named in the verdict, then run the re-run line below; if there is none, run /handover again.' : NEXT].map((line, i) => (i < 6 ? '- ' : '') + singleLine(line));
+    `open: ${open.length} uncommitted files not committed by handover (${capText(names || 'none', 180)})`, verdict, failures.length ? 'Next: fix the cause named in the verdict, then run the re-run line below; if there is none, run /handover again.' : NEXT];
+  // Kit 3.3.5 E4: another live session holds current-state.md, so only this session's note was written.
+  if (ctx.currentPending) lines.splice(1, 0, `current-state.md is pending in ${ctx.currentPending.checkout} (${ctx.currentPending.branch}); your note is ${relative(ctx.memoryDir, ctx.noteFile)}`);
+  lines.forEach((line, i) => { lines[i] = (i < lines.length - 2 ? '- ' : '') + singleLine(line); });
   // Reserve verdict and next-step bytes even when paths or diagnostics are long.
   const baselineLine = ctx.over === undefined ? '\ntoken baseline: run began (no --over supplied).\n' : '';
   const tail = lines.slice(-2).join('\n\n'), head = capText(lines.slice(0, -2).join('\n'), 1535 - bytes(tail) - bytes(baselineLine) - 2);
@@ -409,7 +420,7 @@ export function runHandover(options = {}, dependencies = {}) {
       ctx.lessons = ctx.created.join(', ');
     }
     (dependencies.beforeLock ?? (() => {}))(ctx);
-    withMemoryLock(ctx.memoryDir, () => {
+    withMemoryLock(ctx.memoryDir, lock => {
       const current = readCurrent(ctx.memoryDir);
       ctx.warning = current.token !== ctx.baseline;
       if (ctx.warning) {
@@ -422,30 +433,53 @@ export function runHandover(options = {}, dependencies = {}) {
       ctx.note = noteText(ctx, ctx.lessons);
       const original = fs.existsSync(ctx.currentFile) ? read(ctx.currentFile) : '';
       mergeCurrent(original, currentFromNote(ctx.note));
+      // Kit 3.3.5 E4: in session mode claim the note and current-state.md before writing; when another live session
+      // holds current-state.md, write and claim only this session's note and leave current-state.md untouched.
+      if (ctx.session) {
+        const held = foreignClaims(ctx.memoryDir, ctx.session.id).get('current-state.md');
+        if (held) ctx.currentPending = held[0];
+        claimFiles({memoryDir: ctx.memoryDir, repo: ctx.repo, files: [relative(ctx.memoryDir, ctx.noteFile), ...(held ? [] : ['current-state.md'])], by: 'handover', lock, session: ctx.session});
+      }
       fs.mkdirSync(ctx.notesDir, {recursive: true});
       if (replacement) atomic(ctx.noteFile, ctx.note);
       else fs.writeFileSync(ctx.noteFile, ctx.note, {flag: 'wx'});
       ctx.written = true;
       (dependencies.afterNote ?? (() => {}))(ctx);
       const written = read(ctx.noteFile);
-      atomic(ctx.currentFile, mergeCurrent(original, currentFromNote(written)));
+      if (!ctx.currentPending) atomic(ctx.currentFile, mergeCurrent(original, currentFromNote(written)));
       ctx.digest = stateToken(ctx.memoryDir);
     }, {timeoutMs: dependencies.lockTimeoutMs, note: message => diagnostics.push(message)});
     (dependencies.afterCurrent ?? (() => {}))(ctx);
     const remote = git(ctx.holder, ['remote']).trim();
+    const sessionFiles = [relative(ctx.memoryDir, ctx.noteFile), ...(ctx.currentPending ? [] : ['current-state.md']), ...ctx.created];
     const result = captureDiagnostics(() => (dependencies.checkpoint ?? checkpoint)({memoryDir: ctx.memoryDir, repo: ctx.repo, config: ctx.config,
-      noPush: ctx.push === 'none' || !remote, commit: ctx.commit,
+      noPush: ctx.push === 'none' || !remote, commit: ctx.commit, ...(options.noRotate ? {noRotate: true} : {}), ...(ctx.session ? {session: true, files: sessionFiles} : {}),
       report: (step, message) => {
         diagnostics.push(`${step}: ${message}`);
-        if (step === 'gate') {
+        // In session mode the structured result is the gate evidence; an unscoped gate is never the success test (E4).
+        if (step === 'gate' && !ctx.session) {
           const checked = checkGate({memoryDir: ctx.memoryDir, repo: ctx.repo, config: ctx.config});
           ctx.gate = counts(checked); ctx.gateFailures = checked.findings.filter(f => f.severity === 'FAIL' && !f.allowed).map(findingLine);
         }
         if (step === 'commit') ctx.command = message.includes('git add --') ? 'to run: ' + message.slice(message.indexOf('git add --')).split('\n')[0] : 'ran: git commit';
       }}), diagnostics);
+    ctx.result = result;
+    // E12.1 (review P2-7): the checkpoint returns status 1 instead of throwing, in both modes.
+    if (!ctx.session && result.status === 1) throw Error(result.error);
+    if (ctx.session) {
+      if (result.gate) { ctx.gate = {FAIL: result.gate.fails.length, WARN: result.gate.warns.length}; ctx.gateFailures = result.gate.fails.map(f => findingLine({severity: 'FAIL', ...f})); }
+      if (result.status === 1) throw Error('checkpoint failed: ' + result.error);
+      const contended = result.exceptions.filter(e => e.kind === 'contended');
+      if (contended.length) throw Error('contended: ' + contended.map(e => `${e.file} (${e.detail})`).join('; '));
+      if (result.status === 2) throw Error('push failed: ' + result.publication.error);
+      ctx.gate ??= {FAIL: 0, WARN: 0}; ctx.gateFailures ??= [];
+    }
     if (result.pushFailed) throw Error('push failed: ' + result.push);
     if (ctx.inRepo && ctx.commit && remote) {
-      try { git(ctx.repo, ['push']); } catch (error) { throw Error('push failed: ' + error.message); }
+      // In-repo memory is published with the project: push, then verify the saved SHA on the project's actual remote
+      // branch, recorded as the checkpoint result's publication (review P2-10).
+      result.publication = publish({memoryDir: ctx.memoryDir, sha: result.sha, git: (argv, options = {}) => git(ctx.repo, argv, options)});
+      if (!result.publication.verified) throw Error('push failed: ' + (result.publication.error ?? 'publication not verified'));
       ctx.command = 'ran: git commit; git push';
     }
     else if (!ctx.inRepo && remote && ctx.push !== 'none') ctx.command = 'ran: git commit; git push';
@@ -460,10 +494,11 @@ export function runHandover(options = {}, dependencies = {}) {
     failure = redact(String(error.message));
     if (!ctx && error.block) block = error.block.split('\n').map(singleLine).join('\n');
     if (ctx && /memory lock timed out/.test(failure)) {
-      const lockFile = path.join(ctx.memoryDir, '.memory.lock');
-      let age = 'unknown';
-      try { age = Math.max(0, Math.floor((Date.now() - fs.statSync(lockFile).mtimeMs) / 1000)) + ' s'; } catch {}
-      failure += `; lock ${singleLine(lockFile)}, age ${age}; if no other session is running, remove it`;
+      // Kit 3.3.6: the report names every lock file that exists (the writer lock and the push lock), each with its age. The
+      // timeout text above it keeps the file the wait named; with no lock file left, the writer lock is named, age unknown.
+      const files = LOCK_NAMES.map(name => path.join(ctx.memoryDir, name)), present = files.filter(file => fs.existsSync(file));
+      const ageOf = file => { try { return Math.max(0, Math.floor((Date.now() - fs.statSync(file).mtimeMs) / 1000)) + ' s'; } catch { return 'unknown'; } };
+      failure += (present.length ? present : files.slice(0, 1)).map(file => `; lock ${singleLine(file)}, age ${ageOf(file)}`).join('') + '; if no other session is running, remove it';
     }
   }
   if (!ctx) {
@@ -471,7 +506,7 @@ export function runHandover(options = {}, dependencies = {}) {
     return {code: 1};
   }
   if (options.lessons && !ctx.batch) ctx.lessons = 'none (batch failed)';
-  if (ctx.written) {
+  if (ctx.written && !ctx.session) {
     try { const checked = checkGate({memoryDir: ctx.memoryDir, repo: ctx.repo, config: ctx.config}); ctx.gate = counts(checked); ctx.gateFailures = checked.findings.filter(f => f.severity === 'FAIL' && !f.allowed).map(findingLine); } catch {}
     if (ctx.gateFailures?.length) failure += ctx.gateFailures.some(f => ctx.initialFailures.includes(f)) ? '\ngate FAIL pre-existed handover' : '\ngate FAIL after write';
   }
@@ -482,6 +517,7 @@ export function runHandover(options = {}, dependencies = {}) {
     fs.writeFileSync(log, redact([...diagnostics, failure].join('\n')) + '\n');
     const args = ['node', quote(fileURLToPath(import.meta.url)), 'run', '--repo', quote(singleLine(ctx.repo)), '--memory-dir', quote(ctx.memoryDir), '--in', quote(path.resolve(options.input))];
     if (options.quick) args.push('--quick');
+    if (options.noRotate) args.push('--no-rotate');
     args.push('--over', ctx.digest || ctx.baseline || 'none');
     if (ctx.written && !hasHead(ctx.holder, ctx.noteFile)) args.push('--replace', ctx.seq);
     else if (!ctx.written && options.replace) {
@@ -492,7 +528,11 @@ export function runHandover(options = {}, dependencies = {}) {
     if (ctx.closeFailures.length) output += '\nAfter doing the close step(s), set each step to ok in closed, remove --skip-close, then re-run.\n';
     output += `\nfull output: ${codeSpan(singleLine(log))}\n\nre-run: ${codeSpan(args.join(' '))}\n`;
   }
-  if (/memory lock timed out/.test(failure)) output += '\n' + failure.split('\n').map(singleLine).join('; ').replaceAll(singleLine(path.join(ctx.memoryDir, '.memory.lock')), codeSpan(singleLine(path.join(ctx.memoryDir, '.memory.lock')))) + '\n';
+  if (/memory lock timed out/.test(failure)) output += '\n' + LOCK_NAMES.reduce((text, name) => {
+    // A lock path is wrapped whole: the writer lock's path is a prefix of the push lock's, so it must not be followed by a name character.
+    const file = singleLine(path.join(ctx.memoryDir, name));
+    return text.replace(new RegExp(file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w.-])', 'g'), () => codeSpan(file));
+  }, failure.split('\n').map(singleLine).join('; ')) + '\n';
   output = report(ctx, failure.split('\n'), checks, publication, 4000 - bytes(output)) + output;
   emit(capped(output, {label: 'handover-failure'}));
   return {code: 1, ...ctx, token: ctx.digest};
@@ -500,10 +540,11 @@ export function runHandover(options = {}, dependencies = {}) {
 export function main(argv = process.argv.slice(2)) {
   try {
     const command = argv.shift();
-    if (!['run', 'check'].includes(command)) throw Error('usage: handover.mjs run|check --in <file> [--lessons <batch>] [--over <token>] [--replace <seq>] [--quick]');
+    if (!['run', 'check'].includes(command)) throw Error('usage: handover.mjs run|check --in <file> [--lessons <batch>] [--over <token>] [--replace <seq>] [--quick] [--no-rotate]');
     const options = {check: command === 'check'}, keys = {'--in': 'input', '--lessons': 'lessons', '--over': 'over', '--replace': 'replace', '--repo': 'repo', '--memory-dir': 'memoryDir', '--skip-close': 'skipClose'};
     for (let i = 0; i < argv.length; i++) {
       if (argv[i] === '--quick') { options.quick = true; continue; }
+      if (argv[i] === '--no-rotate') { options.noRotate = true; continue; }
       const key = keys[argv[i]];
       if (!key || options[key] !== undefined || !argv[i + 1] || argv[i + 1].startsWith('--')) throw Error('invalid or missing option: ' + argv[i]);
       options[key] = argv[++i];

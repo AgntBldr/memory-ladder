@@ -6,6 +6,7 @@ import {fixture,put,read,json,ok,kitRoot,tree,currentVersion} from './helpers.mj
 import {install as hook,marker} from '../engine/install-hooks.mjs';
 import {matchEol,writeText} from '../engine/lib.mjs';
 import {migrateRoutes} from '../engine/memory-migrate.mjs';
+import {refreshMemoryHook} from '../scripts/upgrade.mjs';
 const config=()=>json(path.join(kitRoot,'engine/memory.config.json'));
 for(const mode of ['in-repo','separate']) test('failing gate skips hook '+mode,t=>{
  const f=fixture(t),memory=mode==='in-repo'?path.join(f.target,'.claude/memory'):f.memory;
@@ -51,6 +52,32 @@ test('owned hook recognition and uninstall preserve host hook',t=>{
  assert.match(hook({repo:f.target,memoryDir}).message,/kit hook present/);
  hook({repo:f.target,memoryDir,uninstall:true});assert.equal(fs.existsSync(file),false);
  put(file,'#!/bin/sh\necho host\n');hook({repo:f.target,memoryDir,uninstall:true});assert.equal(read(file),'#!/bin/sh\necho host\n');
+});
+
+test('hook refresh skips absent and host hooks and reports installer failure without throwing',t=>{
+ const f=fixture(t);ok(f.install());
+ const file=path.join(f.memory,'.git/hooks/pre-commit'),original=read(file),messages=[];
+ t.mock.method(console,'log',line=>messages.push(line));
+ fs.unlinkSync(file);
+ const output=ok(f.cli('scripts/upgrade.mjs',['--target',f.target])).stdout;
+ assert.ok(output.endsWith('upgrade: same version and hashes; no-op\n'));assert.doesNotMatch(output,/memory (?:gate )?hook/);
+ assert.equal(fs.existsSync(file),false);
+ put(file,'#!/bin/sh\necho host\n');refreshMemoryHook(f.target,f.memory);assert.equal(read(file),'#!/bin/sh\necho host\n');
+ const plain=path.join(f.root,'plain-memory');put(path.join(plain,'MEMORY.md'),'# Memory\n');
+ const before=tree(plain);refreshMemoryHook(f.target,plain);assert.deepEqual(tree(plain),before);
+ const hostMemory=path.join(f.target,'memory');fs.mkdirSync(hostMemory);
+ f.git(f.target,'config','core.hooksPath','host-hooks');const host=put(path.join(f.target,'host-hooks/pre-commit'),original);
+ refreshMemoryHook(f.target,hostMemory);assert.equal(read(host),original);assert.deepEqual(messages,[]);
+ put(file,original);const installer=path.join(f.target,'scripts/memory/install-hooks.mjs'),installerBefore=read(installer);
+ put(installer,'console.error("fixture refresh failure");process.exitCode=1;\n');
+ assert.doesNotThrow(()=>refreshMemoryHook(f.target,f.memory));assert.equal(read(file),original);
+ assert.deepEqual(messages,['WARN memory hook refresh skipped: fixture refresh failure']);
+ put(installer,installerBefore);
+ for(const hooksPath of ['custom-hooks',path.join(f.root,'absolute-hooks')]) {
+  f.git(f.memory,'config','core.hooksPath',hooksPath);
+  const custom=put(path.resolve(f.memory,hooksPath,'pre-commit'),`#!/bin/sh\n${marker}\necho legacy\n`);
+  refreshMemoryHook(f.target,f.memory);assert.doesNotMatch(read(custom),/echo legacy/);assert.ok(read(custom).includes(`needed="${currentVersion}"`));
+ }
 });
 test('non-git in-repo host refuses before writes',t=>{
  const f=fixture(t),target=path.join(f.root,'plain');fs.mkdirSync(target);const before=tree(target);

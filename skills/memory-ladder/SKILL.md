@@ -2,7 +2,7 @@
 name: memory-ladder
 description: Use the v3 memory ladder for capture, recall, the gate, converting old memory, and installation in this project.
 metadata:
-  engine_version: "3.3.2"
+  engine_version: "3.3.7"
 ---
 
 # Memory ladder v3
@@ -110,7 +110,11 @@ to config; `repo.skill-version` warns on missing or stale versions.
 
 ## Convert old memory with proof
 
+Know-how is a numbered lesson (`memory-lesson.mjs new`); topic files hold state, facts and references.
+A memory of topics overflows its hot pages. Follow `scripts/memory/LESSON-CONVERSION.md`.
+
 Follow [conversion steps and proofs](../../../scripts/memory/CONVERT.md).
+For one-note-per-file topics, use `memory-migrate.mjs promote --map MAP.json` on the copy first; review its reversible filename/link proofs and date sources, then `--write`. This mode permits only those body rewrites and uses a name map, `metadata.source` and the original git tag for recovery; opt into `--stubs` only when old names must keep resolving outside the scanned roots.
 Use a git-excluded copy. Tag and snapshot the original FIRST; name EVERY destination and legal cut point.
 Preserve bodies verbatim and resolving old-name stubs.
 Extract by content, never by line number.

@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {fixture,ok,tree,read,json,kitRoot,put} from './helpers.mjs';
 import {shellQuoted} from '../engine/install-hooks.mjs';
 import {planInit,rollbackInit} from '../engine/memory-init.mjs';
+import * as init from '../engine/memory-init.mjs';
 import {freshMemoryWrites} from '../engine/memory-setup.mjs';
 import {ownedFiles} from '../scripts/manifest.mjs';
 
@@ -389,13 +391,80 @@ for(const problem of [false,true]) test('memory-init main reports '+(problem?'in
   const injected=problem
     ? "const originalRemove=fs.rmSync; fs.rmSync=(file,options)=>{if(file===path.join(memory.dir,'MEMORY.md')) throw new Error('injected removal failure');return originalRemove(file,options);}; throw new Error('injected');"
     : "fs.writeFileSync(path.join(memory.dir,'foreign.txt'),'keep'); throw new Error('injected');";
-  put(script,read(script).replace('finishMemory({memory,target,engine,configFile,freshMemory:true,newRepo:!inRepo,inRepo});',injected));
+  // Kit 3.3.5 (review P1-3): finishMemory now runs inside init's own lock acquisition and receives it.
+  const anchor='finishMemory({memory,target,engine,configFile,freshMemory:true,newRepo:!inRepo,inRepo,lock:held});';
+  assert.ok(read(script).includes(anchor),'injection anchor');
+  put(script,read(script).replace(anchor,injected));
   const result=f.cli('scripts/memory/memory-init.mjs',['--memory-dir',memory],f.target);
   assert.equal(result.status,1);
   const expected=problem
     ? `memory-init rollback could not complete: could not remove ${path.join(memory,'MEMORY.md')}: injected removal failure; left in place: ${path.join(memory,'MEMORY.md')}`
     : `memory-init rolled back what it created; these entries were left in place: ${path.join(memory,'foreign.txt')}. Review them before you run it again.`;
   assert.deepEqual(result.stderr.trim().split(/\r?\n/),['memory-init: injected',expected]);
+});
+// Kit 3.3.5 review P1: init planned an empty folder, then another initializer filled it (router, .git and a
+// ledger) before init took its lock. Init must refuse under the lock and clean up nothing it did not create.
+test('memory-init revalidates under its lock; another initializer\'s router, .git and ledger survive',t=>{
+  const f=fixture(t);ok(f.install());const memory=path.join(f.root,'raced-notes');
+  const driver=put(path.join(f.root,'race.mjs'),`import fs from 'node:fs';\nimport path from 'node:path';\nimport {main} from ${JSON.stringify(pathToFileURL(path.join(f.target,'scripts/memory/memory-init.mjs')).href)};\nconst memory=process.argv[2];\n// Another initializer fills the folder right after this run creates it, before this run takes its lock.\nconst mkdir=fs.mkdirSync;let raced=false;\nfs.mkdirSync=(dir,options)=>{\n  const made=mkdir(dir,options);\n  if(!raced&&path.resolve(String(dir))===path.resolve(memory)) {\n    raced=true;\n    fs.writeFileSync(path.join(memory,'MEMORY.md'),'other router\\n');\n    mkdir(path.join(memory,'.git'));fs.writeFileSync(path.join(memory,'.git','HEAD'),'ref: refs/heads/main\\n');\n    mkdir(path.join(memory,'.sessions'));fs.writeFileSync(path.join(memory,'.sessions','0123456789012345.json'),'{"claims":{"MEMORY.md":{}}}');\n  }\n  return made;\n};\nprocess.exitCode=main(['--memory-dir',memory]);\n`);
+  const host=tree(f.target,{git:true});
+  const r=f.exec(process.execPath,[driver,memory]);
+  assert.equal(r.status,1,r.stdout+r.stderr);
+  assert.match(r.stderr,/memory folder changed before memory-init could lock it: .*\.git, \.sessions, MEMORY\.md; nothing was changed/);
+  assert.doesNotMatch(r.stderr,/rolled back/);
+  assert.equal(read(path.join(memory,'MEMORY.md')),'other router\n');
+  assert.equal(read(path.join(memory,'.git','HEAD')),'ref: refs/heads/main\n');
+  assert.ok(fs.existsSync(path.join(memory,'.sessions','0123456789012345.json')));
+  assert.deepEqual(fs.readdirSync(memory).sort(),['.git','.sessions','MEMORY.md']);
+  assert.deepEqual(tree(f.target,{git:true}),host,'no project setting was written');
+});
+// Kit 3.3.5 review P2: memory.dir and mkdirSync's answer go through one normalizer; the created boundary is
+// proven or no folder is removed; every upward walk stops at the root.
+test('createdBoundary and plainPath: namespaced, UNC and plain spellings agree; an unproven boundary removes nothing',()=>{
+  assert.equal(typeof init.createdBoundary,'function','createdBoundary is exported');
+  const win=o=>init.createdBoundary({...o,platform:'win32'});
+  assert.equal(init.plainPath('\\\\?\\c:\\base\\new','win32'),'C:\\base\\new');
+  assert.equal(init.plainPath('\\\\?\\UNC\\server\\share\\x','win32'),'\\\\server\\share\\x');
+  assert.equal(init.plainPath('C:\\plain\\x','win32'),'C:\\plain\\x');
+  // One new folder under four pre-existing ancestors, all spelled namespaced: the boundary is the new folder only.
+  assert.equal(win({memoryDir:'\\\\?\\C:\\pre\\a\\b\\c\\d\\new',made:'\\\\?\\C:\\pre\\a\\b\\c\\d\\new',existing:'C:\\pre\\a\\b\\c\\d'}),'C:\\pre\\a\\b\\c\\d\\new');
+  // Next to the drive root: the answer comes back (no walk that cannot progress).
+  assert.equal(win({memoryDir:'\\\\?\\C:\\base\\new',made:'\\\\?\\C:\\base\\new',existing:'C:\\base'}),'C:\\base\\new');
+  assert.equal(win({memoryDir:'\\\\?\\C:\\new',made:'\\\\?\\C:\\new',existing:'C:\\'}),'C:\\new');
+  // UNC, namespaced and plain.
+  assert.equal(win({memoryDir:'\\\\?\\UNC\\server\\share\\notes\\new',made:'\\\\?\\UNC\\server\\share\\notes\\new',existing:'\\\\server\\share\\notes'}),'\\\\server\\share\\notes\\new');
+  // Mixed spellings and drive-letter case.
+  assert.equal(win({memoryDir:'c:\\Pre\\new\\deep',made:'\\\\?\\C:\\pre\\new',existing:'\\\\?\\c:\\PRE'}),'C:\\pre\\new');
+  // Unproven: made at or above the pre-existing folder, beside or below memoryDir, or unknown.
+  for(const o of [{memoryDir:'C:\\base\\new',made:'C:\\base',existing:'C:\\base'},{memoryDir:'C:\\base\\new',made:'C:\\other',existing:'C:\\'},
+    {memoryDir:'C:\\base\\new',made:'C:\\base\\new\\x',existing:'C:\\base'},{memoryDir:'C:\\base\\new',made:'C:\\base\\new',existing:null},{memoryDir:'C:\\base\\new',made:undefined,existing:'C:\\base'}])
+    assert.equal(win(o),null,JSON.stringify(o));
+  // Plain Windows and POSIX paths are unchanged.
+  assert.equal(win({memoryDir:'C:\\x\\y',made:'C:\\x\\y',existing:'C:\\x'}),'C:\\x\\y');
+  assert.equal(init.createdBoundary({memoryDir:'/srv/a/b',made:'/srv/a',existing:'/srv',platform:'linux'}),'/srv/a');
+});
+test('rollbackInit compares a namespaced memory folder with its created top through the same normalizer',t=>{
+  if(process.platform!=='win32') { t.skip('Windows namespaced paths'); return; }
+  const f=fixture(t),top=path.join(f.root,'made-top'),dir=path.join(top,'nested');fs.mkdirSync(dir,{recursive:true});
+  const result=rollbackInit({memoryDir:'\\\\?\\'+dir,owned:new Set(),state:'missing',createdTop:top});
+  assert.deepEqual(result,{left:[],problems:[]});
+  assert.ok(!fs.existsSync(top),'the created folders are removed');
+  assert.ok(fs.existsSync(path.join(f.root,'project')),'the walk stopped at the created top');
+});
+test('memory-init with a namespaced memory folder removes only the one folder it made, never pre-existing empty parents',t=>{
+  if(process.platform!=='win32') { t.skip('Windows namespaced paths'); return; }
+  const f=fixture(t);ok(f.install());
+  const ancestors=path.join(f.root,'pre','a','b','c');fs.mkdirSync(ancestors,{recursive:true});
+  const memory='\\\\?\\'+path.join(ancestors,'new');
+  const script=path.join(f.target,'scripts/memory/memory-init.mjs');
+  const anchor='finishMemory({memory,target,engine,configFile,freshMemory:true,newRepo:!inRepo,inRepo,lock:held});';
+  assert.ok(read(script).includes(anchor),'injection anchor');
+  put(script,read(script).replace(anchor,"throw new Error('injected');"));
+  const r=f.cli('scripts/memory/memory-init.mjs',['--memory-dir',memory],f.target);
+  assert.equal(r.status,1,r.stdout+r.stderr);
+  assert.match(r.stderr,/memory-init: injected/);
+  assert.ok(!fs.existsSync(path.join(ancestors,'new')),'the folder this run made is removed');
+  for(let dir=ancestors;dir!==f.root;dir=path.dirname(dir)) assert.ok(fs.existsSync(dir),dir+' existed before the run and stays');
 });
 test('memory-init main explains foreign project hook exactly',t=>{
   const f=fixture(t);ok(f.install());const memory=path.join(f.target,'notes');

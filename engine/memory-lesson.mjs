@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
-import {lessonCases, validateKindCase, args, locations, isDirect, toolDir, readRequired, listMd, pathKey, normalizeEol, parseFrontmatter, insideRepo, loadConfig, memoryFiles, writeText} from './lib.mjs';
+import {lessonCases, validateKindCase, args, locations, isDirect, toolDir, readRequired, listMd, pathKey, normalizeEol, parseFrontmatter, insideRepo, loadConfig, memoryFiles, writeText, cleanGitEnv} from './lib.mjs';
 import {withMemoryLock} from './memory-lock.mjs';
+import {writerClaim} from './memory-session.mjs';
 import {routerFamilies, lessonIdentity, lessonField, isGenerated, writeMemoryIndex, gateCheckIds, enforceSentence, failSentence, KINDS, REPEAT_ENTRY} from './memory-index.mjs';
 import {buildCorpus, search} from './memory-recall.mjs';
 import {validDate} from './memory-rotate.mjs';
@@ -231,6 +232,8 @@ export function batchLessons({memoryDir, repo, file, route, today = todayDefault
   return withMemoryLock(memoryDir, lock => {
     const rendered = render(), snapshot = snapshotPages(memoryDir), created = [], originals = new Map(), repeated = [];
     if (errors.length) throw Error(errors.join('\n'));
+    // Kit 3.3.5 E2.4: in session mode, claim every file this batch creates or edits before the first write.
+    writerClaim({memoryDir, repo, config, lock}, [...rendered.map(f => f.file), ...repeating.map(s => s.target)], 'memory-lesson batch');
     const rollback = () => restoreAll([
       ...pageRestoreActions(memoryDir, snapshot),
       ...created.map(file => () => fs.unlinkSync(path.join(memoryDir, file))),
@@ -308,10 +311,13 @@ function writeMetadata(memoryDir, f, text) {
   const file = path.join(memoryDir, f.file), bytes = fs.readFileSync(file);
   writeText(file, (bytes.toString('utf8').startsWith('\uFEFF') && !text.startsWith('\uFEFF') ? '\uFEFF' : '') + text);
 }
-function changeMetadata(options, action, after = result => result) {
+function changeMetadata(options, action, after = result => result, {by = 'memory-lesson', files = []} = {}) {
   return withMemoryLock(options.memoryDir, lock => {
-    const snapshot = snapshotPages(options.memoryDir), originals = new Map();
-    const save = (f, text) => { const bytes = fs.readFileSync(path.join(options.memoryDir, f.file)); originals.set(f.file, bytes); writeText(path.join(options.memoryDir, f.file), (bytes.toString('utf8').startsWith('\uFEFF') && !text.startsWith('\uFEFF') ? '\uFEFF' : '') + text); };
+    const snapshot = snapshotPages(options.memoryDir), originals = new Map(), claimed = new Set();
+    // Kit 3.3.5 E2.4: claim inside this lock acquisition, before the first write (all known files first).
+    const claim = names => { const fresh = names.filter(name => !claimed.has(name)); if (fresh.length && writerClaim({...options, lock}, fresh, by)) fresh.forEach(name => claimed.add(name)); };
+    if (files.length) claim(files);
+    const save = (f, text) => { claim([f.file]); const bytes = fs.readFileSync(path.join(options.memoryDir, f.file)); originals.set(f.file, bytes); writeText(path.join(options.memoryDir, f.file), (bytes.toString('utf8').startsWith('\uFEFF') && !text.startsWith('\uFEFF') ? '\uFEFF' : '') + text); };
     try {
       const result = action(save);
       if (originals.size) regenerate({...options, lock}, snapshot);
@@ -337,14 +343,14 @@ export function recordRepeat({memoryDir, repo, id, note, today = todayDefault(),
   if (!id) throw Error('missing lesson id');
   note = validateRepeatNote(note, today);
   const options = {memoryDir, repo, config, lock};
-  return changeMetadata(options, save => appendRepeat({...options, id, note, today}, save));
+  return changeMetadata(options, save => appendRepeat({...options, id, note, today}, save), undefined, {by: 'memory-lesson repeat'});
 }
 export function setEnforced({memoryDir, repo, id, value, today = todayDefault(), config = loadConfig(), lock}) {
   checkDate(today); const options = {memoryDir, repo, config, lock};
   return changeMetadata(options, save => {
     const f = targetFile(memoryDir, id), {kind, where} = enforcement(value, options), enforced = `${today} ${kind} ${where}`;
     save(f, spliceMetadata(f.text, 'enforced', enforced)); return {file: f.file, enforced};
-  });
+  }, undefined, {by: 'memory-lesson enforce'});
 }
 export function legacyRepeats({memoryDir}) {
   const items = [], prose = []; let undated = 0, leftAsProse = 0;
@@ -393,16 +399,16 @@ export function convertLegacyRepeats({memoryDir, repo, config = loadConfig(), wr
     }
     Object.defineProperty(result, 'messages', {value: messages});
     return result;
-  });
+  }, undefined, {by: 'memory-lesson repeats'});
 }
 
-export function newLesson({memoryDir, title, route, kind, takeaway, trigger, case: kindCase, pin = false, lock, today = new Date().toISOString().slice(0, 10)}) {
+export function newLesson({memoryDir, repo, config, title, route, kind, takeaway, trigger, case: kindCase, pin = false, lock, today = new Date().toISOString().slice(0, 10)}) {
   if (!validDate(today)) throw new Error('invalid --today date; expected YYYY-MM-DD');
   if (!KINDS.includes(kind)) throw Error(kindError);
   validateTakeaway(takeaway);
   validateTrigger(trigger);
   validateKindCase(kindCase);
-  return withMemoryLock(memoryDir, () => {
+  return withMemoryLock(memoryDir, held => {
     const families = routerFamilies(readRequired(path.join(memoryDir, 'MEMORY.md')), memoryDir);
     const selected = [...new Set(String(route ?? '').split(',').map(x => x.trim()).filter(Boolean))];
     if (!selected.length || selected.some(x => !families.has(x))) throw new Error(`route.unknown: ${route ?? '(missing)'}; known families: ${[...families.keys()].join(', ')}`);
@@ -417,6 +423,8 @@ export function newLesson({memoryDir, title, route, kind, takeaway, trigger, cas
     if (kindCase !== undefined) text = spliceMetadata(text, 'kind_case', kindCase);
     if (trigger !== undefined) text = spliceMetadata(text, 'trigger', trigger);
     const file = path.join(memoryDir, name + '.md');
+    // Kit 3.3.5 E2.4: the new lesson is claimed in the same lock acquisition, before it is written.
+    writerClaim({memoryDir, repo, config, lock: held}, [name + '.md'], 'memory-lesson new');
     fs.writeFileSync(file, text, {flag: 'wx'});
     return file;
   }, {lock});
@@ -453,7 +461,7 @@ export function classifyLessons({memoryDir, repo, file, write = false, today = t
       }
       catch (e) { throw Error(`${f.file}: ${e.message}`); }
     }
-  }, () => { findings = runCheck({memoryDir, repo, config, today, scope: 'memory'}).findings; });
+  }, () => { findings = runCheck({memoryDir, repo, config, today, scope: 'memory'}).findings; }, {by: 'memory-lesson classify', files: items.map(({f}) => f.file)});
   return {lessons: items.length, kinds, unchanged, takeaways, findings};
 }
 
@@ -535,14 +543,14 @@ export function main(argv = process.argv.slice(2)) {
     if (separator >= 0) opts._.push(...argv.slice(separator + 1));
     const command = opts._.shift();
     if (command === 'new') {
-      const options = {...locations(opts), config: opts.config ? JSON.parse(readRequired(opts.config)) : loadConfig()};
+      const options = {...locations(opts, {env: cleanGitEnv()}), config: opts.config ? JSON.parse(readRequired(opts.config)) : loadConfig()};
       const similar = similarLessons({corpus: captureCorpus(options), query: opts._.join(' ')});
       const file = newLesson({...options, title: opts._.join(' '), route: opts.route, kind: opts.kind, takeaway: opts.takeaway, case: opts.case, trigger: opts.trigger, pin: opts.pin, today: opts.today});
       printSimilar(similar, {created: true});
       console.log(file);
       return 0;
     }
-    const options = {...locations(opts), today: opts.today, config: opts.config ? JSON.parse(readRequired(opts.config)) : loadConfig()};
+    const options = {...locations(opts, {env: cleanGitEnv()}), today: opts.today, config: opts.config ? JSON.parse(readRequired(opts.config)) : loadConfig()};
     if (command === 'classify') {
       if (opts.score !== undefined) {
         if (opts._.length !== 1 || opts.case !== undefined || flags.includes('--write')) throw Error('score requires two label files and cannot write or filter cases');

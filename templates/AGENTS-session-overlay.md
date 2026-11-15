@@ -8,7 +8,7 @@ after-go: <project skills, in order>
 close: <up to 3 skills or commands, semicolon-separated in order, run these before /handover's run, reports each ok|failed, missing/failed is NOT SAFE>
 push: <memory|project|none; /handover defaults to memory; project only in-repo>
 log: <path>, <n> lines
-board: <optional read-only command that prints open decisions>
+board: <optional board link https://claude.ai/artifact/<id>, or a read-only command that prints open decisions>
 public: yes|no
 
 Replace placeholders (including <branch>); omit unused keys; filled section <= 1,500 B. After go, name and run after-go items one at a time.

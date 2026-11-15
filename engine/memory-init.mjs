@@ -4,16 +4,8 @@ import {isDirect,toolDir,inRepoMemory,parseFrontmatter,slash,repoRoot,pathKey} f
 import {resolveMemory,readJSON,write,freshMemoryWrites,finishMemory,run,memoryHook} from './memory-setup.mjs';
 import {shellQuoted} from './install-hooks.mjs';
 import {generateMemoryIndex} from './memory-index.mjs';
-
-function pathExistsNoFollow(target) {
-  try {
-    fs.lstatSync(target);
-    return true;
-  } catch(error) {
-    if(error?.code==='ENOENT') return false;
-    throw error;
-  }
-}
+import {refuseWhilePending} from './memory-session.mjs';
+import {withMemoryLock} from './memory-lock.mjs';
 
 export function planInit({memoryDir, planned, config, inRepo}) {
   const files=planned.map(([file,data])=>({file:path.basename(file),text:String(data),...parseFrontmatter(String(data)),special:path.basename(file)==='MEMORY.md'?'router':null}));
@@ -25,6 +17,40 @@ export function planInit({memoryDir, planned, config, inRepo}) {
   if(!inRepo) entries.push({file:path.join(memoryDir,'.git'),action:'INIT ',recursive:true,suffix:' (Git metadata and sample hooks)'});
   const owned=new Set(entries.map(({file})=>path.relative(memoryDir,file).split(path.sep)[0]));
   return {entries,owned};
+}
+
+// Kit 3.3.5 review P2: ONE normalizer for every path the init cleanup compares, counts or walks. A Windows
+// namespaced path (\\?\C:\..., \\.\C:\..., \\?\UNC\server\share\...) becomes its plain form, and the drive letter is
+// upper-cased; keys are case-folded where the file system folds case.
+export function plainPath(p,platform=process.platform) {
+  const api=platform==='win32'?path.win32:path.posix;
+  let s=String(p);
+  if(platform==='win32') s=s.replace(/^[\\/]{2}[?.][\\/]UNC[\\/]/i,'\\\\').replace(/^[\\/]{2}[?.][\\/](?=[A-Za-z]:)/,'');
+  s=api.resolve(s);
+  return platform==='win32'?s.replace(/^[a-z](?=:)/,drive=>drive.toUpperCase()):s;
+}
+export const plainKey=(p,platform=process.platform)=>{const s=plainPath(p,platform);return platform==='win32'||platform==='darwin'?s.toLowerCase():s;};
+const relation=(root,file,platform=process.platform)=>{
+  const api=platform==='win32'?path.win32:path.posix,rel=api.relative(plainKey(root,platform),plainKey(file,platform));
+  return rel===''?'same':rel!=='..'&&!rel.startsWith('..'+api.sep)&&!api.isAbsolute(rel)?'below':null;
+};
+// The highest folder this run made: proven to be memoryDir or one of its ancestors, and strictly below the nearest folder
+// that existed before the run (existing). null when either cannot be proven; then no folder is ever removed.
+export function createdBoundary({memoryDir,made,existing,platform=process.platform}) {
+  if(!made || !existing) return null;
+  if(!relation(made,memoryDir,platform)) return null;
+  if(relation(existing,made,platform)!=='below') return null;
+  return plainPath(made,platform);
+}
+// The nearest ancestor-or-self of dir that exists; null when an inspection fails or the walk reaches the root unproven.
+export function nearestExisting(dir) {
+  for(let p=plainPath(dir);;) {
+    try { fs.lstatSync(p); return p; }
+    catch(error) { if(error?.code!=='ENOENT') return null; }
+    const parent=path.dirname(p);
+    if(parent===p) return null;
+    p=parent;
+  }
 }
 
 export function rollbackInit({memoryDir,owned,state,createdTop,configFile,configBefore,localFile,localBeforeExists,localBefore,persistWrites=[],entries=[]}) {
@@ -52,14 +78,17 @@ export function rollbackInit({memoryDir,owned,state,createdTop,configFile,config
     }
   };
   left.push(...remaining(memoryDir));
-  if(state==='missing') {
+  // Review: the walk compares through plainKey on both sides, climbs only while createdTop is proven to be
+  // memoryDir or an ancestor of it, and stops at the root.
+  if(state==='missing' && !relation(createdTop,memoryDir)) problems.push(`created folder ${createdTop} is not ${memoryDir} or one of its parents; folders left in place`);
+  else if(state==='missing') {
     for(let folder=path.resolve(memoryDir);;) {
       try { fs.rmdirSync(folder); }
       catch(error) {
         if(error.code==='ENOTEMPTY'||error.code==='EEXIST') { left.push(...remaining(folder)); break; }
         if(error.code!=='ENOENT') { problems.push(`could not remove ${folder}: ${error.message}`); break; }
       }
-      if(folder===path.resolve(createdTop)) break;
+      if(plainKey(folder)===plainKey(createdTop)) break;
       const parent=path.dirname(folder);
       if(parent===folder) break;
       folder=parent;
@@ -132,25 +161,53 @@ export function main(argv=process.argv.slice(2)) {
       console.log('GATE '+target+' (dry-run; not executed)');
       console.log('HOOK '+path.join(inRepo?target:memory.dir,'.git/hooks/pre-commit')+' (preserve foreign hook; honor core.hooksPath)');
     } else {
-      let createdTop=path.resolve(memory.dir);
-      if(memoryDirState==='missing') {
-        while(!pathExistsNoFollow(createdTop)) {
-          const parent=path.dirname(createdTop);
-          if(parent===createdTop) break;
-          if(pathExistsNoFollow(parent)) break;
-          createdTop=parent;
-        }
-      }
       const completedPersistWrites=[];
+      // Kit 3.3.5 E2.4: init is an exclusive bootstrap step. Review P1-3 (rounds 1 and 2): the bootstrap state planned above
+      // is revalidated inside the lock that covers every write, and rollback removes only what this run created, under
+      // that same lock. A lock failure or a refusal changes nothing this run did not create, so it never cleans up.
+      // mkdirSync returns the first folder it made (on Windows in namespaced form). Only folders this run made are ever
+      // removed, only when empty, and only when createdBoundary proves where they start (review: memory.dir and
+      // made go through the same normalizer; an unproven boundary leaves every folder in place and says so).
+      const existing=nearestExisting(memory.dir);
+      const made=fs.mkdirSync(memory.dir,{recursive:true});
+      const madeFolder=createdBoundary({memoryDir:memory.dir,made,existing});
+      const unproven=made && !madeFolder ? `\nmemory-init could not prove which folders it made; left in place: ${memory.dir}` : '';
+      const removeMadeFolders=()=>{
+        if(!madeFolder) return;
+        for(let folder=plainPath(memory.dir);;) {
+          try { fs.rmdirSync(folder); } catch { return; }
+          const parent=path.dirname(folder);
+          if(plainKey(folder)===plainKey(madeFolder) || parent===folder) return;
+          folder=parent;
+        }
+      };
+      let mutated=false,undone=null;
       try {
-        for(const [file,data] of persistWrites) { write(file,data); completedPersistWrites.push([file,data]); }
-        for(const [file,data] of planned) write(file,data);
-        finishMemory({memory,target,engine,configFile,freshMemory:true,newRepo:!inRepo,inRepo});
-        const output=run(process.execPath,[path.join(engine,'memory-check.mjs'),'--repo',target,'--memory-dir',memory.dir]);
-        console.log(output.split(/\r?\n/).filter(line=>!line.startsWith('memory: ')).join('\n'));
-        memoryHook(target,memory);
+        withMemoryLock(memory.dir,held=>{
+          const present=fs.readdirSync(memory.dir).filter(name=>name!=='.memory.lock');
+          if(present.length) throw new Error(`memory folder changed before memory-init could lock it: ${memory.dir} now holds ${present.sort().join(', ')}; nothing was changed. To check it, run node scripts/memory/memory-check.mjs, or choose another folder with --memory-dir`);
+          refuseWhilePending({memoryDir:memory.dir,label:'memory-init',ownId:null});
+          mutated=true;
+          try {
+            for(const [file,data] of persistWrites) { write(file,data); completedPersistWrites.push([file,data]); }
+            for(const [file,data] of planned) write(file,data);
+            finishMemory({memory,target,engine,configFile,freshMemory:true,newRepo:!inRepo,inRepo,lock:held});
+            const output=run(process.execPath,[path.join(engine,'memory-check.mjs'),'--repo',target,'--memory-dir',memory.dir]);
+            console.log(output.split(/\r?\n/).filter(line=>!line.startsWith('memory: ')).join('\n'));
+            memoryHook(target,memory);
+          } catch(error) {
+            // The folder held nothing but this run's lock when the writes began, so every owned entry in it now is this
+            // run's. The lock file itself is released by the lock, never removed here.
+            const created=new Set([...owned].filter(name=>name!=='.memory.lock'));
+            undone=rollbackInit({memoryDir:memory.dir,owned:created,state:'existing-empty',configFile,configBefore,localFile,localBeforeExists,localBefore,persistWrites:completedPersistWrites,entries});
+            undone.left=undone.left.filter(file=>path.basename(file)!=='.memory.lock');
+            throw error;
+          }
+        });
       } catch(error) {
-        const {left,problems}=rollbackInit({memoryDir:memory.dir,owned,state:memoryDirState,createdTop,configFile,configBefore,localFile,localBeforeExists,localBefore,persistWrites:completedPersistWrites,entries});
+        if(!mutated) { removeMadeFolders(); error.message+=unproven+(error.cleanupErrors?.length?'\n'+error.cleanupErrors.join('\n'):''); throw error; }
+        const folders=madeFolder?rollbackInit({memoryDir:memory.dir,owned:new Set(),state:'missing',createdTop:madeFolder,configFile,configBefore,localFile,localBeforeExists,localBefore}):{left:unproven&&fs.existsSync(memory.dir)?[memory.dir]:[],problems:[]};
+        const left=[...new Set([...(undone?.left??[]),...folders.left])],problems=[...(undone?.problems??[]),...folders.problems,...(error.cleanupErrors??[])];
         if(problems.length) error.message+='\nmemory-init rollback could not complete: '+problems.join('; ')+(left.length?'; left in place: '+left.join(', '):'');
         else if(left.length) error.message+='\nmemory-init rolled back what it created; these entries were left in place: '+left.join(', ')+'. Review them before you run it again.';
         else error.message+='\nmemory-init rolled back its changes; fix the problem above and run it again.';

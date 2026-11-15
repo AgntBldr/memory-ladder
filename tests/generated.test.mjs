@@ -326,16 +326,21 @@ test('S7 checkpoint holds one lock, orders steps, trims brain sections and repor
   fs.writeFileSync(path.join(f.repo, 'brain/00-system/log.md'), '# Log\n');
   for (let i = 0; i < 200; i++) fs.writeFileSync(path.join(f.repo, `brain/02-projects/p-${i}.md`), `---\nid: p-${i}\ntype: project\nsummary: ${'x'.repeat(120)}\n---\n`);
   f.config.caps.brainIndex.maxBytes = 2000;
-  const steps = [], commands = [];
+  const seen = [], commands = [];
   const result = checkpoint({...f, report: (step, message) => {
-    steps.push(step); assert.ok(fs.existsSync(path.join(f.memoryDir, '.memory.lock')));
+    // The lock state is recorded here and asserted below: the checkpoint's own header and files line are printed through a
+    // guard that would swallow an assertion made inside this callback (kit 3.3.5 D1, review F6).
+    seen.push({step, lockPresent: fs.existsSync(path.join(f.memoryDir, '.memory.lock'))});
   }, git: args => {
     commands.push(args.join(' '));
     if (args[0] === 'push') throw Error('fake push refused');
     return args[0] === 'status' ? ' M INDEX-craft.md\n' : '';
   }});
   assert.equal(result.push, 'fake push refused');
-  assert.deepEqual(steps, ['memory-index', 'rotate-log', 'rotate-roadmap', 'rotate-handovers', 'brain-index', 'roadmap-overview', 'gate', 'commit', 'push']);
+  assert.deepEqual(seen.map(s => s.step), ['checkpoint', 'memory-index', 'rotate-log', 'rotate-roadmap', 'rotate-handovers', 'brain-index', 'roadmap-overview', 'gate', 'commit', 'push', `repo files changed in ${fs.realpathSync.native(f.repo)}`]);
+  // Kit 3.3.5 E7: the push runs after the memory lock is released, under the separate push lock. Kit 3.3.5 D1: the header and
+  // the checkout-files line are printed outside the lock, before and after the save.
+  for (const s of seen) assert.equal(s.lockPresent, !['checkpoint', 'push'].includes(s.step) && !s.step.startsWith('repo files changed'), s.step);
   assert.match(commands.join('\n'), /add --all[\s\S]*commit -m memory: checkpoint/);
   const index = fs.readFileSync(path.join(f.repo, f.config.caps.brainIndex.path), 'utf8');
   assert.ok(Buffer.byteLength(index) <= 2000); assert.match(index, /\d+ more/);
@@ -347,7 +352,9 @@ test('S7 checkpoint dry run writes nothing and gate failure prevents commit and 
   f.lesson('001', '', 'TODO'); const before = fs.readdirSync(f.memoryDir);
   checkpoint({...f, dryRun: true, report: () => {}, git: () => assert.fail('dry git')});
   assert.deepEqual(fs.readdirSync(f.memoryDir), before);
-  assert.throws(() => checkpoint({...f, report: () => {}, git: () => assert.fail('git after FAIL')}), /lesson\.unfilled/);
+  // Kit 3.3.5 E12.1: a gate FAIL is a structured status 1, not a throw, in all-sessions mode too.
+  const failed = checkpoint({...f, report: () => {}, git: () => assert.fail('git after FAIL')});
+  assert.equal(failed.status, 1); assert.match(failed.error, /lesson\.unfilled/); assert.ok(failed.gate.fails.some(x => x.check === 'lesson.unfilled'));
 });
 
 test('S8 route migration conserves multi-family payload, wikilinks, CRLF bodies, prose and triggers', async t => {
@@ -455,12 +462,25 @@ test('3.2.2 D2 preserves installed hook, supports vendored commit, and refuses m
   const hook = path.join(f.memory, '.git', 'hooks', 'pre-commit');
   const quote = value => !value.includes("'") ? "'" + path.resolve(value).replaceAll('\\', '/') + "'" : `"${path.resolve(value).replaceAll('\\', '/').replace(/["$`\\]/g, '\\$&')}"`;
   const expected = gatePath => `#!/bin/sh\n# memory-v3-gate (installed by scripts/memory/install-hooks.mjs; edit there)\nif ! command -v node >/dev/null 2>&1; then\n  echo "memory gate skipped: node not found"\n  exit 0\nfi\nnode ${quote(gatePath)} --hook --scope memory --memory-dir ${quote(f.memory)} || {\n  echo "memory gate failed: fix the FAIL lines above (or add a dated allow entry) and commit again"; exit 1; }\n`;
+  // Only the new inline version guard changes the existing hook template.
+  const withoutVersionGuard = text => text.replace(/^node -e '[\s\S]*?' [^\n]+ \|\| exit \$\?\n/m, '');
   patchOk(f.cli(vendor, 'install-hooks.mjs'));
-  assert.equal(fs.readFileSync(hook, 'utf8'), expected(gate));
+  const installedHook = fs.readFileSync(hook, 'utf8');
+  assert.equal(withoutVersionGuard(installedHook), expected(gate));
+  const version = JSON.parse(fs.readFileSync(path.join(vendor, 'memory.config.json'), 'utf8')).engine_version;
+  assert.ok(installedHook.includes(`needed=${JSON.stringify(version)}`));
+  const receipt = path.join(installed, 'KIT.json');
+  fs.writeFileSync(receipt, JSON.stringify({version: '0.0.1'}));
+  const older = f.run('git', ['-C', f.memory, 'hook', 'run', 'pre-commit']);
+  assert.equal(older.status, 1);
+  assert.equal((older.stdout + older.stderr).trim(), `memory gate: checkout engine 0.0.1 is older than hook engine ${version} at ${f.repo.replaceAll('\\', '/')}`);
+  fs.writeFileSync(receipt, JSON.stringify({version}));
+  patchOk(f.run('git', ['-C', f.memory, 'hook', 'run', 'pre-commit']));
+  fs.unlinkSync(receipt);
   fs.unlinkSync(gate);
   patchOk(f.cli(vendor, 'install-hooks.mjs'));
   const vendorGate = path.join(vendor, 'memory-check.mjs');
-  const hookMatches = fs.readFileSync(hook, 'utf8').endsWith(expected(vendorGate).split('fi\n')[1].replace(' || {', ` --repo ${quote(f.repo)} || {`));
+  const hookMatches = withoutVersionGuard(fs.readFileSync(hook, 'utf8')).endsWith(expected(vendorGate).split('fi\n')[1].replace(' || {', ` --repo ${quote(f.repo)} || {`));
   assert.ok(fs.existsSync(vendorGate));
   fs.writeFileSync(path.join(f.memory, 'MEMORY.md'), '# Memory\n');
   fs.mkdirSync(path.join(f.repo, 'brain'));

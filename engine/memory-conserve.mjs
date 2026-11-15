@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { args, locations, repoRoot, requireMemory, isDirect, listMd, walkMd, read, readRequired, utf8Bytes, parseFrontmatter, pathKey, loadConfig, repoPath } from './lib.mjs';
+import { args, locations, repoRoot, requireMemory, isDirect, listMd, walkMd, read, readRequired, utf8Bytes, parseFrontmatter, pathKey, loadConfig, repoPath, cleanGitEnv } from './lib.mjs';
 
 const patterns = {
   sha: /\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g,
@@ -246,7 +246,7 @@ export function main(argv = process.argv.slice(2)) {
       }
       return result.count ? 1 : 0;
     }
-    const loc = locations(opts);
+    const loc = locations(opts, {env: cleanGitEnv()});
     if (opts._[0] === 'snapshot') {
       if (!opts.out) throw new Error('snapshot requires --out FILE');
       fs.writeFileSync(opts.out, JSON.stringify(snapshot({ ...loc, extraFiles: opts.file }), null, 2) + '\n');

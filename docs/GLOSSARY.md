@@ -108,17 +108,17 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 **caps.hardRule** - Rule-card limits: `caps.hardRule.warnBytes` defaults to 2,048 bytes and `caps.hardRule.failBytes` to 4,096. Where: `memory.config.json`. See also: hardrule.size.
 
-**caps.index** - Index budgets: `caps.index.pinSlackBytes` is 1,024 bytes for ratcheting, `caps.index.pinWarnRoomBytes` is 400 bytes of remaining room, `caps.index.warnLineChars` is 300 and `caps.index.failLineChars` is 450 characters per line. `caps.index.failBytesAbsolute` is 24,576 bytes per catalog/hand-written page and `caps.index.hotBytes` is 8,192 bytes for generated hot-page selection. Where: `memory.config.json`. See also: pin ceiling, hot page, index.size.
+**caps.index** - Index budgets: `caps.index.pinSlackBytes` is 1,024 bytes for ratcheting, `caps.index.pinWarnRoomBytes` is 400 bytes of remaining room, `caps.index.warnLineChars` is 300 and `caps.index.failLineChars` is 450 characters per line. `caps.index.failBytesAbsolute` is 24,576 bytes per catalog/hand-written page and `caps.index.hotBytes` is 8,192 bytes for generated hot-page selection and `caps.index.hotReserveBytes` is the 1,024 bytes a hot page keeps free (3.3.5). Where: `memory.config.json`. See also: pin ceiling, hot page, index.hot-reserve, index.size.
 
 **caps.repoAhead** - Unpushed-commit thresholds: `caps.repoAhead.warn` is 1 and `caps.repoAhead.fail` is 10, both inclusive. Where: `memory.config.json`. See also: repo.ahead.
 
-**caps.roadmap** - Roadmap settings: `caps.roadmap.path` is `docs/ROADMAP.md`, `caps.roadmap.order` is `newest-first` (also accepts `oldest-first`), `caps.roadmap.warnBytes` is 61,440 and `caps.roadmap.failBytes` is 81,920 bytes. `caps.roadmap.keepBlocks` normally retains six dated Open work blocks during rotation. Where: `memory.config.json`. See also: rotation, repo.roadmap.
+**caps.roadmap** - Roadmap settings: `caps.roadmap.path` is `docs/ROADMAP.md`, `caps.roadmap.order` is `newest-first` (also accepts `oldest-first`), `caps.roadmap.warnBytes` is 61,440 and `caps.roadmap.failBytes` is 81,920 bytes. `caps.roadmap.keepBlocks` normally retains six dated Open work blocks during rotation, and the optional `caps.roadmap.procedure` names the project's own procedure when rotation cannot shrink the roadmap (3.3.5). Where: `memory.config.json`. See also: rotation, repo.roadmap, repo.roadmap-no-rotation.
 
 **caps.roadmapHistory** - History location: `caps.roadmapHistory.path` defaults to `docs/ROADMAP-HISTORY.md`. Where: `memory.config.json`. See also: roadmap history.
 
 **caps.roadmapOverview** - `enabled` is boolean and defaults to `true`; `false` disables checkpoint writing/staging and gate findings, and makes `--write`/`--check` no-ops. Existing files are kept; stdout preview still works. Overview location: `caps.roadmapOverview.path` defaults to `docs/ROADMAP-OVERVIEW.md`. Where: `memory.config.json`. See also: overview.
 
-**caps.router** - Router limits: `caps.router.warnBytes` is 12,288 bytes, `caps.router.failBytes` is 16,384 bytes and `caps.router.failLineChars` is 600 characters per line; `caps.router.warnLines` is 150 and `caps.router.failLines` is 200. Where: `memory.config.json`. See also: router.size, router.line.
+**caps.router** - Router limits: `caps.router.warnBytes` is 12,288 bytes, `caps.router.failBytes` is 16,384 bytes and `caps.router.failLineChars` is 600 characters per line; `caps.router.warnLines` is 150 and `caps.router.failLines` is 200; `caps.router.targetBytes` is the 11,264-byte early line below the warning (3.3.5). Where: `memory.config.json`. See also: router.size, router.target, router.line.
 
 **caps.shelf** - Deferred-work settings: `caps.shelf.path` is `docs/shelf` and `caps.shelf.reviewDays` limits the interval from shelved to review date to 90 days. Where: `memory.config.json`. See also: shelf.frontmatter.
 
@@ -138,6 +138,8 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 **config.roadmap-order** - FAIL when the configured order is neither `newest-first` nor `oldest-first`; use the actual ordering, default `newest-first`. Where: `caps.roadmap.order`. See also: rotation, repo.roadmap-order.
 
+**config.roadmap-procedure** - WARN when `caps.roadmap.procedure` is present but not a non-empty string; the value is ignored and `repo.roadmap-no-rotation` uses its default guidance. It is a WARN, not a FAIL, because the text only changes guidance: it never blocks a commit or fails an upgrade. Where: `caps.roadmap.procedure`. See also: caps.roadmap.procedure, repo.roadmap-no-rotation.
+
 **config.upgrades** - FAIL when the deferred-upgrade ledger is missing or malformed; repair its schema rather than allowing the finding. Where: `upgrades.json`, checked by `memory-check.mjs`. See also: deferred-upgrade ledger.
 
 **desc.changelog** - FAIL when a description contains `Newest:`; replace it with a static summary and move history into its proper record, with no numeric threshold. Where: memory frontmatter. See also: description.
@@ -155,6 +157,8 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 **hardrule.size** - WARN above 2,048 bytes and FAIL above 4,096; retain every operational value in the card and move explanation/history to linked backgrounds. Where: hard-rule memory files; `caps.hardRule`. See also: hard-rule card.
 
 **index.hot-budget** - WARN when mandatory topics and active pins alone exceed the generated hot budget of 8,192 bytes; review routes, pins and descriptions rather than dropping required information. Where: generated memory indexes; `caps.index.hotBytes`. See also: hot page, pin.
+
+**index.hot-reserve** - WARN, per generated hot page, when fewer than 1,024 bytes (`caps.index.hotReserveBytes`) are free: the page's budget (`caps.index.hotBytes`, 8,192) minus its header, topics, pinned lessons and footer, counted before the newest lessons fill what is left. A page this full has no room for new lessons; move a topic or a pin down a layer (a lesson or a background file) and never raise `hotBytes`. A page over its whole budget gets this WARN as well as `index.hot-budget`. It is separate from the pin ceiling setting `caps.index.pinSlackBytes`. Where: generated hot pages `INDEX-<family>.md`; `caps.index`. See also: hot page, index.hot-budget, caps.index.hotReserveBytes.
 
 **index.line** - WARN above 300 characters and FAIL above 450 per index line; shorten the source hook/description or split hand-written navigation. Where: memory indexes; `caps.index.warnLineChars`, `caps.index.failLineChars`. See also: hook, generated index.
 
@@ -210,9 +214,13 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 **repo.roadmap** - WARN above 61,440 bytes and FAIL above 81,920; rotate old dated Open work blocks and keep live pending items in current lists. Where: `docs/ROADMAP.md`; `caps.roadmap`. See also: rotation, Open work.
 
+**repo.roadmap-no-rotation** - WARN when the roadmap is over `caps.roadmap.warnBytes` and the kit's rotation planner, run without writes with the configured order and limits, finds nothing it may move (no `## Open work` section, or no dated block beyond the two it always keeps). Rotation cannot shrink the file, so follow a documented procedure (`ROADMAPS.md`); `caps.roadmap.procedure` changes the guidance in the message, never the check. A roadmap the planner could still shrink does not warn. Where: `docs/ROADMAP.md`; `caps.roadmap`. See also: repo.roadmap, repo.roadmap-rotation, caps.roadmap.procedure, rotation.
+
 **repo.roadmap-order** - WARN when the first and last valid dated blocks in Open work contradict configured order, default `newest-first`; reconcile the file and setting (this is an endpoint check, not a full sort proof). Where: `docs/ROADMAP.md`; `caps.roadmap.order`. See also: config.roadmap-order.
 
-**repo.roadmap-overview** - Disabled when `caps.roadmapOverview.enabled` is `false`; otherwise WARN when a roadmap exists but its overview is missing/stale or generation errors; run `roadmap-overview.mjs --write`, with no numeric threshold. Where: `caps.roadmapOverview.path`. See also: overview.
+**repo.roadmap-overview** - Disabled when `caps.roadmapOverview.enabled` is `false`; otherwise WARN when a roadmap exists but its overview is missing/stale or generation errors; run `roadmap-overview.mjs --write`, with no numeric threshold. The gate and `--check` compare with CRLF read as LF, so line endings alone never make an overview stale (3.3.5). Where: `caps.roadmapOverview.path`. See also: overview.
+
+**repo.roadmap-rotation** - WARN when the roadmap is over `caps.roadmap.warnBytes` and the rotation planner refuses its input, for example `caps.roadmap.keepBlocks` below two, a dated block with an impossible date or a history path that is not a readable regular file (a folder, a FIFO, a device); the message carries the planner's reason, and `repo.roadmap-no-rotation` is not reported on top of it. An unknown `caps.roadmap.order` is `config.roadmap-order` instead. Where: `docs/ROADMAP.md`; `caps.roadmap`. See also: repo.roadmap-no-rotation, config.roadmap-order, rotation.
 
 **repo.skill-version** - WARN when either existing installed skill has missing/mismatched `engine_version` against config; update instructions and version together, with no numeric threshold (absent skills and hook/memory-only runs are skipped). Where: `.claude/skills/memory-ladder/SKILL.md` and `.claude/skills/memory-review/SKILL.md`. See also: upgrade.
 
@@ -227,6 +235,8 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 **router.missing** - FAIL when `MEMORY.md` is absent; restore the router and its links, with no numeric threshold. Where: memory folder. See also: router.
 
 **router.size** - WARN above 12,288 bytes and FAIL above 16,384; route detail through indexes and files instead of expanding the starting context. Where: memory `MEMORY.md`; `caps.router`. See also: layer.
+
+**router.target** - WARN when the router is over `caps.router.targetBytes` (11,264 bytes) and `router.size` does not apply yet, from one byte above the target up to and including `caps.router.warnBytes`; it is the early line before the 12,288-byte warning. Move detail down a layer into an index or topic and never raise the router limits. Where: memory `MEMORY.md`; `caps.router`. See also: router.size, caps.router.targetBytes.
 
 **secret** - FAIL when credential-shaped content matches a built-in secret pattern; remove it without echoing the value and arrange authorized credential remediation, with no numeric threshold and no allowlist exemption. Where: scanned memory, brain, instruction and roadmap files. See also: gate.
 
@@ -304,7 +314,7 @@ Thresholds here are shipped defaults in `engine/memory.config.json`; installed p
 
 ## Project records the kit manages
 
-**checkpoint** - The end-of-work save: first update the handoff and live records, then the command runs `memory-index`, `rotate-log`, `rotate-roadmap`, `rotate-handovers`, `brain-index`, `roadmap-overview`, `gate`, memory `commit`, and `push` in that order under one lock, skipping absent optional sources and the overview when `caps.roadmapOverview.enabled` is `false`. Unallowed FAILs stop before commit; `--dry-run` only reports steps, `--no-push` skips push, and a failed push exits 2 with the commit retained. In-repo memory instead prints staging paths by default; explicit `--commit` commits on the current branch and never pushes. Where: `memory-checkpoint.mjs`. See also: CURRENT block, rotation, gate.
+**checkpoint** - The end-of-work save: first update the handoff and live records, then the command runs `memory-index`, `rotate-log`, `rotate-roadmap`, `rotate-handovers`, `brain-index`, `roadmap-overview`, `gate`, memory `commit`, and `push` in that order under one lock, skipping absent optional sources and the overview when `caps.roadmapOverview.enabled` is `false`. Unallowed FAILs stop before commit; `--dry-run` only reports steps, `--no-push` skips push, and a failed push exits 2 with the commit retained. In-repo memory instead prints staging paths by default; explicit `--commit` commits on the current branch and never pushes. In all-sessions mode, `--commit` with memory inside the project asks Git about three output groups before writing: the brain log and its archives; the roadmap, its history and its enabled overview; and the brain index with index-all. A group Git reports as modified is excluded from the commit, but its outputs are still rewritten. If any status query fails, all three groups are excluded. When the commit step completes and excluded groups have written outputs, `commit: left out ...` names those outputs and the reason. Matching has the limits listed in UPGRADE. In a checkout with uncommitted files, run `--dry-run` first and compare its `would change` list with `git status`. The `already modified` line names planned project outputs that Git reports as modified. It is omitted if any status query fails, so its absence does not prove those files are clean. Commit or stash edits you want to preserve before a real run; the checkpoint can rewrite modified outputs. Where: `memory-checkpoint.mjs`. See also: CURRENT block, rotation, gate.
 
 **log** - An append-oriented record of completed actions and decisions, kept separate from the current handoff and future work. Where: configured brain log, normally `brain/00-system/log.md`. See also: brain log, Open work, CURRENT block.
 
@@ -504,7 +514,7 @@ These are generic schema meanings; the kit checks links and selected fields but 
 
 **skill mirror** - A referenced skills folder or .agents/skills copy that matches .claude/skills byte-for-byte is updated together; divergence refuses before either changes. Where: scripts/install-safety.mjs. See also: host file report, settings merge.
 
-**tooling excludes** - Host ESLint and TypeScript may need scripts/memory/** excluded; install detects local ESLint configs and explicit allowJs/checkJs settings and prints guidance. Where: docs/STARTER.md and install output. See also: installed self-test, host file report.
+**tooling excludes** - Host ESLint, Biome, Prettier and TypeScript may need scripts/memory/** excluded because kit files are hashed and must never be reformatted; install detects local ESLint, Biome and Prettier configs that do not already name scripts/memory and explicit allowJs/checkJs settings, and prints guidance in the preview and after a real install, never writing a file. Where: docs/STARTER.md and install output. See also: installed self-test, host file report.
 
 **worktree memory** - Linked checkouts use the main checkout's memory slug and KIT.local.json unless a flag or environment override is supplied. Where: lib.mjs memoryLocation. See also: memory folder, installed self-test.
 
@@ -664,6 +674,8 @@ are not copied.
 
 **caps.guard** - Kit and host rule file configuration; both files are merged and validated when a repo is known. Where: memory.config.json. See also: caps.guard.kitRules, caps.guard.rules.
 
+**caps.index.hotReserveBytes** - The free bytes a generated hot page must keep before the newest lessons fill it, default 1,024; a page with fewer free bytes gets `index.hot-reserve`. A positive whole number; anything else is a `config.caps` FAIL and the default applies. Where: `memory.config.json`. See also: index.hot-reserve, caps.index.
+
 **caps.lesson** - Repeat escalation settings, applied with defaults for unmerged project configurations. Where: memory.config.json. See also: lesson.enforce.
 
 **caps.lesson.enforceAfterRepeats** - No-decision warning threshold, default two repeats. Where: memory.config.json. See also: lesson.enforce.
@@ -672,7 +684,11 @@ are not copied.
 
 **caps.lesson.lessonOnlyReturns** - Default true; false silences later-repeat escalation for lesson-only decisions. Where: memory.config.json. See also: lesson.enforced.
 
+**caps.roadmap.procedure** - Optional one-line text naming the project's own way of shrinking a roadmap rotation cannot shrink, such as its anchored block mover; it has no default. It is guidance only: it changes the wording of `repo.roadmap-no-rotation` and never whether the check fires. Text that is not a non-empty string is a `config.roadmap-procedure` WARN and is ignored, so guidance can never block a commit or an upgrade. Where: `memory.config.json`. See also: repo.roadmap-no-rotation, config.roadmap-procedure, caps.roadmap.
+
 **caps.router.failLines** - Router failure threshold, default 200 lines, excluding a terminal newline. Where: memory.config.json. See also: router.lines.
+
+**caps.router.targetBytes** - The router size above which `router.target` warns, default 11,264 bytes (the warning line is 12,288). A positive whole number; anything else is a `config.caps` FAIL and the default applies. Where: `memory.config.json`. See also: router.target, caps.router.
 
 **caps.router.warnLines** - Router warning threshold, default 150 lines. Where: memory.config.json. See also: router.lines.
 
@@ -761,7 +777,13 @@ are not copied.
 
 **metadata.takeaway** - Optional hand-set takeaway: fix (error and remedy), method (best way or next-time action), know (how things work). Models label kind; people set takeaway. Capture with new --takeaway, batch takeaway:, or classify takeaways; recall displays and filters it. Where: engine/memory-lesson.mjs and engine/memory-recall.mjs. See also: lesson.takeaway.
 
+## Topic promotion
+
+**promote** - Convert mapped topic notes into numbered lessons with reversible filename and link rewrites, recall and gate proofs, and optional old-name stubs. Where: `engine/memory-promote.mjs`, invoked by `memory-migrate.mjs promote`. See also: migration, lesson, old-name stub.
+
 ## Session note helpers
+
+**board link** - A claude.ai artifact address in the overlay's board key, or in the untracked KIT.local.json of the main checkout when the overlay has none; start then prints a read-only block that tells the agent how to count open and new decisions on that board, and never lists the link as an add-on. Anything else that begins with http or https is refused. Where: `engine/new-session.mjs`. See also: new-session, session core.
 
 **caps.handovers** - Loose-note and archive settings: `caps.handovers.warnBytes` is 3,072, `caps.handovers.failBytes` is 6,144, `caps.handovers.archiveWarnBytes` is 102,400, `caps.handovers.keepNotes` is 20 and `caps.handovers.windowHours` is 24. Where: `memory.config.json`. See also: handover.size, handover.archive-size.
 
@@ -782,3 +804,61 @@ are not copied.
 **new-session** - Read-only detect, dispatch, start, brief and open commands; phrase entry checks installed skill ownership, while start summarizes the newest notes and waits for go. Where: `engine/new-session.mjs`. See also: session core, CURRENT block.
 
 **session core** - Shared CURRENT and overlay parsing, raw-byte state tokens, phrase matching, note listing and bounded output; note order follows sequence numbers, and listing never writes. Where: `engine/session-core.mjs`. See also: new-session, caps.handovers.
+
+## Lesson conversion toolkit
+
+**census** - Classify memory files, count external references and project hot-page bytes before promotion. Where: `engine/memory-census.mjs`. See also: promote, topic.
+
+**hook engine version** - The installing engine version embedded in the owned pre-commit hook; the hook refuses a checkout with an older KIT.json version. Where: `engine/install-hooks.mjs`. See also: migration, promote.
+
+**labelling toolkit** - Build blind bundles, validate and merge labels, settle semantic disputes and emit promotion maps with date previews. Where: `engine/memory-label.mjs`. See also: LABELLING.md, promote.
+
+**self-recall** - Save a query and top-10 rank for each memory file, then compare the same queries with rename-map identity; any worse rank fails. Where: `engine/memory-selfrecall.mjs`. See also: recall, promote.
+
+## Update safety (3.3.4)
+
+**--live-memory** - Upgrade flag that allows a real update or restore to write the live memory folder and its hook; without it such a run writes nothing and exits 1, and it is refused from a linked worktree. Such a run is exclusive maintenance (3.3.5): it writes nothing while any live, malformed or unreadable session ledger holds unresolved claims, and it holds the push lock with the memory lock, so a held push lock refuses it. Where: `scripts/upgrade.mjs --target <PROJECT> --live-memory`, run from the main checkout. See also: live memory, rehearsal folder.
+
+**--memory-only** - Upgrade flag that replays only the memory steps (route migration, generated pages, lock line, hook) with a backup and the gate before and after, when project files are already at the kit version; `--check` lists only its memory and hook writes. On `memory-checkpoint.mjs` it is a session-mode flag with another meaning: the save commits memory only and defers the repo outputs (brain index, roadmap overview), reporting which are stale; it needs memory outside the project repo and refuses in-repo memory. Where: `scripts/upgrade.mjs --target <PROJECT> --memory-only --live-memory`, `memory-checkpoint.mjs --session --memory-only`. See also: memory not updated, upgrade.
+
+**live memory** - The memory folder an update uses when `--memory-dir` is not given (`CLAUDE_MEMORY_DIR`, `memory.inRepoDir`, `KIT.local.json`, then the default folder), plus the hook the kit resolves for it; a `--memory-dir` that resolves to the same folder through a link is live too. Where: `scripts/upgrade.mjs` planned writes (`MEMORY <folder> (<source>; live)`). See also: --live-memory, rehearsal folder.
+
+**memory not updated** - The same-version outcome when project files are at the kit version but memory is not (a pending route migration, or stale or obsolete generated pages): the update writes nothing, exits 3 and prints the `--memory-only` replay command. Where: `scripts/upgrade.mjs`. See also: --memory-only, index.stale.
+
+**rehearsal folder** - A `--memory-dir` copy that is not live; an update may write only inside it and inside the project, and every destination is resolved through links first, so a link into live memory or outside the copy is refused before any write. Where: `scripts/upgrade.mjs --target <PROJECT> --memory-dir <copy>`. See also: live memory, --live-memory.
+
+## Standard block and Project rules
+
+**decisions file** - A JSON file that keeps or drops each unclear unit by its id, with a reason, who decided and a scope (`project` by default, or `general` for every project); an id that is not a unit of the file, an empty reason or another scope refuses before writes. Where: `--instructions-decisions <FILE>`, drafted by `instructions-sort.mjs preview --out <FOLDER>`. See also: unclear unit, sorting ledger.
+
+**instructions report** - The record a first update writes into its backup folder, with no entries when the file had no old section: every unit of the old section with its outcome, scope, reason, who decided, the source of the decision and the `general` ledger entries it matched, kept even when a decision settled their conflict. Where: `scripts/memory/.kit-backup-<UTC>/instructions-report.json`. See also: sorting ledger, standard block.
+
+**Project rules** - The `## Project rules` section of the instructions file for rules that belong to one project; the kit adds kept lines to its end once, on a first update, and never edits or removes anything in it. Where: `AGENTS.md`, or `CLAUDE.md` when that is the only instructions file. See also: standard block, decisions file.
+
+**shipped-lines catalog** - Every line the memory gate template had at each release in its recorded source list, with the in-repo variant; a unit that is one such line is kit wording and is replaced. For each listed release that wrote standard blocks it also keeps that block's lines in order, so an update compares an old block with what its own release wrote. Where: `templates/shipped-instruction-lines.json`. See also: standard block, unclear unit.
+
+**sorting ledger** - Earlier sorting decisions, one encoded entry per unit, read by install and update so a `general` decision applies by itself and a `project` decision from another project shows as a suggestion; conflicting `general` entries leave the unit unclear. Where: `ledger/*.json` in the kit folder or `--instructions-ledger <FILE>`; `instructions-sort.mjs ledger-add` and `ledger-show`. See also: decisions file, instructions report.
+
+**standard block** - The kit-owned lines between `<!-- kit standard block (memory kit <version>): begin. ... -->` and `<!-- kit standard block: end -->`, written from the memory gate template on every install and update; in `CLAUDE.md` it holds only the `@AGENTS.md` import when `AGENTS.md` exists. A changed, deleted, duplicated or reordered line, against what the release named in the begin marker wrote, is a local edit: warned about, then replaced. Damaged markers refuse before writes. Where: `AGENTS.md` and `CLAUDE.md`; `templates/AGENTS-memory-gate.md`, `templates/CLAUDE-standard-block.md`. See also: Project rules, shipped-lines catalog.
+
+**unclear unit** - A bullet with its indented lines, or another non-blank line, of an old memory section that is neither kit wording nor decided by a decisions file or a `general` ledger entry; an update or install refuses until it is kept or dropped. Where: `UNCLEAR <id>` lines of `upgrade.mjs --check` and `instructions-sort.mjs preview`. See also: decisions file, sorting ledger.
+
+## Sessions and claims (3.3.5)
+
+**--all** - `memory-checkpoint.mjs` flag that runs the all-pending save of 3.3.4 for one run even when `caps.checkpoint.mode` is `"session"`: every pending memory change is saved, and rotation runs unless another session has claims pending. It cannot be combined with `--session`. Where: `memory-checkpoint.mjs --all`. See also: --session, caps.checkpoint.mode.
+
+**--files** - `memory-checkpoint.mjs` flag, session mode only, that lists memory files to save with this session's own unresolved claims. Each named file is claimed now and stays claimed until a commit completes it or it is released; a file another live session claims is reported as contended and left out unless `--take` names it. Where: `memory-checkpoint.mjs --session --files <file>...`. See also: --files-only, --take, memory-session.mjs.
+
+**--files-only** - `memory-checkpoint.mjs` flag, session mode only: save only the files named by `--files` (and `--take`) and leave this session's other claims for a later save. With nothing selected the run only publishes: it commits nothing and writes no generated or repo output. Where: `memory-checkpoint.mjs --session --files-only --files <file>...`. See also: --files, --take.
+
+**--no-rotate** - `memory-checkpoint.mjs` flag that skips the log, roadmap and hand-over rotations for one run (each step reports `skipped (--no-rotate)`), for a save that must not move shared history. A session-mode save never rotates anyway. Where: `memory-checkpoint.mjs --no-rotate`. See also: rotation, --all.
+
+**--session** - `memory-checkpoint.mjs` flag that runs this checkout's session save for one run, whatever `caps.checkpoint.mode` says: it commits only the memory files this session has claimed (and any named with `--files` or `--take`) with the generated pages they change, never another session's edits, and does no rotation. It needs a first commit in memory and cannot be combined with `--all`. Where: `memory-checkpoint.mjs --session`. See also: --all, --files, memory-session.mjs.
+
+**--take** - `memory-checkpoint.mjs` flag, session mode only, that lists files another live session claims which this save commits anyway, taking over the claim. It commits the file as it is in the shared working folder and cannot rebuild an edit that was overwritten there. Where: `memory-checkpoint.mjs --session --take <file>...`. See also: --files, memory-session.mjs.
+
+**caps.checkpoint** - Checkpoint mode: `caps.checkpoint.mode` is `"all"` (the default, the 3.3.4 save of every pending memory change) or `"session"` (a save commits only this session's claimed files and their generated pages; `--all` overrides one run). Where: `memory.config.json`. See also: checkpoint, memory-session.mjs.
+
+**caps.checkpoint.mode** - Whether a checkpoint saves everything pending (`"all"`, the default) or only this session's claimed files (`"session"`). Any other value makes the checkpoint refuse with `caps.checkpoint.mode must be all or session`. `--session` and `--all` override it for one run. Where: `memory.config.json`. See also: caps.checkpoint, --session, --all.
+
+**memory-session.mjs** - Sessions, claims and ledgers: a session is one checkout on one branch; `claim <file>...` reserves memory files before editing and refuses a file another live session claims, `list` shows this session's claims and every other live, stale, malformed or unreadable ledger, `release <file>...` drops a claim without touching the file, and `prune [--apply]` moves stale ledgers to `.sessions/stale/`. A ledger is stale only on confirmed evidence (its checkout folder is gone while the parent exists, or the checkout is on another branch); a malformed ledger's valid paths keep blocking, and an unreadable one makes claims and saves refuse until it is repaired. Ledgers live in the self-ignoring `.sessions/` folder of memory. Where: `engine/memory-session.mjs`. See also: caps.checkpoint, checkpoint.

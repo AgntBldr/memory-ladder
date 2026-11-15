@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {isDirect, memorySlug, inRepoMemory} from './lib.mjs';
+import {isDirect, memorySlug, inRepoMemory, cleanGitEnv} from './lib.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const operators = {'<': (a,b) => a < b, '>': (a,b) => a > b, '>=': (a,b) => a >= b, '<=': (a,b) => a <= b, '==': (a,b) => a === b};
@@ -57,7 +57,7 @@ const createGit = () => {
  const failed = (repo, r) => { errors.set(repo, r.error?.code === 'ENOENT' ? 'git unavailable' : /dubious ownership/i.test(r.stderr ?? '') ? 'unsafe owner (git ownership guard)' : 'unreadable repo (' + (r.stderr?.trim().split(/\r?\n/)[0] || r.error?.message || 'git failed') + ')'); return null; };
  const git = (repo, ...args) => {
   const base=['--no-optional-locks','-c','core.fsmonitor=false','-c','core.untrackedCache=false','-c','log.showSignature=false','-C',repo];
-  const options={encoding:'utf8',timeout:10000,windowsHide:true,env:{...process.env,GIT_OPTIONAL_LOCKS:'0',GIT_NO_LAZY_FETCH:'1'}};
+  const options={encoding:'utf8',timeout:10000,windowsHide:true,env:{...cleanGitEnv(),GIT_OPTIONAL_LOCKS:'0',GIT_NO_LAZY_FETCH:'1'}};
   // A same-size modified file can make status run clean/process filters while hashing.
   // Reading config does not execute those drivers; mask every configured driver by name.
   if (!probes.has(repo)) {
@@ -163,7 +163,7 @@ export function fleet({roots = [], memoryHome = path.join(process.env.USERPROFIL
     if (!configError && p.memory && (!isWorktree || inRepo)) {
       const configFile=p.project && path.join(p.project,'scripts/memory/memory.config.json');
       const configArgs=configFile&&plain(configFile)?['--config',configFile]:vendor&&plain(path.join(vendor,'engine/memory.config.json'))?['--config',path.join(vendor,'engine/memory.config.json')]:[];
-      const r = spawnSync(process.execPath, [gateFile, '--json', '--no-git', '--repo', p.project ?? p.memory, '--memory-dir', p.memory,...configArgs], {encoding: 'utf8', timeout: 30000, windowsHide: true, env: {...process.env, GIT_OPTIONAL_LOCKS: '0'}});
+      const r = spawnSync(process.execPath, [gateFile, '--json', '--no-git', '--repo', p.project ?? p.memory, '--memory-dir', p.memory,...configArgs], {encoding: 'utf8', timeout: 30000, windowsHide: true, env: {...cleanGitEnv(), GIT_OPTIONAL_LOCKS: '0'}});
       try {
         const result = JSON.parse(r.stdout), findings = result.findings.filter(f => !f.allowed);
         gate.FAIL = findings.filter(f => f.severity === 'FAIL').length;

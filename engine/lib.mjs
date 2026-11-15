@@ -7,14 +7,47 @@ import { fileURLToPath } from 'node:url';
 
 // Keep caller-specific process limits and output handling at the call site.
 export const gitResult = (repo, argv, options = {}) => spawnSync('git', ['--no-optional-locks', '-C', repo, ...argv], {encoding: 'utf8', timeout: 10000, windowsHide: true, ...options});
+// The environment lib's own worktree calls give git. The installer and updater set their clean one
+// (install-hooks.mjs cleanGitEnv); a command that must not follow the caller's variables passes cleanGitEnv() itself
+// (kit 3.3.6: the read-only commands do); only the gate's --hook path keeps the caller's, since the gate also runs
+// inside git's own pre-commit hook, where git's variables describe the commit being checked.
+let gitEnvironment = () => process.env;
+export function useGitEnvironment(make) { gitEnvironment = make; }
+// One clean git environment for every git call the installer and updater make (and the gate they run), and for
+// every git call of memory-session (kit 3.3.5 E2.8 (e)): no variable that points git at another repository, index or
+// object store, changes how it finds the repository, selects a ref namespace (kit 3.3.6: a push or a listing under one
+// lands in another place), changes how a pathspec is read (kit 3.3.6: literal, glob, noglob and icase mode turn a pathspec
+// magic into a file name or make the call die), or adds configuration, the legacy single-file variable included. The variables that only name
+// the global and system configuration files stay: they name inputs. The gate's --hook path does not use it: there git's
+// variables describe the commit being checked. The definition below names configuration variables only to remove
+// them; the handover import-graph fence checks it word for word (tests/release330-handover.test.mjs).
+export const GIT_REDIRECTS = /^(?:GIT_DIR|GIT_WORK_TREE|GIT_INDEX_FILE|GIT_COMMON_DIR|GIT_OBJECT_DIRECTORY|GIT_ALTERNATE_OBJECT_DIRECTORIES|GIT_CEILING_DIRECTORIES|GIT_DISCOVERY_ACROSS_FILESYSTEM|GIT_NAMESPACE|GIT_CONFIG|GIT_CONFIG_COUNT|GIT_CONFIG_PARAMETERS|GIT_CONFIG_KEY_\d+|GIT_CONFIG_VALUE_\d+|GIT_LITERAL_PATHSPECS|GIT_GLOB_PATHSPECS|GIT_NOGLOB_PATHSPECS|GIT_ICASE_PATHSPECS)$/i;
+export function cleanGitEnv(env = process.env) {
+  const clean = {...env};
+  for (const name of Object.keys(clean)) if (GIT_REDIRECTS.test(name)) delete clean[name];
+  return clean;
+}
 export function localTime(date) {
   const pad = n => String(n).padStart(2, '0'), offset = -date.getTimezoneOffset();
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${offset < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
 }
+// Kit 3.3.6 item 15: a failing removal of the temp file never replaces the failure that made it necessary. That failure
+// stays the thrown error and carries the temp path in `residue`, so a caller that reports (the checkpoint) can name the
+// file left behind. With no earlier failure the removal error is thrown, as before.
 export function atomicWrite(file, data, options = {}) {
   const temp = file + '.' + randomUUID() + '.tmp';
+  let failed = false, failure;
   try { fs.writeFileSync(temp, data, {flag: 'wx', ...options}); fs.renameSync(temp, file); }
-  finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
+  catch (error) { failed = true; failure = error; throw error; }
+  finally {
+    if (fs.existsSync(temp)) {
+      try { fs.unlinkSync(temp); }
+      catch (error) {
+        if (!failed) throw error;
+        if (failure && typeof failure === 'object') (failure.residue ??= []).push(temp);
+      }
+    }
+  }
 }
 export function porcelainEntries(raw, {includeSources = false} = {}) {
   const rows = raw.split('\0').filter(Boolean), result = [];
@@ -59,24 +92,54 @@ export const matchEol = (text, original) => {
   for (let link = chains.at(-1); link; link = link.previous) kept.set(link.next, prior[link.old]);
   return next.map((line, i) => kept.get(i) ?? line.replace(/\n$/, eol)).join('');
 };
-export function writeText(file, text) { fs.writeFileSync(file, matchEol(text, fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : text)); }
+// Kit 3.3.6 item 8 sweep: the kind check comes first, because the line-ending read of the destination (and the write) of a
+// fifo, socket or device blocks. Absent, an ordinary file and a folder behave as before.
+export function writeText(file, text) { refuseSpecialRead(file); fs.writeFileSync(file, matchEol(text, fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : text)); }
 export const utf8Bytes = s => Buffer.byteLength(s, 'utf8');
 export const slash = s => s.replace(/\\/g, '/');
+// Kit 3.3.6 item 8: the kind check of the read helpers. A fifo, socket or device must never be read (a read of one blocks).
+// True only for an existing entry that is neither a file nor a folder (stat follows links); an absent path (ENOENT, ENOTDIR)
+// and a folder are false, so each still behaves as it did (the read that follows reports it). Any other stat error means the
+// kind is unknown: it propagates, and each helper reports it through its own error path (fail closed; spec section 2).
+function isSpecial(file) {
+  let stat;
+  try { stat = fs.statSync(file); }
+  catch (error) { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false; throw error; }
+  return !stat.isFile() && !stat.isDirectory();
+}
 export function read(file) {
+  if (isSpecial(file)) throw Object.assign(new Error(`${file} is not a regular file`), {code: 'ENOTFILE'});
   try { return fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''); }
   catch (error) {
     if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return '';
     throw error;
   }
 }
+// Kit 3.3.5 R1 review: a read that a gate check newly reaches must not block on a FIFO, a device or a socket. True for a
+// regular file, false when absent; anything else (a folder too) is refused before any read. stat follows links, so a link
+// to a regular file is a regular file.
+export function regularFileOrAbsent(file, label) {
+  let stat;
+  try { stat = fs.statSync(file); }
+  catch (error) { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return false; throw error; }
+  if (!stat.isFile()) throw new Error(`${label} is not a regular file`);
+  return true;
+}
 export function readRequired(file) {
-  try { return fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''); }
-  catch { throw new Error(`cannot read ${file}`); }
+  try {
+    if (isSpecial(file)) throw Object.assign(new Error(`cannot read ${file} (not a regular file)`), {code: 'ENOTFILE'});
+    return fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+  } catch (error) { throw error?.code === 'ENOTFILE' ? error : new Error(`cannot read ${file}`); }
+}
+// Kit 3.3.6 item 8: the same kind check for a caller that reads bytes (the checkpoint's readBytes). Throws for a fifo, socket
+// or device; returns normally for everything else.
+export function refuseSpecialRead(file) {
+  if (isSpecial(file)) throw Object.assign(new Error(`${file} is not a regular file`), {code: 'ENOTFILE'});
 }
 export const loadConfig = () => JSON.parse(read(path.join(toolDir, 'memory.config.json')));
 export const pathSpelling = value => process.platform === 'win32' ? slash(value).toLowerCase() : value;
 const canonicalDirectories = new Map();
-function canonicalPath(file) {
+export function canonicalPath(file) {
   const suffix = [];
   let parent = path.resolve(file);
   for (;;) {
@@ -103,6 +166,25 @@ function canonicalPath(file) {
     }
   }
 }
+// Uncached: every call resolves the deepest existing ancestor again, so a link
+// retargeted between two calls is seen. Same fail-closed rules as canonicalPath.
+export function canonicalPathFresh(file) {
+  const suffix = [];
+  let parent = path.resolve(file);
+  for (;;) {
+    let stat;
+    try { stat = fs.lstatSync(parent); }
+    catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
+      const next = path.dirname(parent);
+      if (next === parent) throw error;
+      suffix.unshift(path.basename(parent)); parent = next;
+      continue;
+    }
+    // realpath of an existing entry follows every link in the chain; a dangling link throws.
+    return path.join(fs.realpathSync.native(parent), ...suffix);
+  }
+}
 const canonicalKeys = new Map();
 export function pathKeyFor(platform, ...parts) {
   const resolved = path.resolve(...parts);
@@ -118,6 +200,46 @@ const contained = (root, file) => {
   const rel = path.relative(root, file);
   return rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
 };
+// Kit 3.3.6 step 0: the kind check that comes before a read of a planned destination or a file the operator names. stat
+// follows links, so a link to a regular file is a regular file and a dangling link is absent. Absent (ENOENT, ENOTDIR),
+// a regular file and a folder return (a folder is the caller's own read to report); a fifo, socket or device, and any
+// other stat error, throw before the caller reads, so planning never blocks on one.
+export function refuseSpecial(file) {
+  let stat;
+  try { stat = fs.statSync(file); }
+  catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return;
+    throw new Error(`cannot resolve ${file} (${error.code ?? error.message}); nothing written`);
+  }
+  if (!stat.isFile() && !stat.isDirectory()) throw new Error(`cannot protect the special file ${file} (a fifo, socket or device cannot be kept or restored); nothing written`);
+}
+// Kit 3.3.6 step 0: a cleanup that must never replace the real result. Removes target (a file or a folder tree; absent is
+// fine); a failure becomes one note line and false, and neither the failure nor a note that throws leaves this function.
+// The default note writes one line to stderr.
+export function removeQuietly(target, {note = console.error} = {}) {
+  try { fs.rmSync(target, {recursive: true, force: true}); return true; }
+  catch (error) {
+    try { note(`could not remove ${target}; delete it by hand (${error.message})`); } catch {}
+    return false;
+  }
+}
+// Kit 3.3.6 step 0: a scratch folder that is never inside the project or the memory folder. The temporary folder is
+// canonicalised once, checked against every existing folder of outside (canonical keys; equal counts as inside; a folder
+// that does not exist cannot hold it and is skipped) and the scratch folder is made under that same canonical path, so the
+// folder checked is the folder used. Throws before anything is made.
+export function scratchFolder(prefix, outside = []) {
+  const base = fs.realpathSync.native(os.tmpdir()), baseKey = pathKey(base);
+  for (const folder of outside) {
+    let real;
+    try { real = fs.realpathSync.native(folder); }
+    catch (error) {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue;
+      throw new Error(`cannot resolve ${folder} (${error.code ?? error.message}); nothing written`);
+    }
+    if (contained(pathKey(real), baseKey)) throw new Error(`the temporary folder ${base} is inside ${folder}; set TEMP and TMP to a folder outside the project and the memory folder`);
+  }
+  return fs.mkdtempSync(path.join(base, prefix));
+}
 export function repoPath(repo, relative, label) {
   const fail = () => { throw new Error(`${label} must be a relative path inside the repo`); };
   if (typeof relative !== 'string' || !relative.trim() || path.posix.isAbsolute(relative) || path.win32.parse(relative).root !== '' || relative.split(/[\\/]/).some(part => part.toLowerCase() === '.git' || /^git~\d+$/i.test(part) || part.includes(':') || (part !== '.' && part !== '..' && /[. ]$/.test(part)))) fail();
@@ -155,15 +277,17 @@ export function isDirect(url) {
   catch { return false; }
 }
 export const memorySlug = repo => repo.replace(/[^A-Za-z0-9]/g, '-');
-export function mainWorktree(repo) {
+// `env`: the git environment for these calls; a session-aware command passes cleanGitEnv() (kit 3.3.5 E2.8 (e)), the
+// gate keeps the default (the caller's, or the one useGitEnvironment set).
+export function mainWorktree(repo, {env = gitEnvironment()} = {}) {
   const git = (...argv) => {
-    const r = gitResult(repo, ['rev-parse', ...argv]);
+    const r = gitResult(repo, ['rev-parse', ...argv], {env});
     return r.status === 0 ? r.stdout.trim() : null;
   };
   const common = git('--path-format=absolute', '--git-common-dir'), dir = git('--absolute-git-dir');
   if (!common || !dir || pathKey(common) === pathKey(dir)) return repo;
   // The common directory belongs to the main checkout, including separate-git-dir setups.
-  const r = gitResult(repo, ['worktree','list','--porcelain','-z']);
+  const r = gitResult(repo, ['worktree','list','--porcelain','-z'], {env});
   return r.status === 0 && r.stdout.startsWith('worktree ') && !r.stdout.split('\0\0')[0].split('\0').includes('bare') ? r.stdout.slice(9).split('\0')[0] : repo;
 }
 
@@ -172,9 +296,14 @@ export function readKitJSON(file) {
     const value = JSON.parse(readRequired(file));
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('expected an object');
     return value;
-  } catch (error) { throw new Error(`cannot read ${file}: ${String(error.message).replace(/[\r\n]+/g, ' ')}`); }
+  } catch (error) {
+    // Kit 3.3.7: readRequired's own errors already name the file ("cannot read <file>", "cannot read <file> (not a regular
+    // file)"); the file is named once. Any other reason (bad JSON, not an object) follows the file name.
+    const reason = String(error.message).replace(/[\r\n]+/g, ' ');
+    throw new Error(reason.startsWith('cannot read ') ? reason : `cannot read ${file}: ${reason}`);
+  }
 }
-export function memoryLocation(repo = repoRoot(), requested, {list = true} = {}) {
+export function memoryLocation(repo = repoRoot(), requested, {list = true, env = gitEnvironment()} = {}) {
   if (requested) return { dir: path.resolve(requested), source: '--memory-dir' };
   if (process.env.CLAUDE_MEMORY_DIR) return { dir: path.resolve(process.env.CLAUDE_MEMORY_DIR), source: 'CLAUDE_MEMORY_DIR' };
   const configFile = path.join(repo, 'scripts/memory/memory.config.json');
@@ -186,7 +315,7 @@ export function memoryLocation(repo = repoRoot(), requested, {list = true} = {})
       return {dir: path.resolve(repo, configured), source: 'memory.inRepoDir'};
     }
   }
-  repo = mainWorktree(repo);
+  repo = mainWorktree(repo, {env});
   const receipt = path.join(repo, 'scripts/memory/KIT.json');
   if (fs.existsSync(receipt)) readKitJSON(receipt);
   const local = path.join(repo, 'scripts/memory/KIT.local.json');
@@ -195,7 +324,7 @@ export function memoryLocation(repo = repoRoot(), requested, {list = true} = {})
     if (configured && typeof configured !== 'string') throw new Error(`invalid memoryDir in ${local}`);
     if (configured) {
       const exists = fs.existsSync(path.resolve(configured));
-      const tracked = !exists && path.isAbsolute(configured) ? spawnSync('git', ['-C', repo, 'ls-files', '--error-unmatch', '--', ':(icase)scripts/memory/KIT.local.json'], {encoding:'utf8',timeout:10000,windowsHide:true}) : null;
+      const tracked = !exists && path.isAbsolute(configured) ? spawnSync('git', ['-C', repo, 'ls-files', '--error-unmatch', '--', ':(icase)scripts/memory/KIT.local.json'], {encoding:'utf8',timeout:10000,windowsHide:true,env}) : null;
       if ((exists && fs.statSync(path.resolve(configured)).isDirectory()) ||
           (!exists && path.isAbsolute(configured) && tracked.status === 1))
         return { dir: path.resolve(configured), source: 'KIT.local.json' };
@@ -431,6 +560,17 @@ export function hardRuleTargets(router) {
   }
   return result;
 }
+// Kit 3.3.6 item 20: the cards a router lists under ## Hard rules as [[wikilinks]] (a name, a file name, [[card|alias]],
+// [[card#heading]]). A name resolves only once the files are parsed, so memoryFiles resolves these in a second pass.
+export function hardRuleWikilinks(router) {
+  let active = false;
+  const result = [];
+  for (const line of router.split(/\r?\n/)) {
+    if (/^##\s/.test(line)) active = /^##\s+Hard rules/i.test(line);
+    if (active) result.push(...wikilinks(line));
+  }
+  return result;
+}
 export const isIndexPage = file => file.startsWith('INDEX-') && /\.md$/i.test(file);
 export function indexFamily(file) {
   const stem = file.slice(6, -3), parts = stem.split('-');
@@ -464,8 +604,8 @@ export function handoverFiles(memoryDir) {
   } catch { return []; }
 }
 export function memoryFiles(dir) {
-  const hard = new Set(hardRuleTargets(read(path.join(dir, 'MEMORY.md'))).map(p => pathKey(dir, p)));
-  return listMd(dir).map(file => {
+  const router = read(path.join(dir, 'MEMORY.md')), hard = new Set(hardRuleTargets(router).map(p => pathKey(dir, p)));
+  const rows = listMd(dir).map(file => {
     const text = read(path.join(dir, file)), fm = parseFrontmatter(text);
     const special = /^MEMORY\.md$/i.test(file) ? 'router' : isIndexPage(file) ? 'index' : /^ARCHIVE\.md$/i.test(file) ? 'archive' : null;
     const stub = fmGet(fm.data, 'moved_to') !== undefined;
@@ -474,6 +614,16 @@ export function memoryFiles(dir) {
     return { file, text, ...fm, bytes: utf8Bytes(text), special, stub, state, hardRule,
       topic: !special && !stub && !state && !hardRule };
   });
+  // Kit 3.3.6 item 20: a wikilink under ## Hard rules names its card through the parsed names, so it is resolved here.
+  const wikilinked = hardRuleWikilinks(router);
+  if (wikilinked.length) {
+    const names = memoryNameIndex(rows);
+    for (const name of wikilinked) {
+      const card = resolveWikilink(name, link => names.get(pathSpelling(link)));
+      if (card) { card.hardRule = true; card.topic = false; }
+    }
+  }
+  return rows;
 }
 
 export function lessonCases() {
@@ -517,9 +667,9 @@ export function args(argv = process.argv.slice(2)) {
   }
   return out;
 }
-export function locations(opts) {
+export function locations(opts, {env = gitEnvironment()} = {}) {
   const repo = path.resolve(opts.repo || repoRoot());
-  const memory = memoryLocation(repo, opts['memory-dir']);
+  const memory = memoryLocation(repo, opts['memory-dir'], {env});
   return { repo, memoryDir: memory.dir, memorySource: memory.source };
 }
 export function requireMemory(dir) {

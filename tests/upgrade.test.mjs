@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 import childProcess from 'node:child_process';
 import {syncBuiltinESMExports} from 'node:module';
 import {generateMemoryIndex,gateCheckIds} from '../engine/memory-index.mjs';
-import {fixture,ok,tree,json,read,put,bump,hash,nextVersion,versionPattern,nextVersionPattern} from './helpers.mjs';
+import {fixture,ok,tree,json,read,put,bump,hash,nextVersion,versionPattern,nextVersionPattern,assertInstructionSpans} from './helpers.mjs';
 
 test('L4 guard merge preserves foreign hooks and is idempotent', async () => {
   const {mergeGuardHooks,options,usage} = await import('../scripts/install.mjs');
@@ -30,7 +30,7 @@ test('L4 install no-guard persists with memoryDir and upgrade honors it', t => {
   ok(f.install(['--no-guard', '--memory-dir', f.memory]));
   const local = json(path.join(f.target, 'scripts/memory/KIT.local.json'));
   assert.equal(local.guard, false); assert.equal(local.memoryDir, f.memory);
-  const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target], bump(f)));
+  const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target, '--live-memory'], bump(f)));
   assert.ok(r.stdout.split(/\r?\n/).includes('settings: skipped (KIT.local.json guard: false)'));
   assert.equal(json(path.join(f.target, '.claude/settings.json')).hooks.PreToolUse, undefined);
 });
@@ -43,7 +43,7 @@ test('L4 upgrade creates missing settings, plans hooks, and prints instructions 
   assert.equal(check.status, 1);
   assert.ok(check.stdout.split(/\r?\n/).includes('settings: guard hooks would add (PreToolUse Bash|PowerShell, UserPromptSubmit)'));
   assert.ok(!fs.existsSync(path.join(f.target, '.claude/settings.json')));
-  const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target], next));
+  const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target, '--live-memory'], next));
   assert.ok(r.stdout.split(/\r?\n/).includes('WARN AGENTS.md:1 still says "memory-lesson.mjs new --route <family>"; add --kind <mistake|practice|observation>'));
   assert.ok(r.stdout.split(/\r?\n/).includes('settings: guard hooks added (PreToolUse Bash|PowerShell, UserPromptSubmit)'));
   assert.equal(json(path.join(f.target, '.claude/settings.json')).hooks.PreToolUse[0].matcher, 'Bash|PowerShell');
@@ -56,7 +56,7 @@ test('L4 listed new FAIL is pre-existing while changed message retains check-fil
   put(path.join(next, 'scripts/upgrade.mjs'), read(path.join(next, 'scripts/upgrade.mjs')).replace("export const NEW_CHECKS = ['config.path'];", "export const NEW_CHECKS = ['router.lines'];"));
   put(path.join(next, 'engine/new-marker.mjs'), '// marker\n');
   ok(f.cli('scripts/manifest.mjs', [], next));
-  const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target], next));
+  const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target, '--live-memory'], next));
   assert.ok(r.stdout.split(/\r?\n/).includes(`pre-existing FAIL (new check in ${nextVersion}) router.lines MEMORY.md: before`));
   assert.ok(r.stdout.split(/\r?\n/).includes(`upgrade: complete (1 pre-existing FAIL remain, 1 of them from checks new in ${nextVersion})`));
 });
@@ -65,7 +65,7 @@ test('L4 broken legacy hint child cannot break upgrade and final line stays iden
   const f = fixture(t); ok(f.install()); const next = bump(f);
   put(path.join(next, 'engine/memory-lesson.mjs'), "throw Error('broken');\n");
   ok(f.cli('scripts/manifest.mjs', [], next));
-  const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target], next));
+  const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target, '--live-memory'], next));
   assert.equal(r.stdout.trim().split(/\r?\n/).at(-1), 'upgrade: complete (0 pre-existing FAIL remain)');
 });
 
@@ -74,7 +74,7 @@ test('L4 listed check on a different file after replacement still rolls back', t
   put(file,read(file).replace('const originals = [...findings];', "add('FAIL', 'router.lines', repo && fs.existsSync(path.join(repo, 'scripts/memory/new-marker.mjs')) ? 'different.md' : 'MEMORY.md', null, 'injected');\n  const originals = [...findings];"));
   put(path.join(next,'scripts/upgrade.mjs'),read(path.join(next,'scripts/upgrade.mjs')).replace("export const NEW_CHECKS = ['config.path'];","export const NEW_CHECKS = ['router.lines'];"));
   put(path.join(next,'engine/new-marker.mjs'),'// marker\n');ok(f.cli('scripts/manifest.mjs',[],next));
-  const r=f.cli('scripts/upgrade.mjs',['--target',f.target],next);assert.equal(r.status,1);assert.match(r.stderr,/new FAIL: router.lines different.md: injected/);assert.deepEqual(tree(f.target),before);
+  const r=f.cli('scripts/upgrade.mjs',['--target',f.target,'--live-memory'],next);assert.equal(r.status,1);assert.match(r.stderr,/new FAIL: router.lines different.md: injected/);assert.deepEqual(tree(f.target),before);
 });
 
 test('L4 NEW_CHECKS is exactly the new FAIL-capable registry', async () => {
@@ -118,7 +118,7 @@ test('L4 install guard-only local preference accepts custom memory and seeds rul
   assert.ok(r.stdout.split(/\r?\n/).includes('settings: skipped (KIT.local.json guard: false)'));
   assert.deepEqual(json(path.join(engine,'KIT.local.json')),{guard:false,extra:7,memoryDir:f.memory});
   assert.equal(read(path.join(engine,'enforce-rules.json')),' {"version":1,"rules":[]}\n');
-  ok(f.cli('scripts/upgrade.mjs',['--target',f.target],bump(f)));
+  ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--live-memory'],bump(f)));
   assert.equal(read(path.join(engine,'enforce-rules.json')),' {"version":1,"rules":[]}\n');
   const other=fixture(t),localFile=path.join(other.target,'scripts/memory/KIT.local.json');
   fs.mkdirSync(other.memory,{recursive:true});
@@ -210,7 +210,7 @@ test('K.4 equal version and hashes is a no-op, differing engine hashes upgrade',
 });
 test('K.4 injected failure after second copied file restores all bytes and exits 1',t=>{
   const f=fixture(t);ok(f.install());const next=bump(f),before=tree(f.target);
-  const driver=put(path.join(f.root,'interrupt.mjs'),`import {upgrade} from ${JSON.stringify(pathToFileURL(path.join(next,'scripts/upgrade.mjs')).href)};\nprocess.exitCode=upgrade({target:${JSON.stringify(f.target)}},${JSON.stringify(next)},{afterCopy:n=>{if(n===2)throw Error('injected after second copied file')}});\n`);
+  const driver=put(path.join(f.root,'interrupt.mjs'),`import {upgrade} from ${JSON.stringify(pathToFileURL(path.join(next,'scripts/upgrade.mjs')).href)};\nprocess.exitCode=upgrade({target:${JSON.stringify(f.target)},'live-memory':true},${JSON.stringify(next)},{afterCopy:n=>{if(n===2)throw Error('injected after second copied file')}});\n`);
   const r=f.exec(process.execPath,[driver]);assert.equal(r.status,1);assert.match(r.stderr,/restored .*\.kit-backup-.*injected/);assert.deepEqual(tree(f.target),before);
   const backup=path.join(f.target,'scripts/memory',fs.readdirSync(path.join(f.target,'scripts/memory')).find(n=>n.startsWith('.kit-backup-')));
   for(const e of json(path.join(backup,'restore.json')).files) if(e.existed) assert.equal(read(path.join(f.target,e.file)),read(path.join(backup,e.file)));
@@ -222,12 +222,18 @@ test('K.4 new release merges defaults, preserves project values, skips edited sk
   const keep=['scripts/memory/recall-probes.json','AGENTS.md','.claude/settings.json'];const originals=Object.fromEntries(keep.map(p=>[p,read(path.join(f.target,p))]));const hook=read(path.join(f.memory,'.git/hooks/pre-commit'));
   const skill=path.join(f.target,'.claude/skills/memory-review/SKILL.md');put(skill,read(skill)+'\nLocal instruction.\n');const local=read(skill);
   const check=f.cli('scripts/upgrade.mjs',['--target',f.target,'--check'],next);assert.equal(check.status,1);assert.match(check.stdout,new RegExp(versionPattern+' -> '+nextVersionPattern+'(?=\\s|$)')); // 3.2.1: version from VERSION
-  const r=ok(f.cli('scripts/upgrade.mjs',['--target',f.target],next));assert.match(r.stdout,/WARN edited skill skipped/);assert.equal(read(skill),local);
+  const r=ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--live-memory'],next));assert.match(r.stdout,/WARN edited skill skipped/);assert.equal(read(skill),local);
   const updated=json(path.join(engine,'memory.config.json'));assert.equal(updated.engine_version,nextVersion);assert.deepEqual(updated.newDefault,{enabled:true});delete updated.newDefault;updated.engine_version=config.engine_version;assert.deepEqual(updated,config); // 3.2.1: version from VERSION
-  for(const p of keep) assert.equal(read(path.join(f.target,p)),originals[p]);assert.equal(read(path.join(f.memory,'.git/hooks/pre-commit')),hook);
+  // 3.3.4: the kit block's begin marker names the new version; every other AGENTS.md byte stays.
+  for(const p of keep) if(p==='AGENTS.md') assertInstructionSpans(originals[p],read(path.join(f.target,p))); else assert.equal(read(path.join(f.target,p)),originals[p]);
+  assert.match(read(path.join(f.target,'AGENTS.md')),new RegExp('^<!-- kit standard block \\(memory kit '+nextVersionPattern+'\\): begin\\.','m'));
+  // Refresh changes the embedded installing version; every other hook byte stays exact.
+  const installedVersion='needed='+JSON.stringify(config.engine_version);
+  assert.ok(hook.includes(installedVersion));
+  assert.equal(read(path.join(f.memory,'.git/hooks/pre-commit')),hook.replace(installedVersion,'needed='+JSON.stringify(nextVersion)));
   assert.equal(hash(path.join(engine,'lib.mjs')),hash(path.join(next,'engine/lib.mjs')));
   assert.equal(json(path.join(engine,'KIT.json')).version,nextVersion); // 3.2.1: version from VERSION
-  ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--force-skills'],next));assert.equal(read(skill),read(path.join(next,'skills/memory-review/SKILL.md')));
+  ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--force-skills','--live-memory'],next));assert.equal(read(skill),read(path.join(next,'skills/memory-review/SKILL.md')));
   assert.equal(json(path.join(engine,'MANIFEST.json')).files['.claude/skills/memory-review/SKILL.md'],hash(skill));
   console.log('K.4 upgrade fixture: defaults merged, project content preserved, edited skill skipped then forced; 0 FAIL');
 });
@@ -236,7 +242,7 @@ test('K.4 gate failure restores config and every replaced file',t=>{
   const c=json(path.join(next,'engine/memory.config.json'));c.caps.router.failBytes=1;
   // Existing values win: force an actual gate failure through replaced engine code.
   put(path.join(next,'engine/memory-check.mjs'),'console.log("injected gate failure"); process.exitCode=1;\n');ok(f.cli('scripts/manifest.mjs',[],next));
-  const r=f.cli('scripts/upgrade.mjs',['--target',f.target],next);assert.equal(r.status,1);assert.match(r.stderr,/restored .*\.kit-backup-/);assert.deepEqual(tree(f.target),before);
+  const r=f.cli('scripts/upgrade.mjs',['--target',f.target,'--live-memory'],next);assert.equal(r.status,1);assert.match(r.stderr,/restored .*\.kit-backup-/);assert.deepEqual(tree(f.target),before);
 });
 
 test('K1 archived generated pages upgrade and restore byte-for-byte', t => {
@@ -253,10 +259,10 @@ test('K1 archived generated pages upgrade and restore byte-for-byte', t => {
   ok(f.cli('scripts/memory/memory-index.mjs', ['--write'], f.target));
   const pages = Object.fromEntries(fs.readdirSync(f.memory).filter(x => x.startsWith('INDEX-')).map(x => [x, fs.readFileSync(path.join(f.memory, x))]));
   const next=bump(f),ledger=path.join(next,'engine/upgrades.json'),rows=json(ledger);rows.at(-1).retired=['scripts/memory/memory.test.mjs'];put(ledger,JSON.stringify(rows));
-  const result = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target],next));
+  const result = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target, '--live-memory'],next));
   assert.notDeepEqual(fs.readFileSync(path.join(f.memory, 'INDEX-craft-sessions.md')), pages['INDEX-craft-sessions.md']);
   const backup = result.stdout.match(/upgrade backup: (.+)/)[1].trim();
-  ok(f.cli('scripts/upgrade.mjs', ['--target', f.target, '--restore', backup]));
+  ok(f.cli('scripts/upgrade.mjs', ['--target', f.target, '--restore', backup, '--live-memory']));
   for (const [name, bytes] of Object.entries(pages)) assert.deepEqual(fs.readFileSync(path.join(f.memory, name)), bytes);
 });
 
@@ -267,7 +273,7 @@ for (const router of ['missing', 'index-less', 'valid']) test('regeneration repo
   if (router === 'index-less') put(path.join(f.memory, 'MEMORY.md'), '# Memory\n');
   if (router === 'valid') for (let n = 0; n < 22; n++) put(path.join(f.memory, `INDEX-obsolete-${String(n).padStart(2, '0')}.md`), '<!-- generated by memory-index.mjs; edit the lessons, not this file -->\n');
   const before = tree(f.memory);
-  const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target], next));
+  const r = ok(f.cli('scripts/upgrade.mjs', ['--target', f.target, '--live-memory'], next));
   if (router === 'valid') {
     const report = r.stdout.split('\n').find(line => line.startsWith('regenerated '));
     assert.match(report, /^regenerated 2 generated pages; removed 23: /);
@@ -288,7 +294,7 @@ if (fs.existsSync(memory + '/INDEX-obsolete.md')) throw Error('regeneration did 
 console.log(JSON.stringify({findings:[{severity:'FAIL',check:'injected',file:'MEMORY.md',message:'after regeneration'}]})); process.exitCode=1;
 `);
   ok(f.cli('scripts/manifest.mjs', [], next));
-  const r = f.cli('scripts/upgrade.mjs', ['--target', f.target], next);
+  const r = f.cli('scripts/upgrade.mjs', ['--target', f.target, '--live-memory'], next);
   assert.equal(r.status, 1); assert.match(r.stderr, /new FAIL: injected/);
   assert.deepEqual(tree(f.memory), before);
 });
@@ -331,7 +337,8 @@ test('upgrade NEW_CHECKS exist in gate and comparison rejects missing IDs', asyn
   assert.throws(()=>assertRegisteredChecks(['lesson.kind'],source.replaceAll('lesson.kind','removed.kind')),/lesson.kind/);
 });
 
-for(const flag of ['--check','--dry-run']) test(`restore refuses ${flag} before touching files`,t=>{
+// 3.3.4: --restore can be previewed (it lists every destination); this replaces the 3.3.3 refusal.
+for(const flag of ['--check','--dry-run']) test(`restore ${flag} previews the restore plan before touching files`,t=>{
   const f=fixture(t),backup=path.join(f.root,'backup');
   put(path.join(f.target,'host.txt'),'current\n');
   put(path.join(backup,'host.txt'),'old\n');
@@ -339,6 +346,7 @@ for(const flag of ['--check','--dry-run']) test(`restore refuses ${flag} before 
   const before=tree(f.root,{git:true,previous:true});
   const result=f.cli('scripts/upgrade.mjs',['--target',f.target,'--restore',backup,flag]);
   assert.equal(result.status,1);
-  assert.equal(result.stderr.trim(),'upgrade: --restore cannot be previewed; run it without --check or --dry-run');
+  assert.ok(result.stdout.split(/\r?\n/).includes('RESTORE host.txt'),result.stdout);
+  assert.doesNotMatch(result.stdout+result.stderr,/cannot be previewed/);
   assert.deepEqual(tree(f.root,{git:true,previous:true}),before);
 });

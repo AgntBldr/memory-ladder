@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { normalizeEol, matchEol, writeText, parseFrontmatter, fmGet, isDirect, requireMemory, utf8Bytes, locations, memoryFiles, brainNameSet, pathSpelling, isIndexPage, indexFamily, mdLinks, wikilinks, read, loadConfig, toolDir } from './lib.mjs';
+import { normalizeEol, matchEol, writeText, parseFrontmatter, fmGet, isDirect, requireMemory, utf8Bytes, locations, memoryFiles, brainNameSet, pathSpelling, isIndexPage, indexFamily, mdLinks, wikilinks, read, loadConfig, toolDir, cleanGitEnv } from './lib.mjs';
 import { redact, memoryWikilink, memoryNameIndex } from './lib.mjs';
 import {withMemoryLock} from './memory-lock.mjs';
+import {writerClaim} from './memory-session.mjs';
 import {triggerVocabulary, hasTrigger, generateMemoryIndex, isGenerated, routes, routerFamilies, resolveRouter, isRoutingRow, lessonIdentity} from './memory-index.mjs';
 import {buildCorpus, runProbes} from './memory-recall.mjs';
 
@@ -71,9 +72,9 @@ export function lessonText(l, source = sourceDefault) {
   return `---\nname: ${l.file.slice(0, -3)}\ndescription: ${JSON.stringify(l.description)}\nmetadata:\n  type: feedback\n  lesson: "${l.id}"\n  date: ${l.date || 'null'}\n  source: ${source}\n---\n` + l.body;
 }
 export function migrateLessons(options) {
-  return options.write ? withMemoryLock(options.memoryDir, () => migrateLessonsUnlocked(options), {lock: options.lock}) : migrateLessonsUnlocked(options);
+  return options.write ? withMemoryLock(options.memoryDir, lock => migrateLessonsUnlocked({...options, lock}), {lock: options.lock}) : migrateLessonsUnlocked(options);
 }
-function migrateLessonsUnlocked({ memoryDir, source = sourceDefault, classes, tag = '<name>', write = false }) {
+function migrateLessonsUnlocked({ memoryDir, repo, config, lock, source = sourceDefault, classes, tag = '<name>', write = false }) {
   requireMemory(memoryDir);
   if (typeof tag !== 'string' || !/^(?:<name>|[A-Za-z0-9][A-Za-z0-9._/-]*)$/.test(tag)) throw new Error('invalid recovery tag');
   if (path.basename(source) !== source || !source.endsWith('.md')) throw new Error('source must be a Markdown filename');
@@ -99,6 +100,8 @@ function migrateLessonsUnlocked({ memoryDir, source = sourceDefault, classes, ta
     '\nLesson #N lives in `lesson-NNN-*.md`, zero-padded; letters as in #54b → `lesson-054b-*`.\n' +
     `Exceptions: ${exceptions.join('; ') || 'none'}.\n\nRecovery: \`git -C "${memoryDir}" show ${tag}:${source}\`.\n`;
   if (utf8Bytes(stub) > 4096) throw new Error('Stub exceeds 4 KB');
+  // Kit 3.3.5 E2.4: claim the lessons, hand indexes and source this split writes, inside the lock, before writing.
+  writerClaim({memoryDir, repo, config, lock}, [...lessons.map(l => l.file), ...indexes.keys(), source], 'memory-migrate lessons');
   for (const l of lessons) fs.writeFileSync(path.join(memoryDir, l.file), matchEol(lessonText(l, source), text));
   for (const [index, lines] of indexes) {
     const dest = path.join(memoryDir, index);
@@ -192,7 +195,7 @@ export function checkRouterTriggers(before, after) {
 export function migrateRoutes(options) {
   return options.write ? withMemoryLock(options.memoryDir, lock => migrateRoutesUnlocked({...options, lock}), {lock: options.lock}) : migrateRoutesUnlocked(options);
 }
-function migrateRoutesUnlocked({memoryDir, repo, config = loadConfig(), write = false, beforeWrite = () => {}, probesFile = path.join(toolDir, 'recall-probes.json')}) {
+function migrateRoutesUnlocked({memoryDir, repo, config = loadConfig(), lock, write = false, beforeWrite = () => {}, probesFile = path.join(toolDir, 'recall-probes.json')}) {
   requireMemory(memoryDir);
   const files = memoryFiles(memoryDir), indexes = files.filter(f => f.special === 'index' && !f.stub && !isGenerated(f.text));
   if (!indexes.length) return {noop: true, families: [], router: [], navigation: []};
@@ -449,6 +452,9 @@ function migrateRoutesUnlocked({memoryDir, repo, config = loadConfig(), write = 
   for (const file of generated.removed) updates.set(file, null);
   if (write) {
     beforeWrite({created: [...updates].filter(([file, text]) => text !== null && !fs.existsSync(path.join(memoryDir, file))).map(([file]) => file)});
+    // Kit 3.3.5 E2.4: claim every non-generated file this migration writes or deletes; generated pages follow E3.3.
+    const generatedNow = file => { const abs = path.join(memoryDir, file); return /^INDEX-[^/]*\.md$/.test(file) && fs.existsSync(abs) && isGenerated(read(abs)); };
+    writerClaim({memoryDir, repo, config, lock}, [...updates].filter(([file, text]) => !generatedNow(file) && !(text !== null && !fs.existsSync(path.join(memoryDir, file)) && isGenerated(text))).map(([file]) => file), 'memory-migrate routes');
     const originals = new Map([...updates.keys()].map(file => [file, fs.existsSync(path.join(memoryDir, file)) ? fs.readFileSync(path.join(memoryDir, file)) : null]));
     try {
       for (const [file, text] of updates) { if (text === null) fs.unlinkSync(path.join(memoryDir, file)); else fs.writeFileSync(path.join(memoryDir, file), matchEol(text, originals.get(file)?.toString() ?? text)); }
@@ -463,33 +469,40 @@ function migrateRoutesUnlocked({memoryDir, repo, config = loadConfig(), write = 
   }
   return report;
 }
-export function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2)) {
   try {
     const options = {};
-    const commandIndex = argv.findIndex(x => ['lessons', 'routes', 'convert'].includes(x)), command = argv.splice(commandIndex, 1)[0];
-    if (commandIndex < 0) throw new Error('Usage: memory-migrate.mjs lessons|routes|convert [--memory-dir D] [--write|--dry-run]');
+    const commandIndex = argv.findIndex(x => ['lessons', 'routes', 'convert', 'promote'].includes(x)), command = argv.splice(commandIndex, 1)[0];
+    if (commandIndex < 0) throw new Error('Usage: memory-migrate.mjs lessons|routes|convert|promote [--memory-dir D] [--map MAP.json] [--also DIR] [--scan DIR] [--protect FILE] [--stubs] [--write|--dry-run]');
     for (let i = 0; i < argv.length; i++) {
       const key = argv[i];
       if (key === '--write') options.write = true;
+      else if (key === '--stubs' && command === 'promote') options.stubs = true;
       else if (key === '--dry-run') options.dryRun = true;
-      else if (['--memory-dir', '--repo', '--source', '--classes', '--tag'].includes(key)) {
+      else if (['--memory-dir', '--repo', '--source', '--classes', '--tag', '--map', '--also', '--scan', '--protect'].includes(key)) {
         const value = argv[++i];
         if (!value || value.startsWith('--')) throw new Error(`Missing ${key} value`);
-        options[{ '--memory-dir': 'memory-dir', '--repo': 'repo', '--source': 'source', '--classes': 'classes', '--tag': 'tag' }[key]] = key === '--classes' ? JSON.parse(fs.readFileSync(value, 'utf8')) : value;
+        if(key==='--also'||key==='--scan') (options[key.slice(2)]??=[]).push(value);
+        else options[{ '--memory-dir': 'memory-dir', '--repo': 'repo', '--source': 'source', '--classes': 'classes', '--tag': 'tag', '--map':'map', '--protect':'protect' }[key]] = key === '--classes' ? JSON.parse(fs.readFileSync(value, 'utf8')) : value;
       } else throw new Error(`Unknown option ${key}`);
     }
-    const loc = {...options, ...locations(options), write: Boolean(options.write && !options.dryRun)};
+    const loc = {...options, ...locations(options, {env: cleanGitEnv()}), write: Boolean(options.write && !options.dryRun)};
     let result;
-    if (command === 'routes') result = migrateRoutes(loc);
+    if (command === 'promote') {
+      const {promoteTopics} = await import('./memory-promote.mjs');
+      result = promoteTopics(loc);
+    }
+    else if (command === 'routes') result = migrateRoutes(loc);
     else if (command === 'convert' && loc.write) result = withMemoryLock(loc.memoryDir, lock => {
       const result = migrateLessons({...loc, lock});
       let router = read(path.join(loc.memoryDir, 'MEMORY.md'));
+      writerClaim({...loc, lock}, ['MEMORY.md'], 'memory-migrate convert');
       for (const index of result.indexes ?? []) if (!router.includes('(' + index + ')')) router += `\n- [${index.slice(6, -3)}](${index}) OPEN BEFORE ${index.slice(6, -3)} work.\n`;
       writeText(path.join(loc.memoryDir, 'MEMORY.md'), router);
       return {...result, routes: migrateRoutes({...loc, lock})};
     });
     else result = migrateLessons(loc);
     console.log(redact(JSON.stringify(result, null, 2))); return 0;
-  } catch (error) { console.error(redact(`memory-migrate: ${error.message}`)); return 1; }
+  } catch (error) { if(error.report) console.log(redact(JSON.stringify(error.report,null,2))); console.error(redact(`memory-migrate: ${error.message}`)); return 1; }
 }
-if (isDirect(import.meta.url)) process.exitCode = main();
+if (isDirect(import.meta.url)) process.exitCode = await main();

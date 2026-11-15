@@ -1,5 +1,9 @@
 # Memory engine v3
 
+Know-how is a numbered lesson (`memory-lesson.mjs new`); topic files hold state, facts and references.
+A memory of topics overflows its hot pages because topics never age out. See [LESSON-CONVERSION.md](LESSON-CONVERSION.md)
+for conversion with proofs.
+
 Terms: see [GLOSSARY.md](GLOSSARY.md). Links to GLOSSARY.md, CONVERT.md and UPGRADE.md
 resolve after installation under `scripts/memory/`; in the kit tree these guides are under `docs/`.
 
@@ -65,7 +69,11 @@ fallback; home from `USERPROFILE` then `HOME`). Explicit paths are recommended f
 | `memory-measure.mjs` | Session bytes, hard-rule trigger bytes, ladder/search recall cost, gate counts and correction proxy. `node scripts/memory/memory-measure.mjs --probe path/to/probes.json --json` |
 | `memory-conserve.mjs` | Prove token presence or exact block conservation. `node scripts/memory/memory-conserve.mjs snapshot --out baseline.json`; then `node scripts/memory/memory-conserve.mjs verify --baseline baseline.json`. See block mode below. |
 | `memory-migrate.mjs` | Split numbered lessons; dry run by default. `node scripts/memory/memory-migrate.mjs convert --repo PATH --memory-dir COPY --source lessons.md`. `--source` is one Markdown filename inside memory; `--write` applies the migration. |
-| `install-hooks.mjs` | Install the memory repo's pre-commit gate; `--uninstall` removes only this tool's hook. Foreign hooks are preserved. |
+| `memory-migrate.mjs promote` | Promote one-note-per-file topics with `--memory-dir COPY --repo PATH --map MAP.json [--also DIR] [--scan PATH] [--protect FILE] [--stubs]`. Dry run proves reversible body rewrites, per-probe recall and gate results, and reports staging cost and date sources; `--write` applies under the memory lock, restoring inputs if a proof fails. |
+| `memory-census.mjs` | Classify files and project hot bytes: `--memory-dir COPY --repo PATH --out EVIDENCE [--refs PATH]`. Repeat `--refs` to add read-only reference roots; output may be outside the repository. |
+| `memory-label.mjs` | Blind `build --census C --memory COPY --reference REFERENCE --key-dir KEY --out RUN`; validate with `check --bundle B --result R`; `merge --key-dir KEY --out RUN [--bundles r0-1,r0-2,r0-3]`, then `sheet`, `disputes`, `settle`, `third` and `emit`. See LESSON-CONVERSION.md. |
+| `memory-selfrecall.mjs` | `snapshot --memory-dir COPY --repo PATH --out S.json`; `compare --before S.json --memory-dir COPY --repo PATH [--map promote-map-STAMP.json]` repeats the saved queries and fails on any worse top-10 rank. |
+| `install-hooks.mjs` | Install the memory repo's pre-commit gate; `--uninstall` removes only this tool's hook. Foreign hooks are preserved. Rerunning installation or upgrading refreshes owned hooks. Before the gate runs, the hook compares the checkout's KIT.json with the installing engine version embedded in the hook and refuses an older engine. |
 | `lib.mjs` | Paths, restricted frontmatter parsing, links, file discovery and common CLI helpers. |
 
 `memory-lesson.mjs batch --json` returns `created` as `{file, similar}[]` (previously `string[]`).
@@ -287,7 +295,8 @@ Rows and hot-page sentences use `caps.index.warnLineChars` (default 300), shorte
 
 `memory-index.mjs --write` generates hot pages and catalogs; `--check` rejects drift.
 `caps.index.hotBytes` defaults to 8192. Topics and pins always remain, with index.hot-budget WARN
-for overflow. Catalogs paginate at 24576 bytes. Superseded lessons remain in the catalog.
+for overflow. `caps.index.hotReserveBytes` (default 1024) is the space a hot page must keep free before the newest lessons fill it;
+fewer free bytes give index.hot-reserve (WARN): move a topic or pin down a layer, never raise hotBytes. Catalogs paginate at 24576 bytes. Superseded lessons remain in the catalog.
 Generated pages skip hand-written pin rules; index.stale requires regeneration.
 lessons.duplicate, route.missing, route.unknown and lesson.unfilled are FAIL checks.
 Staleness applies to state and caps.stale.types (project and reference by default).
@@ -298,6 +307,7 @@ keeping six by default (caps.roadmap.keepBlocks), or at least two under size pre
 Blocks start with dated `**YYYY-MM-DD ...` lines; `caps.roadmap.order` states the file's order (default `newest-first`, or `oldest-first`), and rotation moves the oldest by date, breaking ties by that order.
 Invalid `order` produces `config.roadmap-order` (FAIL) and a rotation error. With a valid order, contradictory Open work dates produce `repo.roadmap-order` (WARN). History keeps file order.
 The printed proof compares moved payload bytes and verifies every block in history.
+A roadmap over `caps.roadmap.warnBytes` that this rotation, planned without writes, cannot shrink gives `repo.roadmap-no-rotation` (WARN); [ROADMAPS.md](ROADMAPS.md) lists the procedures, and the optional `caps.roadmap.procedure` names yours in the message. A rotation that refuses its input gives `repo.roadmap-rotation` (WARN).
 By design, a pure-link index row keeps no label text when migrated.
 A `[[lesson|label]]` alias is dropped only when the row is otherwise just links;
 `- [[lesson|Nice label]] extra words` keeps it.
@@ -377,6 +387,7 @@ and `repeatsByCause` measure recorded recurrence, not prose guesses.
 | Check / config | Default and response |
 | --- | --- |
 | `router.lines`, `caps.router.warnLines`, `caps.router.failLines` | WARN above 150, FAIL above 200 lines. Move detail down. |
+| `router.target`, `caps.router.targetBytes` | WARN above 11264 bytes until `router.size` takes over at 12288. Move detail down; never raise the router limits. |
 | `lesson.repeats`, `lesson.unfilled-body`, `lesson.kind` | FAIL malformed repeat entries, empty exact prompt sections, or invalid kinds. |
 | `lesson.enforce`, `caps.lesson.enforceAfterRepeats`, `caps.lesson.failAfterRepeats` | WARN at 2 and FAIL at 4 without a valid decision; WARN at 1 and FAIL at 4 strictly later repeats after a decision. |
 | `lesson.enforced`, `lesson.trigger`, `lesson.kind-missing` | WARN invalid decisions, missing repeat cues, or unclassified lessons. Invalid decisions also use no-decision escalation. |

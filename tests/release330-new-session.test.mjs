@@ -59,15 +59,17 @@ test('subfolder cwd uses environment or installed repo, never payload cwd', t =>
 test('other notes retain both full paths and branches within 240 bytes', t => {
   const f = session(t), dir = path.join(f.root, 'm'.repeat(90 - f.root.length - 1));
   assert.equal(dir.length, 90); fs.renameSync(f.memoryDir, dir);
+  // Kit 3.3.5 E9: other notes are this branch's older notes, so the checkout and the notes share a 40-character branch.
+  const branch = 'b'.repeat(40); f.git(f.target, 'checkout', '-q', '-b', branch);
   for (let i = 1; i <= 3; i++) {
-    const file = f.note(i), text = read(file).replace('topic-' + i, String(i).repeat(40)).replace('question-' + i, 'q'.repeat(60));
+    const file = f.note(i), text = read(file).replace('topic-' + i, branch).replace('question-' + i, 'q'.repeat(60));
     put(path.join(dir, 'handovers', path.basename(file)), text);
   }
   const output = ok(f.cli(['start', '--memory-dir', dir])).stdout;
   const other = output.slice(output.indexOf('other (possible parallel):')).split('\n').slice(0, 3).join('\n');
   assert.ok(Buffer.byteLength(other) <= 240);
   for (const i of [1, 2]) {
-    assert.ok(other.includes(String(i).repeat(40)));
+    assert.ok(other.split('\n')[i === 2 ? 1 : 2].includes(branch));
     assert.ok(other.includes(`handovers/00000${i}-2026-01-01-1200.md`));
   }
 });
@@ -112,7 +114,8 @@ test('gate matches SessionStart quick counts', async t => {
 });
 test('legacy RESUME HERE is undated state with next action', t => {
   const f = session(t);
-  put(path.join(f.memoryDir, 'current-state.md'), '---\nmodified: 2000-01-01\n---\n# RESUME HERE\nLegacy state\n**Next action:** inspect fixture\n');
+  // Kit 3.3.5 E9: a current-state.md leads only when it names this branch.
+  put(path.join(f.memoryDir, 'current-state.md'), '---\nmodified: 2000-01-01\n---\n# RESUME HERE\nLegacy state\n**Next action:** inspect fixture\n**Branch:** master\n');
   const output = ok(f.cli(['start'])).stdout;
   assert.match(output, /undated/); assert.match(output, /Legacy state/); assert.match(output, /Next action: inspect fixture/); assert.doesNotMatch(output, /state: none recorded|stale 2000/);
 });
@@ -220,7 +223,7 @@ test('exact first-reply template constant', () => {
 
 **Waiting on you**
 - <item>: <link>
-- Rulings: <n|board: not readable here>
+- Rulings: <start's board reply line>
 - Conflicts: <AGENTS.md vs overlay vs rules file>
 
 **This session**
@@ -243,13 +246,15 @@ test('start and dispatch preserve project memory and temp bytes', t => {
   assert.ok(installed.stdout.startsWith(f.target)); assert.deepEqual(tree(f.root, {git: true}), installedBefore);
 });
 test('newest seq leads, two recent others, CURRENT wins only when newer', t => {
+  // Kit 3.3.5 E9: notes lead and list only on their own branch, so every note here is on the checkout's branch.
   const f = session(t), now = Date.now(), recent = new Date(now - 3600000).toISOString();
-  f.note(1, recent); f.note(2, recent); f.note(3, '2020-01-01T00:00:00Z'); f.note(4, '2020-01-01T00:00:00Z');
+  const mine = (seq, time) => { const file = f.note(seq, time); put(file, read(file).replace('branch: topic-' + seq, 'branch: master')); };
+  mine(1, recent); mine(2, recent); mine(3, '2020-01-01T00:00:00Z'); mine(4, '2020-01-01T00:00:00Z');
   let output = ok(f.cli(['start'])).stdout;
-  assert.match(output, /last handover: 2020-01-01T00:00:00Z @abcdefa topic-4 - state-4/); assert.match(output, /Q: question-4/);
-  assert.match(output, /topic-2/); assert.match(output, /topic-1/); assert.doesNotMatch(output, /topic-3|commits.since|credit:/i);
+  assert.match(output, /last handover: 2020-01-01T00:00:00Z @abcdefa master - state-4/); assert.match(output, /Q: question-4/);
+  assert.match(output, /question-2/); assert.match(output, /question-1/); assert.doesNotMatch(output, /question-3|commits.since|credit:/i);
   const current = path.join(f.memoryDir, 'current-state.md');
-  put(current, '## CURRENT\n**2021-01-01 12:00 | @defabca | quick. manual state**\n**Open question:** manual question\n');
+  put(current, '## CURRENT\n**2021-01-01 12:00 | @defabca | quick. manual state**\n**Open question:** manual question\n**Branch:** master\n');
   output = ok(f.cli(['start'])).stdout; assert.match(output, /last handover: 2021-01-01 12:00 @defabca - manual state/); assert.match(output, /older note:/); assert.match(output, new RegExp('token: ' + stateToken(f.memoryDir)));
   put(current, read(current).replace('2021-', '2019-')); assert.match(ok(f.cli(['start'])).stdout, /last handover: 2020-01-01T/);
   fs.rmSync(path.join(f.memoryDir, 'handovers'), {recursive: true}); assert.match(ok(f.cli(['start'])).stdout, /last handover: 2019-01-01/);
@@ -257,9 +262,10 @@ test('newest seq leads, two recent others, CURRENT wins only when newer', t => {
 test('stale direction undated and missing states', t => {
   const f = session(t), file = path.join(f.memoryDir, 'current-state.md');
   assert.match(ok(f.cli(['start'])).stdout, /state: none recorded/);
-  put(file, '---\nmodified: 2000-01-01\n---\n## CURRENT\nLegacy state\n'); assert.match(ok(f.cli(['start'])).stdout, /stale 2000-01-01 vs HEAD/);
+  // Kit 3.3.5 E9: a current-state.md leads only when it names this branch.
+  put(file, '---\nmodified: 2000-01-01\n---\n## CURRENT\nLegacy state\n**Branch:** master\n'); assert.match(ok(f.cli(['start'])).stdout, /stale 2000-01-01 vs HEAD/);
   put(file, read(file).replace('2000-', '2099-')); assert.doesNotMatch(ok(f.cli(['start'])).stdout, /stale 2099-/);
-  put(file, '## CURRENT\nLegacy state\n'); assert.match(ok(f.cli(['start'])).stdout, /undated/);
+  put(file, '## CURRENT\nLegacy state\n**Branch:** master\n'); assert.match(ok(f.cli(['start'])).stdout, /undated/);
   fs.rmSync(f.memoryDir, {recursive: true}); const output = ok(f.cli(['start'])).stdout;
   assert.match(output, /memory dir not found/); assert.match(output, /memory-init\.mjs - yes or no/);
   fs.rmSync(path.join(f.target, 'scripts/memory'), {recursive: true}); assert.match(ok(f.cli(['start'])).stdout, /no memory kit here/);
@@ -300,7 +306,8 @@ test('digest caps redact and preserve the closing instruction with large inputs'
   assert.ok(Buffer.byteLength(ok(f.cli(['brief'])).stdout) <= 3500);
 });
 test('three selected bodies only; archives are gate-only reads', async t => {
-  const f = session(t); for (let i = 1; i <= 4; i++) f.note(i);
+  // Kit 3.3.5 E9: the notes are on the checkout's branch, so one filtered read of the newest three suffices.
+  const f = session(t); for (let i = 1; i <= 4; i++) { const file = f.note(i); put(file, read(file).replace('branch: topic-' + i, 'branch: master')); }
   const readFile = fs.readFileSync, stackReads = [];
   t.mock.method(fs, 'readFileSync', (file, ...args) => { if (String(file).includes('handovers') && new Error().stack.includes('listNotes')) stackReads.push(file); return readFile(file, ...args); });
   await start({repo: f.target}); assert.equal(stackReads.length, 3); assert.ok(!stackReads.some(file => file.includes('000001-')));

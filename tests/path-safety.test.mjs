@@ -128,7 +128,8 @@ for(const [name,group,run] of [
   ['brain-index','brainIndex',options=>brainIndexPairs(options.repo,options.config,{index:'',all:''})],
   ['roadmap-overview','roadmap',options=>generateOverview(options)],
   ['memory-rotate','brainLog',options=>rotateLog(options)],
-  ['memory-checkpoint','brainLog',options=>checkpoint({...options,noPush:true,report:()=>{},git:()=>''})]
+  // Kit 3.3.5 E12.1: the checkpoint reports the refusal as status 1; surface it as the error this table expects.
+  ['memory-checkpoint','brainLog',options=>{const r=checkpoint({...options,noPush:true,report:()=>{},git:()=>''});if(r.status===1)throw new Error(r.error);return r;}]
 ]) test('per-site '+name+' validates the value used after config validation',t=>{
   const f=fixture(t),config=loadConfig(),cap=config.caps[group],original=cap.path;let reads=0;
   fs.mkdirSync(f.memory,{recursive:true});

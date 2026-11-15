@@ -9,10 +9,10 @@ import {listNotes, matchPhrase, capText, readOverlay} from '../engine/session-co
 import {FIRST_REPLY_TEMPLATE} from '../engine/new-session.mjs';
 
 const phrase = 'We are starting a new session - read this and let me know when we can start';
-const gateLine = '- Session phrases: when a message is only "We are starting a new session - read this and let me know when we can start" or "handover" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message "<the message>"` and follow its output; never inside a subagent or `codex exec` brief. Offer /handover at a stage end or on wrap-up.';
+const gateLine = '- Session phrases: when a message is only "We are starting a new session - read this and let me know when we can start" or "handover" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message "<the message>"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it (operator, 2026-11-10); do not offer it unprompted.';
 const skill = read(path.join(kitRoot, 'skills/new-session/SKILL.md'));
 const bytes = text => Buffer.byteLength(text);
-const noDelegation = text => assert.doesNotMatch(text.replaceAll('.claude/skills/new-session/SKILL.md', ''), /\b(?:sub[ -]?agents?|Task|Sonnet|Opus|Haiku|GPT(?:-\d[^\s]*)?|Gemini|Claude|Codex)\b/i);
+const noDelegation = text => assert.doesNotMatch(text.replaceAll('.claude/skills/new-session/SKILL.md', '').replace(/https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9-]{8,64}/g, ''),/\b(?:sub[ -]?agents?|Task|Sonnet|Opus|Haiku|GPT(?:-\d[^\s]*)?|Gemini|Claude|Codex)\b/i);
 
 test('shipped text caps, exact reply template, entry and goal contract', () => {
   assert.ok(bytes(skill) <= 1536, `SKILL.md ${bytes(skill)} B`);
@@ -35,9 +35,9 @@ test('shipped text caps, exact reply template, entry and goal contract', () => {
 
 test('gate lines are verbatim and adjacent; overlay has every key and precedence', () => {
   const gate = read(path.join(kitRoot, 'templates/AGENTS-memory-gate.md'));
-  assert.equal(bytes(gateLine), 356); assert.ok(bytes(gateLine) <= 360);
+  assert.equal(bytes(gateLine), 411); // 3.3.4: the confirmed wording replaces the 356-byte line and its 360-byte cap.
   assert.equal(gate.split('\n').filter(line => line.startsWith('- ')).at(-2), gateLine);
-  assert.equal(gate.split('\n').filter(line => line.startsWith('- ')).at(-1), '- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only if /handover reported it since the last change.');
+  assert.equal(gate.split('\n').filter(line => line.startsWith('- ')).at(-1), '- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it (operator, 2026-11-10).');
   assert.ok(gate.includes(gateLine + '\n- Reports:'));
   const overlay = read(path.join(kitRoot, 'templates/AGENTS-session-overlay.md'));
   assert.ok(bytes(overlay) <= 1536);
@@ -86,13 +86,16 @@ test('expected refusals print bounded messages and write no log', t => {
   }
 });
 
-function note(seq, extra = '') {
-  return `---\ntime: ${new Date(Date.now() - 3600000).toISOString()}\nbranch: topic-${seq}\nsha: abcdefa\nmode: full\n---\n**Open question:** question-${seq}\n**State:** state-${seq}\n**Waits on the user:** none\n**Next action:** inspect fixture\n${extra}`;
+function note(seq, extra = '', branch = `topic-${seq}`) {
+  return `---\ntime: ${new Date(Date.now() - 3600000).toISOString()}\nbranch: ${branch}\nsha: abcdefa\nmode: full\n---\n**Open question:** question-${seq}\n**State:** state-${seq}\n**Waits on the user:** none\n**Next action:** inspect fixture\n${extra}`;
 }
 
+// Kit 3.3.5 E9: start reads only this branch's notes and a current-state.md that names this branch, so the large notes
+// and current-state.md are written for the checkout's own branch.
 function largeInputs(f, withNotes) {
-  put(path.join(f.memory, 'current-state.md'), '## CURRENT\n' + '\u754c'.repeat(7000));
-  if (withNotes) for (let i = 1; i <= 25; i++) put(path.join(f.memory, `handovers/${String(i).padStart(6, '0')}-2026-01-01-1200.md`), note(i, '\u754c'.repeat(i === 25 ? 2200 : 700)));
+  const branch = f.git(f.target, 'branch', '--show-current');
+  put(path.join(f.memory, 'current-state.md'), '## CURRENT\n**Branch:** ' + branch + '\n' + '\u754c'.repeat(7000));
+  if (withNotes) for (let i = 1; i <= 25; i++) put(path.join(f.memory, `handovers/${String(i).padStart(6, '0')}-2026-01-01-1200.md`), note(i, '\u754c'.repeat(i === 25 ? 2200 : 700), branch));
   for (let i = 0; i < 50; i++) put(path.join(f.memory, `recall-${String(i).padStart(2, '0')}.md`), '---\nname: needle\ndescription: needle recall fixture\n---\n' + '\u754c'.repeat(2000));
   const rules = put(path.join(f.home, 'rules.md'), '\u754c'.repeat(3000));
   put(path.join(f.target, 'AGENTS.md'), `## Session overlay\nrules: ${rules}\nlog: log.md, 1 lines\nroadmap: plan.md | section: Open\n`);
@@ -222,8 +225,11 @@ require('node:module').syncBuiltinESMExports();
     }
   }
   if (scenario === 'digest-cap') {
-    put(path.join(f.memory, 'handovers/000024-2026-01-01-1200.md'), note(24).replace('state-24', 'state-24 ' + 's'.repeat(1800)));
-    for (const seq of [22, 23]) put(path.join(f.memory, `handovers/0000${seq}-2026-01-01-1200.md`), note(seq).replace(`topic-${seq}`, 't'.repeat(80)));
+    // Kit 3.3.5 E9: the newest notes are on the (faked, 307-character) checkout branch; long questions keep the
+    // "other (possible parallel)" lines at their byte budget.
+    const fake = 'branch-' + 'b'.repeat(300);
+    put(path.join(f.memory, 'handovers/000024-2026-01-01-1200.md'), note(24, '', fake).replace('state-24', 'state-24 ' + 's'.repeat(1800)));
+    for (const seq of [22, 23]) put(path.join(f.memory, `handovers/0000${seq}-2026-01-01-1200.md`), note(seq, '', fake).replace(`question-${seq}`, 'q'.repeat(80)));
     fs.appendFileSync(path.join(f.target, 'AGENTS.md'), 'branch: expected\n');
     const preload = put(path.join(f.root, 'git-facts.cjs'), `const cp = require('node:child_process');
 const original = cp.spawnSync;
@@ -287,6 +293,8 @@ for (const key of ['readFileSync', 'readdirSync', 'openSync']) {
   if (scenario === 'failing-git') assert.match(started.stdout, /detached\/unavailable@unknown/);
   if (scenario === 'unreadable-memory') assert.match(started.stdout, /FAIL|not readable|state: none recorded/);
   else if (scenario === 'current') assert.match(started.stdout, /undated/);
+  // Kit 3.3.5 E9: with git unavailable the branch is unknown, so no note leads; other branches' notes are only listed.
+  else if (scenario === 'failing-git') { assert.match(started.stdout, /no hand-over note for detached\/unavailable/); assert.doesNotMatch(started.stdout, /state-2[45]/); }
   else { assert.match(started.stdout, /state-24/); assert.doesNotMatch(started.stdout, /state-25/); }
   const calls = namedCalls(started.stdout);
   assert.equal(calls.length, scenario === 'unreadable-memory' ? 1 : 3, 'exact follow-up count');

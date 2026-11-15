@@ -1,5 +1,5 @@
 import {repoPath, validateConfigPaths} from './lib.mjs';
-import {normalizeEol, writeText} from './lib.mjs';
+import {normalizeEol, writeText, regularFileOrAbsent} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { args, isDirect, loadConfig, repoRoot, read, parseFrontmatter, walkMd } from './lib.mjs';
@@ -47,6 +47,12 @@ export function generateOverview({ repo = repoRoot(), config = loadConfig() } = 
   lines.push('', '## History', fs.existsSync(path.join(repo,historyPath)) ? `${historyPath} holds ${history.length} sections; first "${history[0] ?? ''}", last "${history.at(-1) ?? ''}".` : `No roadmap history yet; ${historyPath} is created when old entries are rotated.`, '');
   return lines.join('\n');
 }
+// Kit 3.3.5 F1: the one freshness decision. The gate and --check both call it, so line endings cannot make them
+// disagree: a stored overview is fresh when it exists and equals the generated text once CRLF is read as LF.
+export function overviewFresh({ repo, config, output = generateOverview({ repo, config }) }) {
+  const file = repoPath(repo, config.caps.roadmapOverview.path, 'caps.roadmapOverview.path');
+  return regularFileOrAbsent(file, 'roadmap overview') && normalizeEol(read(file)) === normalizeEol(output);
+}
 export function main(argv = process.argv.slice(2)) {
   try {
     const opts = args(argv.filter(arg => arg !== '--write'));
@@ -57,7 +63,7 @@ export function main(argv = process.argv.slice(2)) {
     if (!fs.existsSync(repoPath(repo, config.caps.roadmap.path, 'caps.roadmap.path'))) { console.log('roadmap overview: no existing roadmap'); return 0; }
     const output = generateOverview({ repo, config });
     const file = repoPath(repo, config.caps.roadmapOverview.path, 'caps.roadmapOverview.path');
-    if (opts.check) { const ok = fs.existsSync(file) && normalizeEol(read(file)) === normalizeEol(output); console.log(ok ? 'roadmap overview: fresh' : 'roadmap overview: stale or missing'); return ok ? 0 : 1; }
+    if (opts.check) { const ok = overviewFresh({ repo, config, output }); console.log(ok ? 'roadmap overview: fresh' : 'roadmap overview: stale or missing'); return ok ? 0 : 1; }
     if (argv.includes('--write')) { fs.mkdirSync(path.dirname(file), { recursive: true }); writeText(file, output); }
     else process.stdout.write(output);
     return 0;

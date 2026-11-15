@@ -2,7 +2,7 @@
 name: memory-review
 description: Audit this project's v3 memory with the Node gate and repair only reported FAIL or WARN findings. Use for memory review, checkpoint checks, or fixing stale, oversized, or broken memory.
 metadata:
-  engine_version: "3.3.2"
+  engine_version: "3.3.7"
 ---
 
 # Review v3 memory
@@ -70,6 +70,16 @@ Repair the reported class:
   history only under an authorized migration with token and block proofs.
 - `config.roadmap-order`: set `caps.roadmap.order` to `newest-first` or `oldest-first`.
 - `repo.roadmap-order`: reconcile Open work date order with `caps.roadmap.order`.
+- `repo.roadmap-no-rotation`: rotation cannot shrink the roadmap; follow a documented
+  procedure in `ROADMAPS.md` and name it in `caps.roadmap.procedure`.
+- `repo.roadmap-rotation`: rotation refused its input; correct the problem it reports
+  (a bad setting, a roadmap block date or an unreadable history path), then run again.
+- `index.hot-reserve`: move a topic or pin down a layer so the hot page keeps its free
+  bytes. Never raise `hotBytes`.
+- `router.target`: move detail down a layer into an index or topic. Never raise the
+  router limits.
+- `config.roadmap-procedure`: make `caps.roadmap.procedure` a non-empty string or
+  remove it; until then the value is ignored.
 - `stale`: read the description, then verify possibly changed facts against the
   current source. Do not assume age alone proves a memory wrong.
 - `repo.not-git`, `repo.remote`, `repo.ahead`, and `repo.uncommitted`: inspect the

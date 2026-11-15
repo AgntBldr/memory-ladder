@@ -2,7 +2,7 @@ import {repoPath} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { args, locations, requireMemory, isDirect, toolDir, loadConfig, memoryFiles,
-  read, mdLinks, utf8Bytes, pathKey, fmGet, pathIncludes } from './lib.mjs';
+  read, mdLinks, utf8Bytes, pathKey, fmGet, pathIncludes, cleanGitEnv } from './lib.mjs';
 import { buildCorpus, search, humanResults, loadProbes } from './memory-recall.mjs';
 import { runCheck, counts } from './memory-check.mjs';
 import { ladderWalk, lessonField, REPEAT_ENTRY } from './memory-index.mjs';
@@ -133,7 +133,7 @@ export function main(argv = process.argv.slice(2)) {
   try {
     const opts = args(argv);
     if (opts.help) { console.log('Usage: memory-measure.mjs [--json] [--write LABEL] [--probe FILE] [--memory-dir PATH] [--repo PATH]'); return 0; }
-    const loc = locations(opts);
+    const loc = locations(opts, {env: cleanGitEnv()});
     const config = loadConfig();
     config.measure ??= { startLogTailEntries: 10, startLogTailLines: 40, bytesPerToken: 4 };
     let dir;

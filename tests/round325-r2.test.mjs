@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs';
+import {createHash} from 'node:crypto';
 import {fixture,put,read,json,ok,kitRoot} from './helpers.mjs';
 import {parseFrontmatter} from '../engine/lib.mjs';
 import {runCheck} from '../engine/memory-check.mjs';
@@ -106,8 +107,13 @@ test('CRLF ORDER write proof rejects reordered notes and restores bytes',t=>{
 });
 test('CRLF existing appended gate block is not duplicated',t=>{
  const f=fixture(t),agents=path.join(f.target,'AGENTS.md'),text='# Host\r\n\r\n## Memory gate\r\nKeep host instructions.\r\n';
- put(agents,text);ok(f.install());
- const reports=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Reports:'));
- const line=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Session phrases:'));
- assert.equal(read(agents),text.replace('## Memory gate\r\n','## Memory gate\r\n'+line+'\r\n'+reports+'\r\n'));
+ // 3.3.4: the host line is unclear until a decision keeps it; then the section becomes the kit block.
+ put(agents,text);assert.equal(f.install().status,1);assert.equal(read(agents),text);
+ const decisions=put(path.join(f.root,'decisions.json'),JSON.stringify({version:1,project:'fixture',decisions:{[createHash('sha256').update('Keep host instructions.').digest('hex').slice(0,12)]:{outcome:'keep',reason:'Host rule.',decidedBy:'fixture'}}}));
+ ok(f.install(['--instructions-decisions',decisions]));
+ const template=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')),version=read(path.join(kitRoot,'VERSION')).trim();
+ const block=`<!-- kit standard block (memory kit ${version}): begin. The kit replaces everything up to the end marker on every update; put project rules under "## Project rules". -->\n`+template+'<!-- kit standard block: end -->\n';
+ const rules='## Project rules\nRules for this project only. The kit adds old lines here once, when it sorts them on a first update; it never edits or removes them.\n\nKeep host instructions.\n';
+ assert.equal(read(agents),'# Host\r\n\r\n'+(block+'\n'+rules).replace(/\n/g,'\r\n'));
+ assert.equal((read(agents).match(/^## Memory gate\r$/gm)??[]).length,1);
 });

@@ -2022,6 +2022,14 @@ test('R12 Hard rules end at next level-two heading and wikilinks resolve names a
   const items = f.check().findings.filter(x => x.check === 'wikilink.dead');
   assert.equal(items.length, 1); assert.match(items[0].message, /absent/);
 });
+test('R12 Hard rules also takes wikilink cards by name, file name, alias and heading, and the cards stop being topics', t => {
+  const f = fixture(t);
+  f.put('named-file.md', f.topic('Named card')); f.put('aliased.md', f.topic('aliased')); f.put('headed.md', f.topic('headed'));
+  f.put('MEMORY.md', '## Hard rules\n[[rule]]\n[[Named card]]\n[[aliased|the alias]]\n[[headed#Section]]\n## Topics\n[[topic]]');
+  const files = memoryFiles(f.memoryDir), by = name => files.find(x => x.file === name);
+  for (const name of ['rule.md', 'named-file.md', 'aliased.md', 'headed.md']) { assert.equal(by(name).hardRule, true, name); assert.equal(by(name).topic, false, name); }
+  assert.equal(by('topic.md').hardRule, false); assert.equal(by('topic.md').topic, true);
+});
 test('R12 measure triggers totals maximum and searchHitRate', t => {
   const f = fixture(t); f.put('MEMORY.md', '## Hard rules\n[Rule](rule.md)\n[Topic](topic.md)');
   const probesFile = f.probes([{ id: 'yes', q: 'useful', expect: ['topic.md'] }, { id: 'no', q: 'zzzz', expect: ['missing'] }]);
@@ -2327,7 +2335,9 @@ test('checkpoint invalid order writes nothing', async t => {
   f.put('topic.md', read(path.join(f.memoryDir, 'topic.md')).replace('A compact useful fact.', 'Changed description.'));
   f.putRepo('docs/ROADMAP.md', '## Open work\n');
   const snapshot = () => fs.readdirSync(f.memoryDir).map(file => [file, read(path.join(f.memoryDir, file))]);
-  const before = snapshot(); assert.throws(() => checkpoint({...f, report: () => {}}), /roadmap.order/);
+  // Kit 3.3.5 E12.1: the refusal is a structured status 1, not a throw.
+  const before = snapshot(), refused = checkpoint({...f, report: () => {}});
+  assert.equal(refused.status, 1); assert.match(refused.error, /roadmap.order/);
   assert.deepEqual(snapshot(), before, 'checkpoint wrote before validating order');
 });
 test('empty stripped name stays unresolved in gate and migration', async t => {

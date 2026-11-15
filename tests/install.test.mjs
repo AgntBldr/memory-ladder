@@ -4,6 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fixture,ok,tree,json,read,put,hash,kitRoot,currentVersion} from './helpers.mjs';
 import {installedManifest} from '../scripts/manifest.mjs';
+import {createHash} from 'node:crypto';
+// 3.3.4: the kit owns marked blocks in AGENTS.md and CLAUDE.md.
+const BEGIN='<!-- kit standard block (memory kit '+currentVersion+'): begin. The kit replaces everything up to the end marker on every update; put project rules under "## Project rules". -->',END='<!-- kit standard block: end -->';
+const RULES='## Project rules\nRules for this project only. The kit adds old lines here once, when it sorts them on a first update; it never edits or removes them.\n';
 
 function installWithBaseline(t,f) {
   // Resolve HOME only inside the fixture's child process.
@@ -82,7 +86,7 @@ test('K.2 fresh install proves all eight steps, default home, baseline, gate and
   assert.deepEqual(json(path.join(engine,'recall-probes.json')),json(path.join(kitRoot,'engine/recall-probes.json')));
   assert.match(read(path.join(f.memory,'.git/hooks/pre-commit')),/memory-v3-gate/);
   const hook=ok(f.exec('git',['-C',f.memory,'-c','user.name=kit-test','-c','user.email=kit-test@example.invalid','hook','run','pre-commit']));assert.match(hook.stdout+hook.stderr,/0 FAIL/);
-  assert.equal(read(path.join(f.target,'CLAUDE.md')),'@AGENTS.md\n');
+  assert.equal(read(path.join(f.target,'CLAUDE.md')),BEGIN+'\n'+'@AGENTS.md\n'+END+'\n');
   assert.equal((read(path.join(f.target,'AGENTS.md')).match(/^## Memory gate/gm)||[]).length,1);
   const settings=json(path.join(f.target,'.claude/settings.json'));assert.deepEqual(settings.unrelated,{keep:true});assert.equal(settings.hooks.SessionStart.length,1);
   const first=tree(f.target,{git:true}),memoryTree=tree(f.memory);assert.equal(f.install().status,1);assert.deepEqual(tree(f.target,{git:true}),first);assert.deepEqual(tree(f.memory),memoryTree);assert.equal(f.git(f.memory,'rev-list','--count','HEAD'),'1');
@@ -108,10 +112,13 @@ test('K.2 environment custom path and existing AGENTS, CLAUDE and duplicate hook
   const f=fixture(t);f.env.CLAUDE_MEMORY_DIR=path.join(f.root,'environment-memory');
   put(path.join(f.target,'AGENTS.md'),'## Memory gate\nExisting rules.\n');put(path.join(f.target,'CLAUDE.md'),'Existing import.\n');
   const settings=json(path.join(kitRoot,'templates/settings.sessionstart.json'));settings.extra=42;put(path.join(f.target,'.claude/settings.json'),JSON.stringify(settings));
-  ok(f.install());assert.equal(json(path.join(f.target,'scripts/memory/KIT.local.json')).memoryDir,f.env.CLAUDE_MEMORY_DIR);
-  const reports=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Reports:'));
-  const line=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md')).split('\n').find(line=>line.startsWith('- Session phrases:'));
-  assert.equal(read(path.join(f.target,'AGENTS.md')),'## Memory gate\n'+line+'\n'+reports+'\nExisting rules.\n');assert.equal(read(path.join(f.target,'CLAUDE.md')),'Existing import.\n\n' + '@AGENTS.md\n');assert.equal(json(path.join(f.target,'.claude/settings.json')).hooks.SessionStart.length,1);
+  // 3.3.4: a line that is not kit wording is unclear; install refuses until a decision keeps or drops it.
+  const before=tree(f.root,{git:true}),refused=f.install();assert.equal(refused.status,1);assert.match(refused.stderr,/install: AGENTS.md has 1 unclear lines in its old memory section/);assert.deepEqual(tree(f.root,{git:true}),before);
+  const id=createHash('sha256').update('Existing rules.').digest('hex').slice(0,12);
+  const decisions=put(path.join(f.root,'decisions.json'),JSON.stringify({version:1,project:'fixture',decisions:{[id]:{outcome:'keep',reason:'Host rule.',decidedBy:'fixture'}}}));
+  ok(f.install(['--instructions-decisions',decisions]));assert.equal(json(path.join(f.target,'scripts/memory/KIT.local.json')).memoryDir,f.env.CLAUDE_MEMORY_DIR);
+  const template=read(path.join(kitRoot,'templates/AGENTS-memory-gate.md'));
+  assert.equal(read(path.join(f.target,'AGENTS.md')),BEGIN+'\n'+template+END+'\n\n'+RULES+'\nExisting rules.\n');assert.equal(read(path.join(f.target,'CLAUDE.md')),'Existing import.\n\n'+BEGIN+'\n'+'@AGENTS.md\n'+END+'\n');assert.equal(json(path.join(f.target,'.claude/settings.json')).hooks.SessionStart.length,1);
 });
 test('K.2 missing git identity uses commit-only fallback',t=>{
   const f=fixture(t);put(f.env.GIT_CONFIG_GLOBAL,'[core]\n autocrlf = false\n');

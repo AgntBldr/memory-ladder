@@ -3,24 +3,30 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { normalizeEol, matchEol, isDirect, isIndexPage, inRepoMemory, pathKey, slash } from '../engine/lib.mjs';
+import { normalizeEol, matchEol, isDirect, isIndexPage, inRepoMemory, pathKey, slash, removeQuietly } from '../engine/lib.mjs';
+import { cleanGitEnv } from '../engine/install-hooks.mjs';
 import {readJSON,write,writeJSON,run,resolveMemory,gate,freshMemoryWrites,finishMemory,memoryHook} from '../engine/memory-setup.mjs';
 export {readJSON,write,writeJSON,run,resolveMemory,gate} from '../engine/memory-setup.mjs';
 import { kitRoot, installedManifest, installedPath, ownedFiles } from './manifest.mjs';
 import {typedBrainCount, brainIndexPairs, generateIndex} from '../engine/brain-index.mjs';
-import {instructions,checkMemoryRouter,mirrorWrites,appendText,toolingHints,hostSnapshot,installReport,sameFile} from './install-safety.mjs';
-import {sessionSettings,skillPlan,gateLinePlan,distributionRefusals} from './install-safety.mjs';
+import {instructions,checkMemoryRouter,mirrorWrites,appendText,toolingHints,hostSnapshot,installReport} from './install-safety.mjs';
+import {sessionSettings,skillPlan,standardBlockPlan,instructionsReportLines,distributionRefusals,lineEndingNote} from './install-safety.mjs';
 export {mergeNewSessionHooks} from './install-safety.mjs';
+function hints(target) {
+  toolingHints(target);
+  const note=lineEndingNote(target);
+  if(note) console.log(note);
+}
 export function options(argv) {
   if(argv.includes('--help') || argv.includes('-h')) return {help:true};
   const out = {};
   for(let i=0;i<argv.length;i++) {
     const key=argv[i];
-    if(['--target','--memory-dir','--restore','--replace-skill'].includes(key)) {
+    if(['--target','--memory-dir','--restore','--replace-skill','--instructions-decisions','--instructions-ledger'].includes(key)) {
       if(!argv[i+1] || argv[i+1].startsWith('--')) throw new Error('Missing '+key);
       if(key==='--replace-skill') (out['replace-skill']??=[]).push(argv[++i]);
       else out[key.slice(2)] = argv[++i];
-    } else if(['--no-new-session-hook','--no-guard','--no-gitignore-fix','--dry-run','--check','--force-skills','--backup','--accept-separate-memory'].includes(key)) out[key.slice(2)] = true;
+    } else if(['--no-new-session-hook','--no-guard','--no-gitignore-fix','--dry-run','--check','--force-skills','--backup','--accept-separate-memory','--live-memory','--memory-only'].includes(key)) out[key.slice(2)] = true;
     else throw new Error('Unknown option '+key);
   }
   if(!out.target) throw new Error('--target is required');
@@ -43,6 +49,11 @@ export function usage(script) {
   --force-skills        ${installScript?'Accepted by the shared parser; unused by install.':'Replace edited skills, including at the same version.'}
   --check               ${installScript?'Report the installation plan without writing.':'Report hooks, gate line, mirrors, foreign and unknown files without writing.'}
   --restore <BACKUP>    ${installScript?'Accepted by the shared parser; unused by install.':'Restore files from an upgrade backup.'}
+  --live-memory         ${installScript?'Accepted by the shared parser; unused by install.':'Allow writes to the configured (live) memory folder and its hook; refused in a linked worktree.'}
+  --memory-only         ${installScript?'Accepted by the shared parser; unused by install.':'Replay only the memory steps when project files are already at this kit version.'}
+  --instructions-decisions <FILE>  Keep or drop decisions for unclear lines in an old memory section;
+                        write the file with scripts/instructions-sort.mjs preview --out <FOLDER>.
+  --instructions-ledger <FILE>     Read this sorting ledger instead of the kit's ledger folder.
   --help (-h)           Show this help and exit.
 `;
 }
@@ -73,11 +84,11 @@ export function backupDirectory(engine) {
   }
 }
 export function checkInstalledIgnores(target, paths, opts) {
-  const repo=spawnSync('git',['-C',target,'rev-parse','--is-inside-work-tree'],{encoding:'utf8'});
+  const repo=spawnSync('git',['-C',target,'rev-parse','--is-inside-work-tree'],{encoding:'utf8',env:cleanGitEnv()});
   if(repo.status!==0 && /not a git repository/.test(repo.stderr||'')) { console.log('gitignore audit skipped: host is not a Git repository'); return; }
   const candidates=[...new Set(paths.map(file=>slash(path.relative(target,file))).filter(file=>!file.startsWith('../')&&!path.isAbsolute(file)&&!/(?:^|\/)(?:KIT\.local\.json|\.kit-backup-[^/]*|\.memory\.lock[^/]*)($|\/)/.test(file)))];
   const hits=(cwd=target,extra=[])=>{
-    const r=spawnSync('git',['-C',cwd,...extra,'check-ignore','--no-index','-v','-z','--stdin'],{encoding:'utf8',input:candidates.join('\0')+'\0'});
+    const r=spawnSync('git',['-C',cwd,...extra,'check-ignore','--no-index','-v','-z','--stdin'],{encoding:'utf8',input:candidates.join('\0')+'\0',env:cleanGitEnv()});
     if(r.error||![0,1].includes(r.status)) throw new Error('git check-ignore failed: '+(r.error?.message||r.stderr));
     const parts=r.stdout.split('\0'),rows=[];
     for(let i=0;i+3<parts.length;i+=4) if(!parts[i+2].startsWith('!')) rows.push({source:parts[i],line:parts[i+1],pattern:parts[i+2],file:parts[i+3]});
@@ -96,7 +107,7 @@ export function checkInstalledIgnores(target, paths, opts) {
   for(const folder of folders) {
     const parent=path.posix.dirname(folder);
     if(parent!=='.') {
-      const r=spawnSync('git',['-C',target,'check-ignore','--no-index','-v','--',parent+'/'],{encoding:'utf8'});
+      const r=spawnSync('git',['-C',target,'check-ignore','--no-index','-v','--',parent+'/'],{encoding:'utf8',env:cleanGitEnv()});
       if(r.status===0&&!r.stdout.split('\t')[0].split(':').at(-1).startsWith('!')) throw new Error(`cannot un-ignore kit folder ${folder}: parent directory ${parent}/ excluded by ${r.stdout.trim()}`);
     }
   }
@@ -118,7 +129,7 @@ export function checkInstalledIgnores(target, paths, opts) {
     const gitDir=run('git',['-C',target,'rev-parse','--absolute-git-dir']);
     const remaining=hits(scratch,['--git-dir='+gitDir,'--work-tree='+scratch]);
     if(remaining.length) throw new Error('cannot un-ignore installed files: '+remaining.map(h=>`${h.file}: ${h.source}:${h.line}:${h.pattern}`).join('; '));
-  } finally { fs.rmSync(scratch,{recursive:true,force:true}); }
+  } finally { removeQuietly(scratch); } // kit 3.3.6 item 9: a scratch folder that cannot be removed is noted, never thrown over the audit result
   return [file,next];
 }
 export function install(opts, root = kitRoot) {
@@ -144,7 +155,7 @@ export function install(opts, root = kitRoot) {
   const memory=resolveMemory(target,opts['memory-dir']), version=fs.readFileSync(path.join(root,'VERSION'),'utf8').trim();
   if(pathKey(target)===pathKey(memory.dir)) throw new Error('memory must live in a dedicated folder; see CONVERT.md#move-root-memory-into-a-dedicated-folder');
   const inRepo=inRepoMemory(target,memory.dir);
-  if(inRepo && spawnSync('git',['-C',target,'rev-parse','--is-inside-work-tree'],{encoding:'utf8'}).stdout?.trim()!=='true') throw new Error('in-repo memory requires a Git repository for its hook; initialize the host repository before installing');
+  if(inRepo && spawnSync('git',['-C',target,'rev-parse','--is-inside-work-tree'],{encoding:'utf8',env:cleanGitEnv()}).stdout?.trim()!=='true') throw new Error('in-repo memory requires a Git repository for its hook; initialize the host repository before installing');
   if(inRepo) { projectConfig.memory ??= {}; projectConfig.memory.inRepoDir=slash(path.relative(target,memory.dir)); }
   const sources=instructions(target);
   checkMemoryRouter(target,memory,opts,sources);
@@ -192,16 +203,11 @@ export function install(opts, root = kitRoot) {
   const freshMemory=!fs.existsSync(path.join(memory.dir,'MEMORY.md'));
   if(freshMemory) planned.push(...freshMemoryWrites(memory.dir,path.join(root,'templates')));
   const claudeFile=path.join(target,'CLAUDE.md');
-  const agentsFile=!fs.existsSync(path.join(target,'AGENTS.md'))&&fs.existsSync(claudeFile)?claudeFile:path.join(target,'AGENTS.md'), agents=fs.existsSync(agentsFile)?fs.readFileSync(agentsFile,'utf8'):'';
-  let gateInstructions=fs.readFileSync(path.join(root,'templates/AGENTS-memory-gate.md'),'utf8');
-  if(inRepo) gateInstructions=gateInstructions.replace('gate, commit and push. Use `--no-push` or `--dry-run` when needed.', 'gate, then print staging paths and a suggested commit message. In in-repo memory, checkpoint never pushes and commits only with explicit `--commit` on the current branch; follow host branch rules. Use `--dry-run` to preview.');
-  if(!/^## Memory gate(?:[ \t]|\r?$)/m.test(agents)) { planned.push([agentsFile,appendText(agents,gateInstructions)]);for(const label of ['Session phrases','Reports']) console.log(label+' gate line: '+(opts.check||opts['dry-run']?'would add':'added')+' in '+path.basename(agentsFile)); }
-  else { const gate=gateLinePlan(target,root,opts);if(gate) planned.push(gate); }
-  if(!fs.existsSync(path.join(target,'CLAUDE.md'))) planned.push([path.join(target,'CLAUDE.md'),'@AGENTS.md\n']);
-  else if(!sameFile(agentsFile,claudeFile)) {
-    const claude = fs.readFileSync(claudeFile, 'utf8');
-    if(!/^\s*@AGENTS\.md\s*$/m.test(claude)) planned.push([claudeFile,appendText(claude,'@AGENTS.md\n')]);
-  }
+  const claudeImported=fs.existsSync(claudeFile)&&/^\s*@AGENTS\.md\s*$/m.test(fs.readFileSync(claudeFile,'utf8'));
+  // The kit standard block and Project rules in AGENTS.md (or a CLAUDE.md-only project), and the import block in CLAUDE.md.
+  const instructionPlan=standardBlockPlan(target,root,{...opts,inRepo,install:true});
+  if(instructionPlan.refusal) { if(!(opts.check||opts['dry-run'])) throw new Error(instructionPlan.refusal); console.log('install: '+instructionPlan.refusal); }
+  planned.push(...instructionPlan.writes);
   if(addHook || guardAdded || sessionChanged) planned.push([settingsFile,JSON.stringify(settings,null,2)+'\n']);
   const newRepo=!inRepo && !fs.existsSync(path.join(memory.dir,'.git'));
   const brainPaths=writeBrainIndex?brainIndexPairs(target,projectConfig,generateIndex({repo:target,config:projectConfig})).pairs.map(([file])=>path.join(target,file)):[];
@@ -216,21 +222,28 @@ export function install(opts, root = kitRoot) {
     console.log('HOOK '+path.join(inRepo?target:memory.dir,'.git/hooks/pre-commit')+' (preserve foreign hook; honor core.hooksPath)');
     if(newRepo) console.log('INIT and baseline commit '+memory.dir);
     if(writeBrainIndex) console.log('DRY brain index');
+    hints(target);
     console.log('GATE '+target); return;
   }
 
   const hostBefore=hostSnapshot(target,[...planned.map(([file])=>file),receiptFile,configFile,path.join(target,'.gitignore'),...brainPaths]);
   try {
-  if(conflicts.length) {
+  let reportPath=null;
+  if(conflicts.length||instructionPlan.report) {
     const backup=backupDirectory(engine);
-    writeJSON(path.join(backup,'restore.json'),{files:conflicts.map(([file])=>({file:path.relative(target,file).split(path.sep).join('/'),existed:true}))});
+    // A sorted instruction file is copied, not moved: its original bytes stay restorable beside the report.
+    const sorted=instructionPlan.report?[instructionPlan.file]:[];
+    writeJSON(path.join(backup,'restore.json'),{files:[...conflicts.map(([file])=>file),...sorted].map(file=>({file:path.relative(target,file).split(path.sep).join('/'),existed:true}))});
     for(const [file] of conflicts) {
       const dest=path.join(backup,path.relative(target,file));fs.mkdirSync(path.dirname(dest),{recursive:true});fs.renameSync(file,dest);
     }
+    for(const file of sorted) write(path.join(backup,path.relative(target,file)),fs.readFileSync(file));
+    if(instructionPlan.report) { reportPath=path.join(backup,'instructions-report.json');writeJSON(reportPath,instructionPlan.report); }
     console.log('install backup: '+backup);
   }
   for(const [file,data] of planned) write(file,data);
-  if(planned.some(([file,data])=>file===claudeFile&&String(data).includes('@AGENTS.md')&&hostBefore.get('CLAUDE.md')?.hash)) console.log('CLAUDE.md now imports AGENTS.md');
+  if(!claudeImported&&planned.some(([file,data])=>file===claudeFile&&String(data).includes('@AGENTS.md')&&hostBefore.get('CLAUDE.md')?.hash)) console.log('CLAUDE.md now imports AGENTS.md');
+  if(reportPath) for(const line of instructionsReportLines(root,instructionPlan,reportPath,opts)) console.log(line);
   for(const [file] of mirrors) console.log('skill mirror updated: '+path.relative(target,file));
   finishMemory({memory,target,engine,configFile,freshMemory,newRepo,inRepo,indexPages:files=>files.filter(f=>isIndexPage(f))});
   writeJSON(receiptFile,receipt);
@@ -240,7 +253,7 @@ export function install(opts, root = kitRoot) {
     console.log('install: brain index written');
   } else console.log('brain index skipped: no typed nodes');
 
-  toolingHints(target);
+  hints(target);
   console.log('install wall time: '+Math.round(performance.now()-started)+' ms');
   let summary;
   try { summary=gate(target,memory.dir); }

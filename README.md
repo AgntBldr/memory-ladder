@@ -64,7 +64,7 @@ In these steps, `<PROJECT>` is the full path of your project folder. The engine 
      character that is not a letter or a digit replaced by `-`. On Windows, `~` is your `%USERPROFILE%` folder,
      and the slug is derived from the project path. The label in brackets after the path says
      how the folder was chosen; on a first install it can read `(--memory-dir)` even when you passed no flag.
-   - The gate summary looks like `memory-check 3.3.2 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
+   - The gate summary looks like `memory-check 3.3.7 [all]: 0 FAIL, 1 WARN, 0 allowed, ...`. **0 FAIL means the
      install worked.** The one WARN is `repo.remote`: the new memory repository has no remote yet. Step 4 adds it.
 
 4. Back up the memory. Replace `<PRIVATE_REMOTE>` with the clone URL of your private remote:
@@ -119,13 +119,14 @@ In these steps, `<PROJECT>` is the full path of your project folder. The engine 
    prompt again.
 
 Where the agent reads its rules:
-- Claude Code reads `CLAUDE.md`. When the install creates `CLAUDE.md`, it contains `@AGENTS.md`, which pulls in
-  `AGENTS.md`. If your project already had both files, add the line `@AGENTS.md` to `CLAUDE.md` yourself;
-  otherwise Claude Code never sees the gate section.
+- Claude Code reads `CLAUDE.md`. The install puts `@AGENTS.md`, which pulls in `AGENTS.md`, inside a marked kit
+  block in `CLAUDE.md` (creating the file when it is absent); the rest of an existing `CLAUDE.md` is not changed.
 - Codex and Cursor read `AGENTS.md` directly.
-- The `## Memory gate` section in `AGENTS.md` holds the gate rules. The full routine, including the lesson file
-  format, is in `.claude/skills/memory-ladder/SKILL.md`. Claude Code loads it as a skill; point Codex and Cursor at
-  it.
+- The kit's marked standard block in `AGENTS.md` holds the `## Memory gate` rules and is rewritten by every update.
+  Put rules for this project only under `## Project rules`, which the kit never edits. An existing memory section is
+  sorted on the first install or update: [UPGRADE](docs/UPGRADE.md), "Standard block and Project rules". The full
+  routine, including the lesson file format, is in `.claude/skills/memory-ladder/SKILL.md`. Claude Code loads it as
+  a skill; point Codex and Cursor at it.
 
 ## Every session after
 
@@ -155,6 +156,15 @@ roadmap, refreshes the brain index and roadmap overview (unless `caps.roadmapOve
 A gate FAIL stops the commit; a failed or timed-out push exits 2 and keeps the commit. `--no-push` skips
 push; `--dry-run` writes nothing. Capture and checkpoint accept `--today YYYY-MM-DD` for a simulated
 lesson date or checkpoint gate/rotation date; the default is today. Commit the project's own changes separately, by name.
+In a checkout with uncommitted files, run `--dry-run` first and compare its `would change` list with `git status`. The
+`already modified` line names planned project outputs that Git reports as modified. It is omitted if any status query
+fails, so its absence does not prove those files are clean. Commit or stash edits you want to preserve before a real run;
+the checkpoint can rewrite modified outputs. `--session --memory-only` saves memory without touching the repo files
+(memory outside the repo).
+
+Each checkpoint run first prints `checkpoint: repo <checkout>; memory <folder> (<source>)`. For memory outside the project repo, it ends by listing the project files it changed (`repo files changed in <checkout>: ...`, or `none`), so you know what to commit there. A dry run that reaches its plan prints `would change: <list>` (or `nothing`); a plan that fails prints `would change: could not be planned (...)`. An earlier refusal can stop before this line.
+
+With `caps.checkpoint.mode: "session"` (or `--session` for one run), a checkpoint selects this session's unresolved claims plus files named with `--files` or `--take`, and includes generated page changes. Files claimed by another session are left out unless named with `--take`, which saves their current contents. It does no rotation. `--files-only`, `--take`, `--no-rotate` and `--all` adjust one run. See [HOW-IT-WORKS](docs/HOW-IT-WORKS.md#3-a-session-step-by-step) for the session workflow and [GLOSSARY](docs/GLOSSARY.md) for the checkpoint flags and claim rules.
 
 **Before you compact or switch agents.** The `## CURRENT` block is the handover. Make it current and push the
 memory first. The next session starts from it.
@@ -199,14 +209,29 @@ Update the kit folder (`git pull`, or `git fetch --tags` and check out the new t
 
 ```sh
 node scripts/upgrade.mjs --target <PROJECT> --check
-node scripts/upgrade.mjs --target <PROJECT>
+node scripts/upgrade.mjs --target <PROJECT> --live-memory
 ```
 
-`--check` exits 0 when the project is current. It exits 1 when an update is available, a kit-owned file was edited
-locally, or the check failed; the lines it prints say which. The upgrade backs up to a timestamped folder,
-replaces only kit-owned files, and keeps your config, probes, hooks and instruction blocks. If the upgrade causes a
+`--check` writes nothing and lists every file the update would create, change or delete: in the project, in memory
+and in the memory hook. It exits 0 when the project is current. It exits 1 when an update is available, any write is
+planned, a kit-owned file was edited locally, or the check failed; the lines it prints say which. Run the real update
+from the project's main checkout: it writes your live memory folder and its hook only with `--live-memory`, and it
+never points the hook at a linked worktree. To rehearse first, copy the memory folder and run
+`node scripts/upgrade.mjs --target <PROJECT> --memory-dir <copy>` instead. If project files are already at this kit
+version but memory is not, the update exits 3 and prints the `--memory-only` command that replays the memory steps.
+The upgrade backs up to a timestamped folder,
+replaces only kit-owned files and the kit's standard block, and keeps your config, probes, hooks and Project rules.
+A first update stops on old memory-section lines that need your keep or drop decision. If the upgrade causes a
 new FAIL, it rolls back. Run the gate afterwards. [UPGRADE](docs/UPGRADE.md) has the details and the restore
 command.
+
+Before you choose `drop` for a memory-section line, search your project's own checks (a docs guard, a CI step, a test)
+for the line's wording. The preview shows 60 characters; `decisions.json` has the full `text`. A line that a check needs
+must be `keep`.
+
+The gate after an update can show WARN keys the old gate did not. The release's warn-only checks report conditions the
+project already had (see the "New gate checks" note in the changelog). They never fail an update. Confirm a key is new
+with `git log -S'<key>'` in the kit before treating it as a regression.
 
 ## If you already have memory files
 
@@ -237,8 +262,9 @@ The git-ignored local record remembers custom paths for later unflagged gates an
 ### What install writes
 
 Install writes the engine, four skills (`memory-ladder`, `memory-review`, `new-session`, `handover`), a hash manifest and receipt, merges
-SessionStart, PreToolUse (Bash|PowerShell), and UserPromptSubmit hooks without removing other settings, appends the AGENTS memory gate
-once (in `CLAUDE.md` when that is the only instructions file) and creates `CLAUDE.md`
+SessionStart, PreToolUse (Bash|PowerShell), and UserPromptSubmit hooks without removing other settings, writes the marked standard
+block and a `## Project rules` section into `AGENTS.md` (in `CLAUDE.md` when that is the only instructions file), puts the
+`@AGENTS.md` import in a marked block in `CLAUDE.md`, and creates `CLAUDE.md`
 only if absent. Malformed or non-object settings stop before writes; when all kit hooks already exist,
 settings bytes remain unchanged, including a UTF-8 BOM. The kit rules file is refreshed and the host rules file
 is seeded only when absent. --no-guard persists guard: false in KIT.local.json, preserving memoryDir.
@@ -261,8 +287,8 @@ described in the [engine reference](engine/README.md), then the gate.
 
 Retain the memory repository and its history. Remove only the kit hook with
 `node scripts/memory/install-hooks.mjs --uninstall --memory-dir <MEMORY> --repo <PROJECT>`.
-Remove the exact kit SessionStart, PreToolUse guard and UserPromptSubmit clock commands from settings, the installed Memory gate
-block if it was newly added, and only installed kit-owned files listed in
+Remove the exact kit SessionStart, PreToolUse guard and UserPromptSubmit clock commands from settings, the marked kit standard
+blocks in `AGENTS.md` and `CLAUDE.md` (keep `## Project rules`), and only installed kit-owned files listed in
 `scripts/memory/MANIFEST.json`. Preserve pre-existing instructions, config and probes.
 Review against your pre-install diff before removing anything. There is no destructive
 uninstaller. Upgrade recovery is described in [UPGRADE](docs/UPGRADE.md).

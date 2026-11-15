@@ -1,8 +1,9 @@
 import {atomicWrite, repoPath, validateConfigPaths, handoverFiles} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { normalizeEol, matchEol, args, isDirect, loadConfig, repoRoot, readRequired, utf8Bytes, locations, read, roadmapOrder } from './lib.mjs';
+import { normalizeEol, matchEol, args, isDirect, loadConfig, repoRoot, readRequired, utf8Bytes, locations, read, roadmapOrder, cleanGitEnv, regularFileOrAbsent } from './lib.mjs';
 import {withMemoryLock} from './memory-lock.mjs';
+import {refuseWhilePending} from './memory-session.mjs';
 import { splitSections } from './memory-conserve.mjs';
 
 export function validDate(value) {
@@ -90,6 +91,7 @@ function rotateRoadmapUnlocked({repo = repoRoot(), config = loadConfig(), write 
   }
   if (!moved.length) return {...empty, kept: blocks.length};
   const payload = [...moved].sort((a, b) => a.start - b.start).map(b => b.text).join(''), historyFile = repoPath(repo, config.caps.roadmapHistory.path, 'caps.roadmapHistory.path');
+  regularFileOrAbsent(historyFile, 'roadmap history');
   const history = read(historyFile), eol = (history || text).includes('\r\n') ? '\r\n' : '\n', heading = `## Open work — dated blocks moved ${today}${eol}${eol}`;
   const first = [...history.matchAll(/^## (?!Open work)[^\r\n]*/gm)][0]?.index ?? history.length;
   const nextHistory = history.slice(0, first) + (first && !history.slice(0, first).endsWith('\n') ? eol : '') + heading + payload + (first < history.length && !payload.endsWith('\n') ? eol : '') + history.slice(first);
@@ -105,8 +107,15 @@ function rotateRoadmapUnlocked({repo = repoRoot(), config = loadConfig(), write 
   return result;
 }
 export function rotateHandovers(options = {}) {
-  const run = () => rotateHandoversUnlocked(options);
-  return options.write && !options.dryRun ? withMemoryLock(options.memoryDir, run, {lock: options.lock}) : run();
+  // Kit 3.3.5 E2.4/E6: moving hand-over notes is coordinated maintenance; it refuses while another live session holds
+  // unresolved claims (the all-sessions checkpoint reports "rotation waits" before it gets here). Review P1-3: the check
+  // runs inside the same lock acquisition that covers the moves, so no claim can land between the check and the writes.
+  if (!options.write || options.dryRun) return rotateHandoversUnlocked(options);
+  if (!options.lock) options.beforeLock?.();
+  return withMemoryLock(options.memoryDir, () => {
+    refuseWhilePending({memoryDir: options.memoryDir, repo: options.repo, label: 'rotate handovers'});
+    return rotateHandoversUnlocked(options);
+  }, {lock: options.lock});
 }
 function rotateHandoversUnlocked({memoryDir, config = loadConfig(), keep = config.caps.handovers?.keepNotes ?? 20, write = false, dryRun = false} = {}) {
   if (typeof keep === 'string' && !/^\d+$/.test(keep)) throw new Error('--keep must be a nonnegative integer');
@@ -153,7 +162,7 @@ export function main(argv = process.argv.slice(2)) {
     const opts = args(argv.filter(arg => arg !== '--write'));
     if (opts.help) { console.log('Usage: memory-rotate.mjs log|roadmap|handovers [--repo PATH] [--memory-dir PATH] [--keep N] [--write] [--dry-run] [--json]'); return 0; }
     if (!['log', 'roadmap', 'handovers'].includes(opts._[0])) throw new Error('expected log, roadmap or handovers');
-    const loc = locations(opts);
+    const loc = locations(opts, {env: cleanGitEnv()});
     const config = loadConfig(), input = opts._[0] === 'log' ? config.caps.brainLog.path : config.caps.roadmap.path;
     validateConfigPaths(loc.repo, config);
     if (opts._[0] !== 'handovers' && !fs.existsSync(path.join(loc.repo, input))) { console.log('nothing to rotate: no existing input'); return 0; }

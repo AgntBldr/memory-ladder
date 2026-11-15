@@ -91,7 +91,9 @@ test('install adds one AGENTS import to an existing CLAUDE file', t => {
   const f = fixture(t);
   put(path.join(f.target, 'CLAUDE.md'), '# Instructions\n');
   ok(f.install());
-  assert.equal(read(path.join(f.target, 'CLAUDE.md')), '# Instructions\n\n' + '@AGENTS.md\n');
+  // 3.3.4: the import sits inside the kit's marked block.
+  const version = read(path.join(kitRoot, 'VERSION')).trim();
+  assert.equal(read(path.join(f.target, 'CLAUDE.md')), '# Instructions\n\n' + `<!-- kit standard block (memory kit ${version}): begin. The kit replaces everything up to the end marker on every update; put project rules under "## Project rules". -->\n` + '@AGENTS.md\n<!-- kit standard block: end -->\n');
   const g = fixture(t);
   put(path.join(g.target, 'CLAUDE.md'), '# Instructions\n' + '@AGENTS.md\n');
   ok(g.install());

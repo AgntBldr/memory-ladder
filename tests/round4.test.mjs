@@ -37,7 +37,7 @@ for(const edited of [false,true]) test(`upgrade retired test edited=${edited}`,t
  if(edited) put(file,'// host edited test\n');
  put(path.join(f.target,'scripts/memory/lib.mjs'),read(path.join(f.target,'scripts/memory/lib.mjs'))+'\n// force upgrade\n');
  const next=bump(f),ledger=path.join(next,'engine/upgrades.json'),rows=json(ledger);rows.at(-1).retired=['scripts/memory/memory.test.mjs'];put(ledger,JSON.stringify(rows));
- ok(f.cli('scripts/upgrade.mjs',['--target',f.target],next));
+ ok(f.cli('scripts/upgrade.mjs',['--target',f.target,'--live-memory'],next));
  assert.equal(fs.existsSync(file),edited);if(edited) assert.equal(read(file),'// host edited test\n');
 });
 for(const shape of ['nested','root','import']) test(`refuses ${shape} in-repo memory before writes`,t=>{

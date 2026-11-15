@@ -1,25 +1,33 @@
-import {normalizeEol, pathKey} from '../engine/lib.mjs';
+import {normalizeEol, pathKey, refuseSpecial} from '../engine/lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 import {installedManifest, hash} from './manifest.mjs';
 import {readJSON} from '../engine/memory-setup.mjs';
+import {planText,proveText,shippedIndex,unitLine,inRepoVariant,bodyLines,parseLedger,reportEntry} from './instructions-block.mjs';
 const exists = file => fs.existsSync(file) && fs.statSync(file).isFile();
+// Kit 3.3.6 item 6, after review: the kind check the update and the install make before they plan or read a named file:
+// true for a regular file, false when absent (or a folder). A stat error other than ENOENT or ENOTDIR, and a fifo, socket
+// or device, refuse with refuseSpecial's wording (`cannot resolve <file> (<code>); nothing written`) before anything is
+// read. checkMemoryRouter and toolingHints keep exists(): the first reads none of its candidates, the second runs after
+// the install's writes and must never fail it.
+const isRegular = file => { refuseSpecial(file); return exists(file); };
 const inside = (root, file) => { const r=path.relative(root,file);return r!== '..'&&!r.startsWith('..'+path.sep)&&!path.isAbsolute(r); };
 export function instructions(target) {
   const found=new Map();
   function visit(file) {
-    if(!exists(file)) return;
+    if(!isRegular(file)) return;
     file=fs.realpathSync(file);
     if(found.has(file)) return;
     const text=fs.readFileSync(file,'utf8');found.set(file,text);
     for(const m of text.matchAll(/(?:^|\s)@([^\s`<>"()]+)/gm)) {
       const relative=path.resolve(path.dirname(file),m[1]),rooted=path.resolve(target,m[1]);
-      visit(exists(relative)?relative:rooted);
+      visit(isRegular(relative)?relative:rooted);
     }
     for(const m of text.matchAll(/(?:@|\]\(|`)([^\s`<>"()]+\.md)\b/g)) {
       const relative=path.resolve(path.dirname(file),m[1]),rooted=path.resolve(target,m[1]);
-      visit(exists(relative)?relative:rooted);
+      visit(isRegular(relative)?relative:rooted);
     }
   }
   for(const file of ['AGENTS.md','CLAUDE.md','CLAUDE.local.md']) visit(path.join(target,file));
@@ -58,9 +66,9 @@ export function mirrorWrites(target, planned, sources, {keepDivergent=false,repl
     for(const folder of folders) {
       const mirror=path.resolve(target,folder,relative);
       const codex=sessionSkills.includes(name)&&folder==='.agents/skills'&&['.agents','.codex'].some(dir=>fs.existsSync(path.join(target,dir)));
-      if(!sessionSkills.includes(name)&&!exists(file)) continue;
-      if(mirror===file||!inside(target,mirror)||(!exists(mirror)&&!codex)) continue;
-      if(exists(mirror)&&normalizeEol(fs.readFileSync(mirror,'utf8'))!==normalizeEol(data)&&(!exists(file)||normalizeEol(fs.readFileSync(mirror,'utf8'))!==normalizeEol(fs.readFileSync(file,'utf8')))) {
+      if(!sessionSkills.includes(name)&&!isRegular(file)) continue;
+      if(mirror===file||!inside(target,mirror)||(!isRegular(mirror)&&!codex)) continue;
+      if(isRegular(mirror)&&normalizeEol(fs.readFileSync(mirror,'utf8'))!==normalizeEol(data)&&(!isRegular(file)||normalizeEol(fs.readFileSync(mirror,'utf8'))!==normalizeEol(fs.readFileSync(file,'utf8')))) {
         if(keepDivergent) {console.log(`WARN mirror differs: ${mirror}; kept; copy ${file} to ${mirror} to refresh after reviewing host edits`);continue;}
         if(!replaceSkills.includes(name)) throw new Error(`skill mirror differs: ${mirror} vs ${file}; use --replace-skill ${name}; neither changed`);
       }
@@ -144,8 +152,8 @@ export function skillPlan(target,root,oldManifest,local,opts) {
   for(const file of skills) {
     const name=file.split('/')[2],dest=path.join(target,file);
     if(replaceSkills.includes(name)) { foreign.delete(name);continue; }
-    if(foreign.has(name)&&!exists(dest)) { foreign.delete(name);console.log(`WARN foreign skill gone: ${file}; ${opts.check||opts['dry-run']?'would install':'installing'} kit skill`); }
-    if(foreign.has(name)||(!Object.hasOwn(oldManifest?.files??{},file)&&exists(dest)&&hash(dest)!==next.files[file])) {
+    if(foreign.has(name)&&!isRegular(dest)) { foreign.delete(name);console.log(`WARN foreign skill gone: ${file}; ${opts.check||opts['dry-run']?'would install':'installing'} kit skill`); }
+    if(foreign.has(name)||(!Object.hasOwn(oldManifest?.files??{},file)&&isRegular(dest)&&hash(dest)!==next.files[file])) {
       foreign.add(name);kept.push(file);delete next.files[file];
       console.log(`WARN foreign skill kept: ${file}; use --replace-skill ${name}`);
     }
@@ -153,55 +161,116 @@ export function skillPlan(target,root,oldManifest,local,opts) {
   if(foreign.size||local.foreignSkills) local.foreignSkills=[...foreign].sort();
   return {next,kept,replaceSkills};
 }
-// Every Session phrases line shipped by the kit; append when the wording changes.
-const shippedSessionLines = [
-  "- Session phrases: when a message is only \"We are starting a new session - read this and let me know when we can start\" or \"handover\" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message \"<the message>\"` and follow its output; never inside a subagent or `codex exec` brief. Offer /handover at a stage end or on wrap-up.", // 3.3.0 and 3.3.1
-];
-// Every Reports line shipped by the kit; append when the wording changes.
-const shippedReportsLines = [
-  "- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only if /handover reported it since the last change.", // 3.3.1
-];
-export function gateLinePlan(target,root,opts={}) {
-  const file=path.join(target,fs.existsSync(path.join(target,'AGENTS.md'))?'AGENTS.md':'CLAUDE.md');
-  const text=exists(file)?fs.readFileSync(file,'utf8'):'';
-  const template=fs.readFileSync(path.join(root,'templates/AGENTS-memory-gate.md'),'utf8');
-  const labels=['Session phrases','Reports'];
-  const lines=labels.map(label=>template.split(/\r?\n/).find(line=>line.startsWith('- '+label+':')));
-  const block=/^## Memory gate(?:[ \t][^\r\n]*)?(?:\r?\n|$)[\s\S]*?(?=^#{1,2} |$(?![\s\S]))/m.exec(text);
-  if(!block) { console.log('WARN Memory gate heading missing; add: '+lines.join('\n'));return null; }
-  const old=block[0],eol=old.includes('\r\n')?'\r\n':'\n';
-  let updated=old;
-  const continuations=/^(?:(?:[ \t]*\r?\n)*[ \t](?=[^\r\n]*\S)[^\r\n]*(?:\r?\n|$))*/;
-  for(const [i,label] of labels.entries()) {
-    const line=lines[i],pattern=new RegExp('^- '+label+':[^\\r\\n]*(?:\\r?\\n|$)','m');
-    const prior=updated,existing=pattern.exec(prior);
-    if(existing) {
-      const before=prior.slice(0,existing.index),after=prior.slice(existing.index+existing[0].length);
-      const previous=before.replace(/\r?\n$/,'').split(/\r?\n/).at(-1);
-      const wrapped=continuations.exec(after)[0];
-      // Only shipped bytes identify the 3.3.0 insertion bug. A matching line
-      // followed by a user's nested bullet is indistinguishable (known limit).
-      const shipped=(label==='Session phrases'?shippedSessionLines:shippedReportsLines).includes(existing[0].replace(/\r?\n$/,'').replace(/[ \t]+$/,''));
-      if(!shipped&&wrapped) {
-        console.log('WARN custom '+label+' line has continuation lines; kept as is; replace the whole bullet, including its indented lines, with: '+line);
-        continue;
-      }
-      const move=label==='Session phrases'&&shipped&&wrapped&&/^(?:- |[ \t])/.test(previous)&&previous.trim();
-      updated=move?before+wrapped+(wrapped.endsWith('\n')?'':eol)+line+eol+after.slice(wrapped.length):prior.replace(new RegExp('^- '+label+':[^\\r\\n]*','m'),line);
-    } else {
-      const following=i===0?/^- Reports:/m.exec(prior):null;
-      const anchor=i?new RegExp('^- Session phrases:[^\\r\\n]*(?:\\r?\\n|$)','m').exec(prior):null;
-      const last=anchor??[...prior.matchAll(/^- [^\r\n]*(?:\r?\n|$)/gm)].at(-1);
-      if(last) last[0]+=continuations.exec(prior.slice(last.index+last[0].length))[0];
-      const at=following?following.index:last?last.index+last[0].length:prior.includes('\n')?prior.indexOf('\n')+1:prior.length;
-      updated=prior.slice(0,at)+(at&&!prior.slice(0,at).endsWith('\n')?eol:'')+line+eol+prior.slice(at);
-    }
-    // Preserve an existing unterminated last bullet, including the repair path.
-    if(!old.endsWith('\n')&&/^- /m.test(old)) updated=updated.replace(/\r?\n$/,'');
-    const preview=opts.check||opts['dry-run'];
-    console.log(label+' gate line: '+(updated===prior?'present':preview?(existing?'would update':'would add'):(existing?'updated':'added'))+' in '+path.basename(file));
+// Decisions for unclear lines: {"version":1,"project":"<name>","decisions":{"<unit id>":{"outcome","scope","reason","decidedBy"}}}.
+// An empty outcome means "not decided yet"; the unit stays unclear.
+export function readDecisions(file) {
+  let json;
+  // Kit 3.3.6 item 6: a file the operator names is kind-checked first; the refusal passes the catch below unchanged.
+  refuseSpecial(file);
+  try { json=JSON.parse(fs.readFileSync(file,'utf8')); } catch { throw Error(`${file} is not a decisions file`); }
+  if(!json||typeof json!=='object'||json.version!==1||!json.decisions||typeof json.decisions!=='object'||Array.isArray(json.decisions)) throw Error(`${file} is not a decisions file`);
+  const map=new Map();
+  for(const [id,decision] of Object.entries(json.decisions)) {
+    if(!decision||typeof decision!=='object'||Array.isArray(decision)) throw Error(`decision ${id} is not an object`);
+    if(decision.outcome===undefined||decision.outcome==='') { map.set(id,null);continue; }
+    if(!['keep','drop'].includes(decision.outcome)) throw Error(`decision ${id} has an unknown outcome ${decision.outcome}`);
+    if(typeof decision.reason!=='string'||!decision.reason.trim()) throw Error(`decision ${id} has no reason`);
+    const scope=decision.scope??'project';
+    if(!['project','general'].includes(scope)) throw Error(`decision ${id} has an unknown scope ${scope}`);
+    map.set(id,{outcome:decision.outcome,scope,reason:decision.reason,decidedBy:typeof decision.decidedBy==='string'?decision.decidedBy:''});
   }
-  return updated===old?null:[file,text.slice(0,block.index)+updated+text.slice(block.index+old.length)];
+  return {project:typeof json.project==='string'&&json.project?json.project:null,map};
+}
+// The sorting ledger is read from the kit the update runs from: --instructions-ledger, else every ledger/*.json.
+export function loadLedger(root,file) {
+  const dir=path.join(root,'ledger');
+  const files=file?[path.resolve(file)]:fs.existsSync(dir)?fs.readdirSync(dir).filter(name=>name.endsWith('.json')).sort().map(name=>path.join(dir,name)):[];
+  const entries=[];
+  for(const ledger of files) {
+    // Kit 3.3.6 item 6: kind-checked before the read; the refusal passes the catch below unchanged.
+    refuseSpecial(ledger);
+    try { entries.push(...parseLedger(JSON.parse(fs.readFileSync(ledger,'utf8')))); }
+    catch { throw Error(`${ledger} is not a sorting ledger`); }
+  }
+  return entries;
+}
+// Plans the kit standard block in the instruction file (AGENTS.md, else CLAUDE.md) and the import block in CLAUDE.md.
+// Nothing is written here. A refusal is returned, never thrown, so previews can print it.
+export function standardBlockPlan(target,root,opts={},hooks={}) {
+  const log=opts.quiet?()=>{}:console.log;
+  const result={writes:[],refusal:null,refusalKind:null,plans:[],report:null,summary:null,file:null,project:null};
+  const refuse=(kind,message)=>Object.assign(result,{refusal:message,refusalKind:kind});
+  const agentsFile=path.join(target,'AGENTS.md'),claudeFile=path.join(target,'CLAUDE.md');
+  const file=isRegular(agentsFile)?agentsFile:isRegular(claudeFile)?claudeFile:opts.install?agentsFile:null;
+  if(!file) { log('WARN no AGENTS.md or CLAUDE.md; the kit standard block was not added');return result; }
+  result.file=file;
+  let decisions=null,ledger;
+  try {
+    if(opts['instructions-decisions']) decisions=readDecisions(path.resolve(opts['instructions-decisions']));
+    ledger=loadLedger(root,opts['instructions-ledger']);
+  } catch(error) { return refuse('input',error.message); }
+  const version=fs.readFileSync(path.join(root,'VERSION'),'utf8').trim();
+  const template=fs.readFileSync(path.join(root,'templates/AGENTS-memory-gate.md'),'utf8');
+  const catalogFile=path.join(root,'templates/shipped-instruction-lines.json');
+  const catalog=fs.existsSync(catalogFile)?JSON.parse(fs.readFileSync(catalogFile,'utf8')):null;
+  const shipped=shippedIndex(catalog,[template,inRepoVariant(template)]);
+  // What the kit named in a block's begin marker wrote there: this kit's template, else the catalog's lines for that tag.
+  const bodies=markerVersion=>markerVersion===version?[template,inRepoVariant(template)].map(bodyLines)
+    :Array.isArray(catalog?.bodies?.['v'+markerVersion])?catalog.bodies['v'+markerVersion]:null;
+  const importBody=fs.readFileSync(path.join(root,'templates/CLAUDE-standard-block.md'),'utf8');
+  const targets=[{file,kind:'full',body:opts.inRepo?inRepoVariant(template):template}];
+  if(file===agentsFile&&(isRegular(claudeFile)||opts.install)&&!(isRegular(claudeFile)&&sameFile(agentsFile,claudeFile))) targets.push({file:claudeFile,kind:'import',body:importBody});
+  for(const entry of targets) {
+    const present=isRegular(entry.file),raw=present?fs.readFileSync(entry.file):Buffer.alloc(0),text=raw.toString('utf8');
+    const name=path.relative(target,entry.file).split(path.sep).join('/');
+    // The plan and its proof work on text; that equals working on bytes only when the bytes decode losslessly.
+    const encoded=Buffer.from(text,'utf8');
+    if(!encoded.equals(raw)) {
+      let at=0;while(at<raw.length&&raw[at]===encoded[at]) at++;
+      return refuse('encoding',`${name} is not UTF-8 text (first invalid byte at offset ${at}); save it as UTF-8, then run again; nothing written`);
+    }
+    const plan=planText({text,exists:present,version,body:entry.body,kind:entry.kind,shipped,decisions:decisions?.map,ledger,bodies:entry.kind==='full'?bodies:null,hooks:entry.kind==='full'?hooks:{}});
+    if(plan.damage) return refuse('damaged',`${name} standard block markers are damaged (${plan.damage}); fix them by hand or restore the file, then run again`);
+    result.plans.push({...entry,name,text,present,plan});
+  }
+  for(const {name,plan} of result.plans) {
+    log(`INSTRUCTIONS ${name}: standard block ${plan.action??'add'}; first update: ${plan.firstUpdate?'yes':'no'}`);
+    for(const unit of plan.units) log(unitLine(unit));
+    if(plan.editLines) log(`WARN ${name} standard block differs from kit ${plan.comparedTo??version} text (${plan.editLines} lines); the update replaces it; move lines you need to "## Project rules" first`);
+    for(const line of plan.repeats) log(`WARN ${name}:${line} repeats kit wording outside the standard block`);
+  }
+  const main=result.plans[0];
+  if(decisions) for(const [id,decision] of decisions.map) {
+    const unit=main.plan.units.find(unit=>unit.id===id);
+    if(!unit) return refuse('decisions',`decisions file names unknown unit ${id}`);
+    if(decision&&unit.outcome==='replace') log(`WARN decision ${id} ignored: kit wording is always replaced`);
+  }
+  const unclear=main.plan.unclear??[];
+  if(unclear.length) return refuse('unclear',`${main.name} has ${unclear.length} unclear lines in its old memory section; write decisions with: node "${path.join(root,'scripts/instructions-sort.mjs')}" preview --target "${target}" --out <folder>, fill <folder>/decisions.json, then run again with --instructions-decisions <folder>/decisions.json`);
+  for(const {file:dest,text,body,plan} of result.plans) {
+    if(plan.action==='unchanged') continue;
+    const failure=plan.proofFailure??proveText({text,plan,body,version});
+    if(failure) return refuse('proof',`instructions proof failed: ${failure}; nothing written`);
+    result.writes.push([dest,plan.newText]);
+  }
+  const project=decisions?.project||path.basename(target),date=new Date().toISOString().slice(0,10);
+  const edited=unit=>({...unit,outcome:'replace',scope:'project',reason:'edit inside the standard block, replaced',decidedBy:'kit',source:'edit-inside-block',matched:[]});
+  const entries=result.plans.flatMap(({name,plan})=>[...plan.units,...plan.edits.map(edited)].map(unit=>reportEntry(unit,{project,file:name,date})));
+  result.project=project;
+  result.summary={replaced:entries.filter(e=>e.outcome==='replace').length,kept:entries.filter(e=>e.outcome==='keep').length,dropped:entries.filter(e=>e.outcome==='drop').length};
+  // An upgrade that makes a first update always leaves a report, even with no units; install only when it sorted units.
+  const firstWritten=result.plans.some(({plan})=>plan.firstUpdate&&plan.action!=='unchanged');
+  if(result.writes.length&&(entries.length||(firstWritten&&!opts.install))) result.report={version:1,kit:version,project,date,entries};
+  return result;
+}
+// The lines a real run prints after it wrote a sorting report.
+export function instructionsReportLines(root,result,reportPath,opts={}) {
+  const {replaced,kept,dropped}=result.summary,version=fs.readFileSync(path.join(root,'VERSION'),'utf8').trim();
+  return [
+    `instructions: ${replaced} replaced, ${kept} kept in Project rules, ${dropped} dropped; report: ${reportPath}`,
+    `instructions: to keep these decisions for later projects, add the report to your kit's sorting ledger, from a kit branch: node "${path.join(root,'scripts/instructions-sort.mjs')}" ledger-add --from "${reportPath}" --project ${result.project} --ledger ${opts['instructions-ledger']?'"'+path.resolve(opts['instructions-ledger'])+'"':'<ledger file>'}`,
+    `lesson: close this update with a "what we learned" lesson: node scripts/memory/memory-lesson.mjs new --route <family> --kind observation "What we learned: kit ${version} instructions update"`,
+  ];
 }
 
 export function distributionRefusals(target,root,oldManifest) {
@@ -210,7 +279,7 @@ export function distributionRefusals(target,root,oldManifest) {
   const aware=ledger.some(row=>row.waveSave?.supportsHandover===true);
   const refused=[];
   for(const file of ['settings.json','settings.local.json']) {
-    const settingsFile=path.join(target,'.claude',file),settings=exists(settingsFile)?read(settingsFile):{};
+    const settingsFile=path.join(target,'.claude',file),settings=isRegular(settingsFile)?read(settingsFile):{};
     validateHooks(settings,file);
     for(const [event,entries] of Object.entries(settings.hooks??{})) for(const entry of entries) for(const hook of entry.hooks??[]) {
       if(typeof hook.command==='string'&&hook.command.toLowerCase().includes('wave-save.mjs')&&!aware) refused.push(`wave-save refused: ${event}: ${hook.command}; ${file}; install a wave-save release that supports handover; no override`);
@@ -221,7 +290,7 @@ export function distributionRefusals(target,root,oldManifest) {
     for(const [file,expected] of Object.entries(oldManifest.files)) {
       const dest=path.resolve(target,file);
       if(!['scripts/memory','.claude/skills'].some(folder=>dest!==path.join(target,folder)&&inside(path.join(target,folder),dest))) throw Error('old manifest path outside kit folders: '+file);
-      if(!Object.hasOwn(next.files,file)&&exists(dest)&&hash(dest)===expected&&!retired.has(file)) refused.push('unknown owned file: '+file+'; remove or restore the file, or list it in retired');
+      if(!Object.hasOwn(next.files,file)&&isRegular(dest)&&hash(dest)===expected&&!retired.has(file)) refused.push('unknown owned file: '+file+'; remove or restore the file, or list it in retired');
     }
   }
   return refused;
@@ -230,10 +299,37 @@ export function appendText(text, block) {
   const eol=text.includes('\r\n')?'\r\n':'\n';
   return text+(text.endsWith('\n')?eol:eol+eol)+block.replace(/\r?\n/g,eol);
 }
+const readText=file=>{try {return fs.readFileSync(file,'utf8');} catch {return '';}};
+// Hints only: nothing here writes a file or fails an install.
 export function toolingHints(target) {
-  if(fs.readdirSync(target).some(n=>/^eslint\.config\.|^\.eslintrc/.test(n))) console.log('Host eslint: if eslint . collects kit .mjs, exclude scripts/memory/** (flat config global ignores; legacy ignorePatterns).');
-  const ts=path.join(target,'tsconfig.json');
+  let names=[];
+  try {names=fs.readdirSync(target);} catch {}
+  const at=name=>path.join(target,name);
+  let pkg=null;
+  try {pkg=JSON.parse(readText(at('package.json')));} catch {}
+  const pkgKey=key=>Boolean(pkg)&&typeof pkg==='object'&&Object.hasOwn(pkg,key);
+  const eslintFiles=names.filter(n=>/^eslint\.config\.(?:js|mjs|cjs|ts|mts|cts)$/.test(n)||/^\.eslintrc(?:\.(?:js|cjs|json|yaml|yml))?$/.test(n));
+  if(eslintFiles.length||pkgKey('eslintConfig')) {
+    const texts=[...eslintFiles,'.eslintignore'].map(n=>readText(at(n)));
+    if(pkgKey('eslintConfig')) texts.push(JSON.stringify(pkg.eslintConfig));
+    if(!texts.some(text=>text.includes('scripts/memory'))) console.log('Host eslint: if eslint . collects kit .mjs, exclude scripts/memory/** (flat config global ignores; legacy ignorePatterns).');
+  }
+  const ts=at('tsconfig.json');
   if(exists(ts)&&/"(?:allowJs|checkJs)"\s*:\s*true/.test(fs.readFileSync(ts,'utf8'))) console.log('Host tsconfig: allowJs/checkJs may collect kit .mjs; add scripts/memory/** to exclude when needed.');
+  // Biome reads biome.json before biome.jsonc (docs list the files in that order).
+  const biome=['biome.json','biome.jsonc'].find(n=>names.includes(n));
+  if(biome&&!readText(at(biome)).includes('scripts/memory')) console.log(`Host Biome: ${biome} covers scripts/memory; exclude it ("!scripts/memory" in files.includes for Biome 2, "scripts/memory/**" in files.ignore for Biome 1). Never reformat kit files: they are hashed.`);
+  const prettier=names.some(n=>/^\.prettierrc(?:\.(?:json|json5|yaml|yml|toml|js|cjs|mjs))?$/.test(n)||/^prettier\.config\.(?:js|cjs|mjs)$/.test(n))||pkgKey('prettier');
+  if(prettier&&!readText(at('.prettierignore')).includes('scripts/memory')) console.log('Host Prettier: Prettier covers scripts/memory; add scripts/memory/ to .prettierignore. Never reformat kit files: they are hashed.');
+}
+// Kit 3.3.6: the one clean git environment, imported beside its only user in this file.
+import {cleanGitEnv} from '../engine/lib.mjs';
+// On Windows, Git warns "LF will be replaced by CRLF" for kit files unless core.safecrlf is set (any value). Returns the note or null.
+export function lineEndingNote(target,platform=process.platform,gitCommand='git') {
+  if(platform!=='win32') return null;
+  const r=spawnSync(gitCommand,['-C',target,'config','--get','core.safecrlf'],{encoding:'utf8',timeout:10000,windowsHide:true,env:cleanGitEnv()});
+  if(r.error||r.status!==1) return null;
+  return 'NOTE line endings: on Windows Git warns "LF will be replaced by CRLF" for kit files; to silence it for every project run: git config --global core.safecrlf false';
 }
 export function sameFile(a,b) {
   if(a===b) return true;

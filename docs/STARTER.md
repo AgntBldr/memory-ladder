@@ -16,7 +16,7 @@ Needs: Node 22 or newer, Git with a name and email set (Git for Windows on Windo
 the project folder as a Git repository (`git init` first if it is not), and a private Git remote for the memory.
 
 1. **Get the kit next to the project**, not inside it:
-   `git clone --branch <tag> <KIT_REMOTE> <KIT>` (or copy the kit folder). Use `v3.3.2` with this
+   `git clone --branch <tag> <KIT_REMOTE> <KIT>` (or copy the kit folder). Use `v3.3.7` with this
    guide, or read the guide shipped with your chosen release. The kit is the original; everything installed is a copy, so never
    edit the installed engine by hand.
 2. **Preview**: `node <KIT>/scripts/install.mjs --target <PROJECT> --dry-run` prints every file it would write
@@ -100,10 +100,12 @@ when appropriate. Commit the project by name.
 ## When the kit publishes a new tag
 
 Update the kit clone, then `node <KIT>/scripts/upgrade.mjs --target <PROJECT> --check` (exit 0 = current;
-exit 1 = an update is available, a kit-owned file was edited locally, or the check failed: read the lines).
-Apply with `node <KIT>/scripts/upgrade.mjs --target <PROJECT>`; it backs up to a timestamped folder, replaces
+exit 1 = an update is available, a write is planned, a kit-owned file was edited locally, or the check failed:
+read the lines; it lists every planned write and writes nothing). To rehearse, copy the memory folder and run
+`node <KIT>/scripts/upgrade.mjs --target <PROJECT> --memory-dir <copy>`. Apply from the project's main checkout
+with `node <KIT>/scripts/upgrade.mjs --target <PROJECT> --live-memory`; it backs up to a timestamped folder, replaces
 only kit-owned files, keeps config, probes, hooks and instruction blocks, and rolls back on new FAILs
-(`--restore <BACKUP>` if needed). Finish with the explicit gate. Details: `docs/UPGRADE.md`.
+(`--restore <BACKUP> --live-memory` if needed). Finish with the explicit gate. Details: `docs/UPGRADE.md`.
 
 ## If the project already has memory
 

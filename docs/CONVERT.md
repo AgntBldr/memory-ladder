@@ -110,6 +110,108 @@ context beyond the filename or name; do not shorten them to filename restatement
 Keep quick notes under the brain's `99-inbox/` folder (including subfolders) untyped
 until graduation; do not invent ids or types to clear `brain.frontmatter`.
 
+## Promote one-note-per-file topics
+
+Use `promote` when reusable lessons already live in separate topic files. The
+`convert` command splits numbered sections in a bundle; it cannot number these
+topics. Numbered lessons let generated hot pages trim older lessons to the hot
+budget while keeping them in the family catalog.
+
+Take a recovery git tag in the memory repository FIRST and rehearse on a copy.
+Create a version 1 map outside memory:
+
+```json
+{"version":1,"promote":{
+  "alpha-note.md":{"kind":"mistake","route":["craft-demo"],"slug":"calibration-check",
+    "trigger":"before calibration","case":"K3","pin":false,"date":"2026-08-03"}
+}}
+```
+
+`kind` is required: `mistake`, `practice` or `observation`. Omitted `route` keeps
+the existing route; supplied routes must be arrays of router-known families.
+Omitted `slug` keeps the complete old basename. Trigger, case and pin are optional;
+an omitted pin preserves any existing pin. Never infer a takeaway.
+
+```sh
+node scripts/memory/memory-migrate.mjs promote --memory-dir COPY --repo PROJECT --map MAP.json --also PROJECT/brain --protect protected.txt
+node scripts/memory/memory-migrate.mjs promote --memory-dir COPY --repo PROJECT --map MAP.json --also PROJECT/brain --protect protected.txt --write
+```
+
+Separate options from values; `--map=MAP.json` is not supported. Repeat `--also`
+for additional roots. The protect file contains one memory filename per line.
+The default dry run uses a disposable copy for generation and gate checks; it
+does not change the input roots. A Git work tree stages only `git --no-optional-locks
+-C PROJECT ls-files -z` files, plus memory config and probes if untracked. Without
+Git, the repository walk skips every `node_modules` and any nested directory
+containing its own `.git` file or folder. Explicit memory and `--also` roots retain
+their recursive copy rule, including untracked files. JSON `rehearsal.files` and
+`rehearsal.bytes` report unique input files copied and their total bytes, before
+planned edits and generated pages are applied.
+
+Numbers start after the highest existing lesson id, in date order with filename
+ties. Date precedence is the optional map row `date` (validated `YYYY-MM-DD`),
+`metadata.date`, the first valid date in the first ten nonblank body lines outside
+fenced code, the first git commit date, then the date part of `metadata.modified`.
+An explicit map date also overrides the saved metadata date. `date_source` is
+`map`, `metadata.date`, `body`, `git` or `modified`; JSON `dates` counts each source
+under `map`, `metadata`, `body`, `git` and `modified`. A row without a date is refused.
+Names use at least three digits. Unrelated frontmatter values and body line endings
+stay intact. Its name and lesson metadata identify the new lesson, while
+`metadata.source` records the old filename.
+
+The command skips already numbered lessons, generated and special pages (including
+router, indexes, ARCHIVE and redirect stubs), state files, router-linked hard rules,
+chain heads and parts, protected files, missing files, target collisions, invalid
+kinds and unknown route families. Refusals are reported per row; eligible rows
+still proceed. A second write with the same map reports `already promoted` and
+does not write another name map.
+
+Rewrites cover `[[old]]`, `[[old|alias]]`, `[[old.md]]`, and Markdown destinations
+`old.md`, `old.md#anchor` and `./old.md`. Markdown is scanned recursively in memory
+and each additional root, skipping `.git`, `node_modules` and generated pages.
+Exact filename tokens in prose and code spans are rewritten in that same pass:
+`alpha-note.md` changes, while `alpha-note-extra.md` and `xalpha-note.md` do not.
+`metadata.source` remains exempt. In `PROJECT/scripts/memory/recall-probes.json`
+and `memory.config.json`, only exact filename string values change; JSON keys
+and strings containing filenames as part of prose are left unchanged.
+
+Both modes print JSON with original, expected, written and inverse body SHA-256 hashes, remaining old-name
+references, each recall probe's before/after result, recall regressions, and the
+before/after gate FAIL sets plus new FAILs (`--no-git` gate semantics). A write
+requires the written body to match the expected hash and the inverse rewrite to
+reproduce the original bytes, zero remaining rewritable references outside
+`metadata.source`, stubs and the name map, no passing probe lost and no new gate FAIL. Existing failing
+probes remain visible; they are not counted as regressions. Invalid UTF-8 is
+rejected before it can be replaced by decoded text.
+
+Promoted bodies change only by planned, reversible filename and link rewrites;
+bare extensionless slugs stay untouched. Each row records `sha256_body` (original),
+`sha256_expected` (after the complete map's rewrites), and `link_rewrites` (body
+replacement count, including prose filenames). Applying the inverse map must
+reproduce the original bytes exactly, both in rehearsal and after writing. A body
+without replacements remains byte-identical. Any other edit fails the proof.
+
+Use optional `--stubs` when references outside the scanned roots need the old
+names to keep resolving. Each old name becomes a `moved_to` pointer to its lesson,
+using the source line endings and original metadata/top-level type (default
+`feedback`). Links in the scanned roots are still rewritten. Stubs are not topics
+and are excluded from remaining-reference checks. Each evidence row records
+`stub: true|false`; rerunning the map remains a no-op with or without stubs.
+The default writes no stubs.
+
+Write mode holds the memory lock through planning, regeneration and verification.
+It first writes everything to a disposable copy and requires the proofs to pass
+before applying the prepared bytes. It also snapshots affected input bytes and
+restores memory, additional-directory Markdown, probes and config if a measured
+proof or write fails after application. Each file replacement is atomic; a whole
+multi-directory transaction is not crash-atomic, so keep the recovery git tag.
+Successful writes save `promote-map-<UTC yyyymmddThhmmss>.json` in the memory root,
+beside route conversion's evidence, with rows, dates, body hashes, refusals and
+link counts. Keep this map with the conversion evidence. Recover later using the
+name map's old/new pairs, each lesson's `metadata.source`, and the git tag taken
+before conversion; review external-directory and JSON rewrites as well. Retain
+old-name pointers only when opting into `--stubs`.
+
 ## Move root memory into a dedicated folder
 
 This is a separate conversion session before installation. The repo root is never a memory

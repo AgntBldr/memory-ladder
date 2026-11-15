@@ -2,7 +2,7 @@
 
 ## 1. What this is
 
-The kit keeps agent instructions and lessons in Markdown. A [router](GLOSSARY.md#the-ladder-memory-layers) leads to state, indexes and notes. Project facts live in the project's knowledge folder.
+Keep know-how in numbered lessons (`memory-lesson.mjs new`); topics hold state, facts and references. Topics never age out of hot pages. See [conversion](LESSON-CONVERSION.md).
 
 **State is overwritten, facts are moved, history is git.**
 
@@ -53,16 +53,16 @@ Use `/new-session` for a read-only start and `/handover` to save lessons, CURREN
 4. Overwrite the CURRENT block with the task, next action and handoff.
 5. Checkpoint: indexes, log/roadmap/handover rotation, brain index, roadmap overview, gate, memory commit and push. Absent records are skipped; `caps.roadmapOverview.enabled: false` skips the overview. Commit project changes separately.
 
-That order comes from [memory-checkpoint.mjs](../engine/memory-checkpoint.mjs). `--no-push` still commits; `--dry-run` does neither. A failed push leaves the commit and exits 2.
+That order comes from [memory-checkpoint.mjs](../engine/memory-checkpoint.mjs). `--no-push` still commits; `--dry-run` does neither. A failed push leaves the commit and exits 2. Checkpoint flags: see the [glossary](GLOSSARY.md#sessions-and-claims-335).
 
-These synthetic excerpts use engine 3.3.2 and `~/memory`; timings vary. `--no-git` skips Git health and committed-age checks.
+These synthetic excerpts use engine 3.3.7 and `~/memory`; timings vary. `--no-git` skips Git health and committed-age checks.
 
 Install output (excerpt; paths abbreviated):
 
 ```text
 memory: ~/memory (--memory-dir)
 WARN repo.remote . memory repo has no remote
-memory-check 3.3.2 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 159 ms
+memory-check 3.3.7 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 159 ms
 memory gate hook installed; checks before saving a Git commit: ~/memory/.git/hooks/pre-commit
 Self-test: node --test scripts/memory/memory.selftest.mjs
 ```
@@ -76,7 +76,7 @@ node scripts/memory/memory-check.mjs --no-git --memory-dir ~/memory
 ```text
 memory: ~/memory (--memory-dir)
 WARN repo.git-skipped . git health and committed-age checks skipped (--no-git)
-memory-check 3.3.2 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 29 ms
+memory-check 3.3.7 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 29 ms
 ```
 
 Startup of the same fixture:
@@ -86,7 +86,7 @@ node scripts/memory/memory-check.mjs --no-git --session-start --memory-dir ~/mem
 ```
 
 ```text
-memory gate: ok (0 allowed, 1 warn, engine 3.3.2)
+memory gate: ok (0 allowed, 1 warn, engine 3.3.7)
 ```
 
 The warning reports the skipped Git checks. “ok” means no unallowed FAIL, not zero warnings.
@@ -225,7 +225,7 @@ Running the normal gate with `--no-git` in the demo after replacing the first le
 memory: ~/memory (--memory-dir)
 FAIL desc.length lesson-001-quote-shell-arguments.md description is 401 chars (max 400)
 WARN repo.git-skipped . git health and committed-age checks skipped (--no-git)
-memory-check 3.3.2 [all]: 1 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 3 KB, 42 ms
+memory-check 3.3.7 [all]: 1 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 3 KB, 42 ms
 ```
 
 The normal command exited 1; the same failure under `--session-start` exited 0. Restoring its concise description and regenerating produced:
@@ -233,7 +233,7 @@ The normal command exited 1; the same failure under `--session-start` exited 0. 
 ```text
 memory: ~/memory (--memory-dir)
 WARN repo.git-skipped . git health and committed-age checks skipped (--no-git)
-memory-check 3.3.2 [all]: 0 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 2 KB, 47 ms
+memory-check 3.3.7 [all]: 0 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 2 KB, 47 ms
 ```
 
 The cap failure is clean again. The intentional skipped-Git warning remains, and the shelf example adds a second warning.
@@ -317,14 +317,7 @@ repeat WARNs and four FAIL; same-day repeats do not reopen it. `caps.lesson.less
 lesson-only decision permanent. Otherwise decide again. Add a trigger when `lesson.trigger` warns. Legacy conversion
 is dry-run-first and idempotent on `--write`; it keeps the original paragraphs. Never use an allow entry for escalation.
 
-The guard's starter rules ship as `warn`. Test a command saved in a file with
-`node scripts/memory/memory-guard.mjs test <scratch>/command.txt`; replay real commands with
-`node scripts/memory/memory-guard.mjs replay <scratch>/commands.jsonl`. Only after the rate is below 0.5 percent and
-every sampled hit is a real hazard, switch that rule to `deny` in the host-owned `scripts/memory/enforce-rules.json`:
-`{"version":1,"rules":[{"id":"piped-gate","action":"deny"}]}`. Kit defaults in `enforce-rules.kit.json` are refreshed on upgrade.
-Claude Code receives guard warnings in PreToolUse `additionalContext`; verify that context reaches the model during
-rollout. The prompt clock prints local time first, UTC second. Hand-written dates use UTC; `date.future` compares with
-the UTC date of now, WARNs one day ahead and FAILs later.
+The guard's starter rules, how to test and roll them out, and the prompt clock are described in [engine/README.md](../engine/README.md) and in the [glossary](GLOSSARY.md).
 
 For linked detail, run `node scripts/memory/memory-chains.mjs scan`, then
 `node scripts/memory/memory-chains.mjs repair --write`. Parts start with `Part N of`, a Markdown link to the parent, and a period; parents link

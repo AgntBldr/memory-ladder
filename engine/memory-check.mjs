@@ -1,12 +1,12 @@
 import {validateConfigPaths, handoverFiles} from './lib.mjs';
-import {normalizeEol, writeText, lessonCases} from './lib.mjs';
+import {normalizeEol, writeText, lessonCases, regularFileOrAbsent} from './lib.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import childProcess from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { validDate } from './memory-rotate.mjs';
-import { generateOverview } from './roadmap-overview.mjs';
+import { validDate, rotateRoadmap } from './memory-rotate.mjs';
+import { overviewFresh } from './roadmap-overview.mjs';
 import { generateIndex, brainIndexPairs } from './brain-index.mjs';
 import {generateMemoryIndex, isGenerated, lessonIdentity, lessonField, routes, routerFamilies, ladderWalk, hasTrigger, KINDS, REPEAT_ENTRY, gateCheckIds, enforceSentence, failSentence} from './memory-index.mjs';
 import {loadRules} from './memory-guard.mjs';
@@ -16,7 +16,7 @@ import {loadUpgrades} from './memory-fleet.mjs';
 import { args, locations, requireMemory, isDirect, toolDir, loadConfig, memoryFiles,
   brainPaths, brainNamesFromNodes, walkMd, listMd, parseFrontmatter, fmGet, read, mdLinks, wikilinks, resolveWikilink, memoryWikilink, memoryNameIndex, roadmapOrder, utf8Bytes, pathKey, pathSpelling, inRepoMemory } from './lib.mjs';
 
-import {secretSources as secrets, redact} from './lib.mjs';
+import {secretSources as secrets, redact, cleanGitEnv} from './lib.mjs';
 export {redact} from './lib.mjs';
 // Keep offsets while excluding literal code and URLs from prose citations.
 function lessonCitations(text) {
@@ -56,7 +56,9 @@ const validAllow = entry => Boolean(entry && typeof entry.reason === 'string' &&
   typeof entry.file === 'string' && (entry.ceiling === undefined || (Number.isFinite(entry.ceiling) && entry.ceiling >= 0)) &&
   entry.check !== 'secret' && !entry.check.startsWith('config.'));
 
-function stubTargetExists(target, memoryDir, repo, config) {
+// proposed (kit 3.3.5 E3.2, review P2-6): the staged or candidate link resolver. For in-repo memory a brain target is a
+// project file, so it must exist in the proposed commit tree, never merely in the working folder or the real index.
+function stubTargetExists(target, memoryDir, repo, config, proposed) {
   if (typeof target !== 'string' || !target.trim() || path.isAbsolute(target) || path.win32.isAbsolute(target)) return false;
   const prefix = (config.brain?.dir ?? 'brain').replaceAll('\\', '/') + '/';
   const brain = target.replaceAll('\\', '/').startsWith(prefix);
@@ -67,14 +69,21 @@ function stubTargetExists(target, memoryDir, repo, config) {
     return rel !== '' && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel);
   };
   if (!inside(root, absolute)) return false;
+  if (brain && proposed?.base && repo) {
+    const known = proposed(path.relative(proposed.base, path.resolve(repo, target)).replaceAll('\\', '/'));
+    if (known !== undefined) return known;
+  }
   try {
     return fs.statSync(absolute).isFile() && inside(fs.realpathSync(root), fs.realpathSync(absolute));
   } catch { return false; }
 }
 
-function gitState(dir, files, caps, now, add, hook, inRepo = false) {
+export function gitState(dir, files, caps, now, add, hook, inRepo = false, {namePending = false} = {}) {
+  // Kit 3.3.5 E2.8 (e): outside a git hook (the CLI, checkpoint, handover, classify) an inherited GIT_DIR or GIT_WORK_TREE
+  // never points these calls at another repository; inside the hook git's own variables describe the commit checked.
+  const env = hook ? process.env : cleanGitEnv();
   const git = (...argv) => {
-    try { return childProcess.execFileSync('git', ['-C', dir, ...argv], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000, maxBuffer: 32 * 1024 * 1024 }); }
+    try { return childProcess.execFileSync('git', ['-C', dir, ...argv], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000, maxBuffer: 32 * 1024 * 1024, env }); }
     catch { return null; }
   };
   const top = git('rev-parse', '--show-toplevel')?.trim();
@@ -88,7 +97,9 @@ function gitState(dir, files, caps, now, add, hook, inRepo = false) {
     const remote = git('remote');
     if (remote !== null && !remote.trim()) add('WARN', 'repo.remote', '.', null, 'memory repo has no remote');
     const status = git('status', '--porcelain', ...(atTop ? [] : ['--', '.']));
-    if (status?.trim()) add('WARN', 'repo.uncommitted', '.', null, 'memory repo has uncommitted changes');
+    // Kit 3.3.5 E3.2: in candidate mode the warning names the pending work, which may be other sessions'; it never blocks.
+    const pending = namePending && status ? status.split(/\r?\n/).filter(Boolean).map(line => line.slice(3)) : [];
+    if (status?.trim()) add('WARN', 'repo.uncommitted', '.', null, 'memory repo has uncommitted changes' + (pending.length ? ': ' + pending.slice(0, 5).join(', ') + (pending.length > 5 ? ` (+${pending.length - 5} more)` : '') : ''));
     const ahead = git('rev-list', '--count', '@{upstream}..HEAD');
     if (ahead !== null && Number(ahead) >= caps.repoAhead.warn) add(Number(ahead) >= caps.repoAhead.fail ? 'FAIL' : 'WARN', 'repo.ahead', '.', null, `${Number(ahead)} commits ahead of upstream`, Number(ahead));
   }
@@ -117,12 +128,16 @@ function notEvaluated(entry, scope, hook, noGit = false, inRepo = false, quick =
   if (noGit && /^(?:stale|repo\.(?:not-git|remote|ahead|uncommitted))$/.test(entry.check)) return true;
   if (hook && /^repo\.(?:remote|ahead|uncommitted|skill-version)$/.test(entry.check)) return true;
   if (scope !== 'memory') return false;
-  return /^(?:brain\.|repo\.(?:brain-log|brain-index|roadmap|roadmap-order|roadmap-overview|agents|skill-version)$)/.test(entry.check) || /^(?:brain|docs)\//.test(pathSpelling(entry.file));
+  return /^(?:brain\.|repo\.(?:brain-log|brain-index|roadmap|roadmap-order|roadmap-overview|roadmap-no-rotation|roadmap-rotation|agents|skill-version)$)/.test(entry.check) || /^(?:brain|docs)\//.test(pathSpelling(entry.file));
 }
 
-export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig(), now = new Date(), today = new Date(now).toISOString().slice(0, 10), hook = false, noGit = false, quick = false, upgradesFile, stagedLinkExists }) {
+// candidate (kit 3.3.5 E3.2): memoryDir is a materialised candidate tree; content checks read it, while git-health checks
+// (repo.not-git, stale, repo.remote, repo.uncommitted, repo.ahead) run against the real holder candidate.gitDir.
+export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig(), now = new Date(), today = new Date(now).toISOString().slice(0, 10), hook = false, noGit = false, quick = false, upgradesFile, stagedLinkExists, candidate }) {
   const started = performance.now();
   requireMemory(memoryDir);
+  if (candidate) requireMemory(candidate.gitDir);
+  const realDir = candidate ? candidate.gitDir : memoryDir;
   if (!['all', 'memory'].includes(scope)) throw new Error('scope must be all or memory');
   if (!validDate(today)) throw new Error('invalid --today date; expected YYYY-MM-DD');
   config = {...config, caps: structuredClone(config.caps)};
@@ -132,15 +147,15 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
   try { if (repo) validateConfigPaths(repo, config); }
   catch (error) {
     add('FAIL', 'config.path', 'memory.config.json', null, error.message);
-    return {version: config.engine_version, scope, hook, noGit, quick, inRepo: inRepoMemory(repo, memoryDir), findings, externalEdges,
+    return {version: config.engine_version, scope, hook, noGit, quick, inRepo: inRepoMemory(repo, realDir), findings, externalEdges,
       stats: {files: 0, inboxNotes: 0, bytes: 0, largest: {file: null, bytes: 0}, ms: Math.round(performance.now() - started)}};
   }
   // Fixed kit defaults: malformed host groups cannot supply their own fallback.
   const groupDefaults = {
     lesson: {"enforceAfterRepeats": 2, "failAfterRepeats": 4, "lessonOnlyReturns": true},
     guard: {"kitRules": "scripts/memory/enforce-rules.kit.json", "rules": "scripts/memory/enforce-rules.json"},
-    router: {"warnBytes": 12288, "failBytes": 16384, "failLineChars": 600, "warnLines": 150, "failLines": 200},
-    index: {"pinSlackBytes": 1024, "pinWarnRoomBytes": 400, "warnLineChars": 300, "failLineChars": 450, "failBytesAbsolute": 24576, "hotBytes": 8192},
+    router: {"warnBytes": 12288, "failBytes": 16384, "failLineChars": 600, "warnLines": 150, "failLines": 200, "targetBytes": 11264},
+    index: {"pinSlackBytes": 1024, "pinWarnRoomBytes": 400, "warnLineChars": 300, "failLineChars": 450, "failBytesAbsolute": 24576, "hotBytes": 8192, "hotReserveBytes": 1024},
     archive: {"failLineChars": 300},
     topic: {"warnBytes": 8192, "failBytes": 20480, "warnLineChars": 2000},
     state: {"warnBytes": 4096, "failBytes": 8192, "maxStateHeadings": 1},
@@ -158,6 +173,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     roadmapOverview: {"enabled": true, "path": "docs/ROADMAP-OVERVIEW.md"},
     roadmapHistory: {"path": "docs/ROADMAP-HISTORY.md"},
     stale: {"types": ["project", "reference"]},
+    checkpoint: {"mode": "all"},
   };
   for (const [group, fallback] of Object.entries(groupDefaults)) {
     if (Object.hasOwn(caps, group) && (caps[group] === null || typeof caps[group] !== 'object' || Array.isArray(caps[group]))) {
@@ -171,7 +187,8 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     topic: {warnLineChars: 2000},
     lesson: {enforceAfterRepeats: 2, failAfterRepeats: 4, lessonOnlyReturns: true},
     guard: {kitRules: 'scripts/memory/enforce-rules.kit.json', rules: 'scripts/memory/enforce-rules.json'},
-    router: {warnLines: 150, failLines: 200},
+    router: {warnLines: 150, failLines: 200, targetBytes: 11264},
+    index: {hotReserveBytes: 1024},
   };
   for (const [group, entries] of Object.entries(capDefaults)) for (const [key, fallback] of Object.entries(entries)) {
     const value = caps[group]?.[key];
@@ -183,6 +200,12 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     }
   }
   caps.handovers = {...groupDefaults.handovers, ...caps.handovers};
+  // Kit 3.3.5 R1: caps.roadmap.procedure is optional guidance text with no default; an invalid value is a WARN (guidance
+  // never blocks a commit or an upgrade), reported once and ignored.
+  if (caps.roadmap.procedure !== undefined && (typeof caps.roadmap.procedure !== 'string' || !caps.roadmap.procedure.trim())) {
+    add('WARN', 'config.roadmap-procedure', 'memory.config.json', null, `caps.roadmap.procedure has invalid value ${JSON.stringify(caps.roadmap.procedure).slice(0, 80)}; ignoring it`);
+    delete caps.roadmap.procedure;
+  }
   try { loadUpgrades(upgradesFile); }
   catch (error) { add(error.code==='ENOENT'?'WARN':'FAIL', 'config.upgrades', 'upgrades.json', null, error.code==='ENOENT'?'missing deferred-upgrade ledger':'invalid deferred-upgrade ledger'); }
   let order;
@@ -198,9 +221,11 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       if (pattern.test(line)) { add('FAIL', 'secret', f.file, i + 1, `${f.file}:${i + 1} secret pattern ${name}`); break; }
     }
   });
+  // Returns the severity it emitted (null when none), so a check that depends on it reads what was actually done.
   const size = (id, file, bytes, cap) => {
-    if (bytes > cap.failBytes) add('FAIL', id, file, null, `${bytes} bytes (max ${cap.failBytes})`, bytes);
-    else if (bytes > cap.warnBytes) add('WARN', id, file, null, `${bytes} bytes (warn ${cap.warnBytes})`, bytes);
+    if (bytes > cap.failBytes) { add('FAIL', id, file, null, `${bytes} bytes (max ${cap.failBytes})`, bytes); return 'FAIL'; }
+    if (bytes > cap.warnBytes) { add('WARN', id, file, null, `${bytes} bytes (warn ${cap.warnBytes})`, bytes); return 'WARN'; }
+    return null;
   };
   const lineCaps = (f, id, cap) => f.text.split(/\r?\n/).forEach((line, i) => {
     if (line.length > cap.failLineChars) add('FAIL', id, f.file, i + 1, `line is ${line.length} chars (max ${cap.failLineChars})`, line.length);
@@ -308,7 +333,12 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
   if (!files.some(f => f.special === 'router')) add('FAIL', 'router.missing', 'MEMORY.md', null, 'router is missing');
   for (const f of files) {
     if (f.special === 'router') {
-      size('router.size', f.file, f.bytes, caps.router); lineCaps(f, 'router.line', caps.router);
+      const sized = size('router.size', f.file, f.bytes, caps.router); lineCaps(f, 'router.line', caps.router);
+      // Kit 3.3.5 R2: the target applies from just above targetBytes up to the point where router.size takes over.
+      const target = caps.router.targetBytes ?? 11264, number = n => n.toLocaleString('en-US');
+      // A group without a usable warn line (an older or partial configuration) has none to name: never print a missing value.
+      const warnNote = Number.isFinite(caps.router.warnBytes) ? `, warn ${number(caps.router.warnBytes)}` : '';
+      if (!sized && f.bytes > target) add('WARN', 'router.target', f.file, null, `${number(f.bytes)} bytes (target ${number(target)}${warnNote}); move detail down a layer into an index or topic, never raise the router limits`, f.bytes);
       const lines = f.text ? f.text.replace(/\r?\n$/, '').split(/\r?\n/).length : 0;
       if (lines > (caps.router.failLines ?? 200)) add('FAIL', 'router.lines', f.file, null, `${lines} lines (max ${caps.router.failLines ?? 200}; Claude Code loads only the first 200 lines of MEMORY.md)`, lines);
       else if (lines > (caps.router.warnLines ?? 150)) add('WARN', 'router.lines', f.file, null, `${lines} lines (warn ${caps.router.warnLines ?? 150}; Claude Code loads only the first 200 lines of MEMORY.md)`, lines);
@@ -347,12 +377,12 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     if (f.stub) {
       const moved = fmGet(f.data, 'moved_to');
       for (const target of Array.isArray(moved) ? moved : [moved]) {
-        if (!stubTargetExists(target, memoryDir, repo, config)) add('FAIL', 'stub.target', f.file, null, `moved_to target is missing or invalid: ${String(target)}`);
+        if (!stubTargetExists(target, memoryDir, repo, config, stagedLinkExists)) add('FAIL', 'stub.target', f.file, null, `moved_to target is missing or invalid: ${String(target)}`);
       }
     }
     const pointer = fmGet(f.data, 'brain');
     if (pointer !== undefined) {
-      if (typeof pointer !== 'string' || !pointer.replaceAll('\\', '/').startsWith((config.brain?.dir ?? 'brain').replaceAll('\\', '/') + '/') || !stubTargetExists(pointer, memoryDir, repo, config))
+      if (typeof pointer !== 'string' || !pointer.replaceAll('\\', '/').startsWith((config.brain?.dir ?? 'brain').replaceAll('\\', '/') + '/') || !stubTargetExists(pointer, memoryDir, repo, config, stagedLinkExists))
         add('FAIL', 'brain.pointer', f.file, null, 'brain pointer target is missing or invalid');
     } else if (['project', 'reference'].includes(fmGet(f.data, 'type')) && brainSubjects.has(fmGet(f.data, 'name'))) {
       add('WARN', 'brain.pointer-missing', f.file, null, 'same-subject brain node exists; add a brain pointer');
@@ -456,7 +486,16 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       for (const [file, text] of Object.entries(expected.pages)) if (read(path.join(memoryDir, file)).replace(/\r\n/g, '\n') !== text)
         add('FAIL', 'index.stale', file, null, 'regenerate with memory-index.mjs --write');
       for (const file of expected.removed) add('FAIL', 'index.stale', file, null, 'obsolete generated page; run memory-index.mjs --write');
-      for (const family of expected.overflow) add('WARN', 'index.hot-budget', `INDEX-${family}.md`, null, 'topics and pins exceed hot budget');
+      for (const family of expected.overflow) {
+        const split=expected.hotBudgets[family],number=n=>n.toLocaleString('en-US');
+        add('WARN','index.hot-budget',`INDEX-${family}.md`,null,`INDEX-${family}.md topics ${number(split.topics)} + pins ${number(split.pins)} of ${number(split.budget)} bytes; topics never leave the hot page: number the lessons (LESSON-CONVERSION.md)`,split.total);
+      }
+      // Kit 3.3.5 R2: the free bytes of each hot page before the recent-lesson fill (memory-index hotBudgets), per page.
+      const reserve = caps.index.hotReserveBytes ?? 1024, number = n => n.toLocaleString('en-US');
+      for (const [family, split] of Object.entries(expected.hotBudgets)) {
+        const free = split.budget - split.total;
+        if (free < reserve) add('WARN','index.hot-reserve',`INDEX-${family}.md`,null,`INDEX-${family}.md has ${number(free)} of ${number(split.budget)} hot bytes free before recent lessons (reserve ${number(reserve)}); move a topic or pin down a layer, never raise hotBytes`,split.total);
+      }
     } catch (error) { add('FAIL', 'index.stale', 'MEMORY.md', null, error.message + '; run memory-index.mjs --write'); }
   }
   const lessons = files.filter(f => lessonIdentity(f.file));
@@ -481,7 +520,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     }
   }
   if (noGit) add('WARN', 'repo.git-skipped', '.', null, 'git health and committed-age checks skipped (--no-git)');
-  else gitState(memoryDir, files, caps, today, add, hook, inRepoMemory(repo, memoryDir));
+  else gitState(realDir, files, caps, today, add, hook, inRepoMemory(repo, realDir), {namePending: Boolean(candidate)});
   if (scope === 'all' && repo) {
     const receiptFile = path.join(repo, 'scripts/memory/KIT.json');
     const manifestFile = path.join(repo, 'scripts/memory/MANIFEST.json');
@@ -489,11 +528,14 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       const warn = (file, error) => add('WARN', 'kit.manifest', file, null,
         error.code === 'ENOENT' ? 'missing: ' + file : String(error.message).replace(/[\r\n]+/g, ' '));
       try {
+      // Kit 3.3.6 item 8: a fifo, socket or device is refused before the read (one WARN below, as for any unreadable receipt).
+      regularFileOrAbsent(receiptFile, 'scripts/memory/KIT.json'); regularFileOrAbsent(manifestFile, 'scripts/memory/MANIFEST.json');
       const receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8')), manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
       for (const [file, expected] of Object.entries(manifest.files)) {
         try {
         const absolute = path.resolve(repo, file), relative = path.relative(repo, absolute);
         if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('manifest path escapes repository');
+        regularFileOrAbsent(absolute, file);
         const actual = createHash('sha256').update(fs.readFileSync(absolute, 'utf8').replace(/\r\n/g, '\n')).digest('hex');
         if (actual !== expected) {
           add('WARN', 'kit.manifest', file, null, 'edited locally: ' + file);
@@ -525,9 +567,19 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       'AGENTS.md', 'CLAUDE.md',
       ...listMd(path.join(repo, 'docs')).filter(file => /^ROADMAP.*\.md$/i.test(file)).map(file => `docs/${file}`),
     ];
-    for (const file of secretFiles) scanSecrets({ file, text: read(path.join(repo, file)) });
+    // Kit 3.3.6 item 8: a named file that is a fifo, socket or device is never read: the scan and the size check each say so
+    // in one WARN under their own id (ruling kit-336-secret-warn), and the checks that need the roadmap's text are skipped.
+    for (const file of secretFiles) {
+      let text;
+      try { text = read(path.join(repo, file)); }
+      catch (error) { if (error.code !== 'ENOTFILE') throw error; add('WARN', 'secret', file, null, `${file} is not a regular file; not scanned`); continue; }
+      scanSecrets({ file, text });
+    }
+    const repoText = {};
     for (const [key, id] of [['brainLog', 'repo.brain-log'], ['roadmap', 'repo.roadmap'], ['agents', 'repo.agents']]) {
-      size(id, caps[key].path, utf8Bytes(read(path.join(repo, caps[key].path))), caps[key]);
+      try { repoText[key] = read(path.join(repo, caps[key].path)); }
+      catch (error) { if (error.code !== 'ENOTFILE') throw error; repoText[key] = null; add('WARN', id, caps[key].path, null, `${caps[key].path} is not a regular file`); continue; }
+      size(id, caps[key].path, utf8Bytes(repoText[key]), caps[key]);
     }
     if (caps.brainIndex && !untypedBrain) {
     try {
@@ -537,15 +589,28 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
         add('WARN', 'repo.brain-index', file, null, 'generated index stale; regenerate with brain-index.mjs --write (hand-written index preserved)');
     } catch (error) { add('WARN', 'repo.brain-index', caps.brainIndex.path, null, error.message); }
     }
-    const roadmap = read(path.join(repo, caps.roadmap.path)), open = /^## Open work\b[^\r\n]*\r?\n/m.exec(roadmap);
+    const roadmap = repoText.roadmap, open = roadmap === null ? null : /^## Open work\b[^\r\n]*\r?\n/m.exec(roadmap);
     if (open) {
       const rest = roadmap.slice(open.index + open[0].length), end = /^#{1,3} /m.exec(rest);
       const dates = [...rest.slice(0, end?.index ?? rest.length).matchAll(/^\*\*(\d{4}-\d{2}-\d{2})[^\r\n]*(?:\r?\n|$)/gm)].map(m => m[1]).filter(validDate);
       if (order && dates.length > 1 && (order === 'newest-first' ? dates[0] < dates.at(-1) : dates[0] > dates.at(-1)))
         add('WARN', 'repo.roadmap-order', caps.roadmap.path, null, `Open work dates contradict ${order}: first ${dates[0]}, last ${dates.at(-1)}`);
     }
-    if (caps.roadmapOverview.enabled !== false && fs.existsSync(path.join(repo, caps.roadmap.path))) try {
-      if (read(path.join(repo, caps.roadmapOverview.path)) !== generateOverview({ repo, config }))
+    // Kit 3.3.5 R1: over the warn line, and the existing rotation planner (run here without writes, with the configured order
+    // and limits) reports no removable bytes. An invalid order already has config.roadmap-order; any other planner refusal
+    // (keepBlocks, a block date, an unreadable history) is repo.roadmap-rotation, never this warning.
+    const roadmapBytes = roadmap === null ? 0 : utf8Bytes(roadmap);
+    if (order !== undefined && roadmapBytes > caps.roadmap.warnBytes) {
+      try {
+        const plan = rotateRoadmap({ repo, config, write: false, today });
+        if (!(plan.bytesRemoved > 0)) {
+          const procedure = typeof caps.roadmap.procedure === 'string' ? caps.roadmap.procedure.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+          add('WARN', 'repo.roadmap-no-rotation', caps.roadmap.path, null, `${roadmapBytes} bytes (warn ${caps.roadmap.warnBytes}); rotation has nothing it may move; ${procedure ? `follow this project's procedure: ${procedure}` : 'follow the procedure in ROADMAPS.md that fits this roadmap (never a restructure) and name it in caps.roadmap.procedure'}`, roadmapBytes);
+        }
+      } catch (error) { add('WARN', 'repo.roadmap-rotation', caps.roadmap.path, null, `rotation cannot be planned: ${String(error.message).replace(/[\r\n]+/g, ' ')}`); }
+    }
+    if (caps.roadmapOverview.enabled !== false && roadmap !== null && fs.existsSync(path.join(repo, caps.roadmap.path))) try {
+      if (!overviewFresh({ repo, config }))
         add('WARN', 'repo.roadmap-overview', caps.roadmapOverview.path, null, 'stale or missing; regenerate with roadmap-overview.mjs --write');
     } catch (error) { add('WARN', 'repo.roadmap-overview', caps.roadmapOverview.path, null, error.message); }
     for (const rel of walkMd(path.join(repo, caps.shelf.path))) {
@@ -606,7 +671,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       add('FAIL', 'config.allow', 'memory.config.json', null, 'allow entry requires check, file, reason and added; secret and config.* cannot be allowed');
       continue;
     }
-    if (notEvaluated(entry, scope, hook, noGit, inRepoMemory(repo, memoryDir), quick)) continue;
+    if (notEvaluated(entry, scope, hook, noGit, inRepoMemory(repo, realDir), quick)) continue;
     const pattern = glob(pathSpelling(entry.file));
     const matches = (byCheck.get(entry.check) || []).filter(item => pattern.test(item.file)).map(item => item.finding);
     if (!matches.length) add('WARN', 'config.allow-stale', entry.file, null, `allow entry for ${entry.check} matches no finding`);
@@ -623,7 +688,9 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
   for (const edge of externalEdges) edge.file = redact(edge.file);
   findings.sort((a, b) => (a.severity === 'FAIL' ? 0 : 1) - (b.severity === 'FAIL' ? 0 : 1) || a.file.localeCompare(b.file) || (a.line ?? 0) - (b.line ?? 0) || a.check.localeCompare(b.check));
   const largest = files.reduce((max, f) => f.bytes > max.bytes ? { file: redact(f.file), bytes: f.bytes } : max, { file: null, bytes: 0 });
-  return { version: config.engine_version, scope, hook, noGit, quick, inRepo: inRepoMemory(repo, memoryDir), findings, externalEdges, stats: { files: files.length,
+  // The checks this pass evaluated (kit 3.3.5 E12.1 gate.evaluated), by the same rule the allowlist uses.
+  const evaluated = knownChecks.filter(check => !notEvaluated({check, file: ''}, scope, hook, noGit, inRepoMemory(repo, realDir), quick));
+  return { version: config.engine_version, scope, hook, noGit, quick, inRepo: inRepoMemory(repo, realDir), findings, externalEdges, evaluated, stats: { files: files.length,
     inboxNotes: brains.filter(f => f.inbox).length,
     bytes: files.reduce((n, f) => n + f.bytes, 0), largest, ms: Math.round(performance.now() - started) } };
 }
@@ -675,13 +742,24 @@ export function writeAllowlist({ result, config, reason, configFile = path.join(
   writeText(configFile, `${JSON.stringify(config, null, 2)}\n`);
   return added;
 }
+// Kit 3.3.5 E: Git runs a linked worktree's hook with GIT_DIR set and no GIT_WORK_TREE, so the work tree is the
+// hook's starting folder. The gate's `git -C <memory>` calls would otherwise take the memory folder as the work tree.
+export function pinHookGitEnv(env = process.env, cwd = process.cwd()) {
+  if (!env.GIT_DIR) return;
+  for (const name of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY'])
+    if (env[name] && !path.isAbsolute(env[name])) env[name] = path.resolve(cwd, env[name]);
+  env.GIT_WORK_TREE ??= cwd;
+}
 export function main(argv = process.argv.slice(2)) {
   const session = argv.includes('--session-start'), hook = argv.includes('--hook');
+  // Kit 3.3.6: the effective hook mode, defined once. A session start run is never the hook, whatever flags came with it.
+  const hookMode = hook && !session;
   let sessionRepo;
   try {
+    if (hookMode) pinHookGitEnv();
     const opts = args(argv);
     if (opts.help) { console.log('Usage: node scripts/memory/memory-check.mjs [--memory-dir PATH] [--repo PATH] [--scope all|memory] [--json] [--session-start] [--hook] [--ratchet-pins] [--write-allowlist REASON] [--config FILE]'); return 0; }
-    const loc = locations(opts);
+    const loc = locations(opts, hookMode ? {} : {env: cleanGitEnv()});
     sessionRepo = loc.repo;
     if (loc.memorySource === 'KIT.local.json' && !fs.existsSync(loc.memoryDir))
       throw new Error('memory dir not found: ' + loc.memoryDir + '; run node scripts/memory/memory-init.mjs');
@@ -692,8 +770,8 @@ export function main(argv = process.argv.slice(2)) {
       for (const change of ratchetPins({ ...loc, config, configFile })) console.log(change);
       return 0;
     }
-    const options = {...loc, config, hook, quick: session, today: opts.today, noGit: Boolean(opts['no-git']), scope: session ? 'all' : opts.scope || 'all'};
-    const result = hook && !session ? stagedCheck(options) : runCheck(options);
+    const options = {...loc, config, hook: hookMode, quick: session, today: opts.today, noGit: Boolean(opts['no-git']), scope: session ? 'all' : opts.scope || 'all'};
+    const result = hookMode ? stagedCheck(options) : runCheck(options);
     if (opts['write-allowlist'] && !session) {
       console.log(`allowlist: ${writeAllowlist({ result, config, configFile, reason: opts['write-allowlist'] })} entries added`);
       return 0;
@@ -718,7 +796,7 @@ export function main(argv = process.argv.slice(2)) {
     return c.FAIL ? 1 : 0;
   } catch (error) {
     const message = redact(String(error.message).replace(/[\r\n]+/g, ' '));
-    if (hook && !session) {
+    if (hookMode) {
       const blocked = ['SNAPSHOT_EXTRACTION', 'STAGED_SECRET', 'SECRET_SCAN_FAILED'].includes(error.code);
       for (const finding of error.secretFindings ?? []) console.log(findingLine(finding));
       console.log(`memory gate: ${blocked ? 'commit blocked' : 'error'}: ${message}`); return blocked ? 1 : 0;
@@ -751,6 +829,7 @@ export function stagedCheck(options) {
           if(within(memoryDir,absolute) || !within(root,absolute)) return undefined;
           return paths.has(spellingKey(absolute)) || paths.has(pathKey(absolute));
         };
+        stagedLinkExists.base = memoryDir;
       }
       snapshot = path.join(temp, relative);
       const entries = childProcess.execFileSync('git', ['-C', memoryDir, 'ls-files', '--cached', '--full-name', '-z', '--', '.'], {stdio: 'pipe', timeout: 30000, maxBuffer: 32 * 1024 * 1024});

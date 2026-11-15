@@ -97,6 +97,14 @@ test('shared atomic write preserves bytes and cleans temp after a failed rename'
   t.mock.method(fs,'renameSync',()=>{throw Error('rename blocked');});
   assert.throws(()=>atomicWrite(file,'new'),/rename blocked/);assert.deepEqual(fs.readFileSync(file),raw);
   assert.deepEqual(fs.readdirSync(f.target).filter(name=>name.endsWith('.tmp')),[]);
+  // Kit 3.3.6 item 15 (S6-T17a; mutant: drop the residue push in atomicWrite): a temp file that cannot be removed does not replace
+  // the rename error, and the error names the file left behind.
+  const unlink=fs.unlinkSync;
+  t.mock.method(fs,'unlinkSync',function(target,...rest){if(/\.tmp$/.test(String(target)))throw Error('unlink blocked');return unlink.call(this,target,...rest);});
+  let thrown;try{atomicWrite(file,'again');}catch(error){thrown=error;}
+  assert.match(thrown.message,/rename blocked/);assert.equal(thrown.residue.length,1);
+  assert.match(thrown.residue[0],/state\.[0-9a-f-]+\.tmp$/);assert.ok(fs.existsSync(thrown.residue[0]),'the temp file is still there');
+  assert.deepEqual(fs.readFileSync(file),raw);
 });
 
 test('shared porcelain parser counts renames once and optionally keeps source paths',()=>{
