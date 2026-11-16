@@ -17,8 +17,8 @@ import * as S from './memory-session.mjs';
 const sha256 = data => createHash('sha256').update(data).digest('hex');
 const pick = f => ({check: f.check, file: f.file, line: f.line ?? null, message: f.message});
 const gateOf = checked => ({fails: checked.findings.filter(f => f.severity === 'FAIL' && !f.allowed).map(pick), warns: checked.findings.filter(f => f.severity === 'WARN' && !f.allowed).map(pick), evaluated: checked.evaluated ?? []});
-// uninspected (review P2): paths whose bytes could not be read while changes were collected, {layer, path, error}.
-// cleanupErrors (review P2): cleanup, recovery and lock-release failures; they never replace the original error.
+// uninspected: paths whose bytes could not be read while changes were collected, {layer, path, error}.
+// cleanupErrors: cleanup, recovery and lock-release failures; they never replace the original error.
 const blank = effective => ({status: 0, sha: null, exceptions: [], gate: null, publication: {sha: null, pushed: false, verified: false, error: null}, changed: {memory: [], repo: []}, uninspected: [], cleanupErrors: [], effective, error: null});
 // A cleanup failure is folded into the structured result: added to cleanupErrors, and on an exit that had no error it
 // makes the result status 1 with that message. The original error, SHA, gate, publication and changed paths stay.
@@ -27,7 +27,7 @@ function cleanupFailed(result, report, message) {
   if (!result.error) { result.status = 1; result.error = message; }
   try { report('cleanup', message); } catch {}
 }
-// Remove a temp folder after a failure without ever replacing that failure (class sweep).
+// Remove a temp folder after a failure without ever replacing that failure.
 function removeAfterFailure(error, remove, what) {
   try { remove(); }
   catch (cleanupError) { if (error && typeof error === 'object') (error.cleanupErrors ??= []).push(`could not remove ${what}: ${cleanupError.message}`); }
@@ -44,7 +44,7 @@ function excludes(memoryDir, git, inRepoPrefix = '') {
 // Kit 3.3.6 item 8: a fifo, socket or device is refused before the read (a read of one blocks); absent is null as before.
 const readBytes = file => { refuseSpecialRead(file); try { return fs.readFileSync(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
 const sameBytes = (a, b) => a === null || b === null ? a === b : Buffer.compare(a, b) === 0;
-// Change collection never throws (review P2): an unreadable path is reported as uninspected, never as a crash
+// Change collection never throws: an unreadable path is reported as uninspected, never as a crash
 // that would replace the original error.
 // A path that exists and is not a regular file is never read (a folder, a pipe): its kind is the error.
 const inspect = file => {
@@ -148,7 +148,7 @@ function groupStatus(repo, groups, gitRun) {
 // today, report, memorySource, announced, gitRun}). gitRun (kit 3.3.6, default the session module's) is the one call that reads
 // `git status` for item 24; a test injects a failing one. Without session mode (the default caps.checkpoint.mode "all"), the 3.3.4
 // checkpoint runs, with E6's rotation refusal, E7's push lock and the structured result added. In both modes operational
-// errors return the structured result with status 1 and the evidence gathered so far (E12.1, review P2-7); nothing throws.
+// errors return the structured result with status 1 and the evidence gathered so far (E12.1); nothing throws.
 // D1: the header is the first report of the run (`announced` says the caller, the command line, already printed it) and a
 // run against external memory ends with the checkout files it changed; a dry run prints `would change` instead.
 export function checkpoint(options) {
@@ -199,7 +199,7 @@ function allCheckpoint(options) {
   const result = blank(options.effective);
   // memory: the memory files before the save wrote anything (taken under the lock); attempts: the repo outputs a step was
   // about to write and their bytes then. Neither exists until the save is past the lock, so a save that never got that far
-  // lists nothing (D1, review F2).
+  // lists nothing (D1).
   const evidence = {memory: null, attempts: null};
   try { return allCheckpointRun(options, result, evidence); }
   catch (error) {
@@ -276,7 +276,7 @@ function allCheckpointRun({memoryDir, repo, config, dryRun = false, noPush = fal
         const include = [...new Set([memoryFolder, ...written.flatMap((files, i) => left[i] ? [] : files)])].map(file => `:(literal)${file}`);
         const commitPaths = [...include, ...excluded, ...extras];
         git(['add','--',...commitPaths]);
-        // E12.1 (review P2): the saved SHA is recorded the moment the commit exists, before any cleanup.
+        // E12.1: the saved SHA is recorded the moment the commit exists, before any cleanup.
         if(git(['diff','--cached','--name-only','--',...commitPaths]).trim()) {git(['commit','-m',message,'--',...commitPaths]);result.sha=headOf(git);report('commit','created on current branch');}
         else report('commit','no changes');
         if (leftOut.length) {
@@ -307,7 +307,7 @@ function allCheckpointRun({memoryDir, repo, config, dryRun = false, noPush = fal
   if (!noPush && result.publication.verified) report('publication', `${result.publication.sha} verified`);
   return {...result, push, pushFailed};
 }
-// An unreadable ledger hides what it protects, so rotation waits for it like for a pending claim (review P1-1). The real run
+// An unreadable ledger hides what it protects, so rotation waits for it like for a pending claim. The real run
 // and the dry run's plan ask this one question.
 function rotationWaits(memoryDir, repo) {
   let ownId = null;
@@ -316,9 +316,9 @@ function rotationWaits(memoryDir, repo) {
   catch (error) { if (error.code !== 'LEDGER_UNREADABLE') throw error; return 'rotation waits: ' + error.message.split('\n')[0]; }
 }
 // The writes of an all-sessions save, in order: the generated pages, the three rotations, the repo outputs. The real run calls
-// this under the memory lock; the dry run calls the same function on private copies of what the writers read (D1, review
-// F1, F3, F4), so what a dry run lists is what the writers decide: their kind checks, their preservation refusals and their
-// deduplication. `record` is told the repo paths a step may write, just before that step starts (review F2).
+// this under the memory lock; the dry run calls the same function on private copies of what the writers read (D1),
+// so what a dry run lists is what the writers decide: their kind checks, their preservation refusals and their
+// deduplication. `record` is told the repo paths a step may write, just before that step starts.
 function applyWrites({memoryDir, repo, config, today, lock, noRotate, report, waitsOf, onWaits = () => {}, staged, record = () => {}}) {
   const options = {memoryDir, repo, config, today, lock, write: true};
   const indexes = writeMemoryIndex({...options, ...(staged ? {staged} : {})}); report('memory-index', `${Object.keys(indexes.pages).length} pages`);
@@ -343,7 +343,7 @@ function applyWrites({memoryDir, repo, config, today, lock, noRotate, report, wa
 }
 // ---- D1: the dry run's private copies ----
 // Only what the writers read is copied, and an entry that is not a regular file is refused before it is read: a pipe named
-// MEMORY.md must not hang a dry run (review F1).
+// MEMORY.md must not hang a dry run.
 function copyFile(from, to, rel) {
   let stat;
   try { stat = fs.lstatSync(from); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
@@ -415,7 +415,7 @@ function headOf(git) { try { const sha = String(git(['rev-parse', 'HEAD'])).trim
 
 // E7: publication is serialised by the push lock, never blocks memory writers and never forces. The evidence is the
 // actual remote branch (ls-remote), never a later HEAD or only a cached tracking ref. /handover reuses it for the
-// in-repo project push (review P2-10), so both modes verify the saved SHA against the actual remote.
+// in-repo project push, so both modes verify the saved SHA against the actual remote.
 export function publish(options) {
   try { return publishLocked(options); }
   catch (error) { return {sha: options.sha, pushed: false, verified: false, error: String(error.message).trim().split('\n')[0]}; }
@@ -479,7 +479,7 @@ function writeRepoOutputs({repo, config, report, afterWrite = () => {}, beforeWr
       before(config.caps.brainIndex.allPath, allFile);
       fs.mkdirSync(path.dirname(allFile), {recursive: true}); fs.writeFileSync(allFile, output.all); afterWrite(config.caps.brainIndex.allPath);
       try { output.index = generateIndex({repo, config}).index; }
-      // Review P2: removing the first-written catalog never replaces the generation error; its failure is
+      // Removing the first-written catalog never replaces the generation error; its failure is
       // attached to that error as cleanupErrors, which the checkpoint result carries.
       catch (error) { removeAfterFailure(error, () => fs.unlinkSync(allFile), `the first-written brain index ${allFile}`); throw error; }
     }
@@ -499,7 +499,7 @@ function writeRepoOutputs({repo, config, report, afterWrite = () => {}, beforeWr
 }
 // D1's list for E12.1 changed: paths whose bytes or existence this invocation changed.
 // Memory: the files of the folder and of its folders one level down. A folder that cannot be listed is an entry with an error,
-// reported as uninspected, never an empty folder (review F2); a folder that is not there is empty.
+// reported as uninspected, never an empty folder; a folder that is not there is empty.
 function memorySnapshot(dir) {
   const files = new Map();
   const walk = rel => {
@@ -517,7 +517,7 @@ function memorySnapshot(dir) {
 }
 // Repo outputs: a path counts only when this run was about to write it. A step records its paths and their bytes just before
 // it starts (the first record of a path wins), so a run that wrote nothing lists nothing, and a path another writer changed
-// meanwhile is not this run's (review F2).
+// meanwhile is not this run's.
 function recordAttempts(attempts, repo, files) {
   for (const file of files) {
     const key = slash(file), absolute = path.join(repo, file);
@@ -609,7 +609,7 @@ function proposedLinks(candidate, memoryDir) {
     if (within(memoryDir, absolute) || !within(candidate.root, absolute)) return undefined;
     return paths.has(fold(absolute)) || paths.has(pathKey(absolute));
   };
-  // The gate also resolves moved_to and brain targets through it (review P2-6), relative to this base.
+  // The gate also resolves moved_to and brain targets through it, relative to this base.
   resolve.base = memoryDir;
   return resolve;
 }
@@ -623,13 +623,13 @@ function sessionCheckpoint(ctx) {
   const {memoryDir, repo, config, files, take, filesOnly, memoryOnly, noPush = false, dryRun = false, commit = false, today, report, inRepo, effective, faults = {}, gitRun = S.gitRun} = ctx;
   const result = {...blank(effective), malformed: []};
   const mutated = {written: new Map(), snapshot: new Map(), index: new Map(), indexAfter: new Map()};
-  // Review P2-8: snapshots taken by this invocation before it changes a memory page or a repo output; on every exit,
+  // Snapshots taken by this invocation before it changes a memory page or a repo output; on every exit,
   // changed lists the paths that still differ from them (kept pages and partial repo writes included). Kit 3.3.6 item 17:
   // a repo output is recorded by the writer, just before it writes it, as what inspect() found (an error such as ENOTFILE
   // included), so an output that appeared after planning is recorded and one that turned special is reported.
   const repoBefore = new Map();
   let candidate, committed = false, root;
-  // Review P2: collection never throws; a path it cannot read is reported as uninspected. A path whose recorded inspection
+  // Collection never throws; a path it cannot read is reported as uninspected. A path whose recorded inspection
   // was an error is reported, never compared: it has no bytes to compare.
   const settle = () => {
     if (dryRun) return;
@@ -658,7 +658,7 @@ function sessionCheckpoint(ctx) {
       const H = S.memoryHead(memoryDir);
       if (!H) throw new Error('memory has no commit yet; make the first commit before a session save');
       // E3.1 selection: own unresolved claims plus --files (claimed now); --files-only selects only the named files.
-      // An unreadable ledger refuses (ownLedger / foreignClaims throw); a malformed one blocks and is reported (P1-1).
+      // An unreadable ledger refuses (ownLedger / foreignClaims throw); a malformed one blocks and is reported.
       const ledgers = S.readLedgers(memoryDir), own = S.ownLedger(memoryDir, session, {ledgers}), foreign = S.foreignClaims(memoryDir, session.id, {ledgers});
       for (const ledger of ledgers.filter(l => l.state === 'malformed')) {
         result.malformed.push({file: ledger.file, problems: ledger.problems});
@@ -675,7 +675,7 @@ function sessionCheckpoint(ctx) {
         report('contended', `${key} (also claimed by ${holders})`);
       }
       for (const key of selected.filter(key => foreign.has(key))) report('take', `took ${key} over the claim of ${foreign.get(key).map(h => `${h.checkout} on ${h.branch}`).join('; ')}`);
-      // E2.6 (review P2-9): a file named with --files is claimed now and stays claimed until a commit completes it or it is
+      // E2.6: a file named with --files is claimed now and stays claimed until a commit completes it or it is
       // released, also when it already equals HEAD.
       const fresh = unique([...fileKeys, ...takeKeys]).filter(key => !contended.includes(key) && (!own.claims[key] || !ownUnresolved.includes(key)));
       if (!dryRun && fresh.length) {
@@ -684,7 +684,7 @@ function sessionCheckpoint(ctx) {
         S.writeLedger(memoryDir, own, {keep: fresh});
       }
       result.selected = selected;
-      // E3.1 (review P2-5): --files-only with nothing selected only publishes: no generated or repo output is applied and
+      // E3.1: --files-only with nothing selected only publishes: no generated or repo output is applied and
       // nothing is committed; the read-only candidate gate still runs as evidence.
       const publishOnly = filesOnly && !selected.length;
       // E5: changed memory files claimed by no one are reported, never committed.
@@ -701,7 +701,7 @@ function sessionCheckpoint(ctx) {
       const genDir = materialise(candidate, 'gen');
       const generated = generateMemoryIndex({memoryDir: genDir, config});
       const outputs = [];
-      // E3.3 (review P1-4): only a version carrying the generated marker may be replaced or deleted, working or staged;
+      // E3.3: only a version carrying the generated marker may be replaced or deleted, working or staged;
       // an unmarked moved_to stub at a generated path is hand content too. A publication-only save applies nothing.
       const policy = (file, removal) => {
         const absolute = path.join(memoryDir, file);
@@ -797,10 +797,10 @@ function sessionCheckpoint(ctx) {
     const locked = withMemoryLock(memoryDir, lock => {
       try { return lockedSave(); }
       catch (error) {
-        // Review P1-2: recovery runs inside the original lock acquisition, so no other writer can change a file between
+        // Recovery runs inside the original lock acquisition, so no other writer can change a file between
         // recovery's comparison and its replacement.
         if (!committed && !dryRun) {
-          // A failed recovery is part of the structured result, never a replacement for the error (class sweep).
+          // A failed recovery is part of the structured result, never a replacement for the error.
           try { restoreRun({memoryDir, root, mutated, report}); } catch (restoreError) { report('restore', 'failed: ' + restoreError.message); result.cleanupErrors.push('restore failed: ' + restoreError.message); }
           faults.afterRestore?.();
         }
@@ -809,7 +809,7 @@ function sessionCheckpoint(ctx) {
     });
     result.sha = locked.sha;
     // E3.7: record and publish. Only the owner rewrites its ledger; completed claims drop out (E2.6), and reservations
-    // stay until a commit completes them or they are released (review P2-9).
+    // stay until a commit completes them or they are released.
     if (!dryRun) {
       withMemoryLock(memoryDir, () => {
         const own = S.ownLedger(memoryDir, session);
@@ -845,7 +845,7 @@ function sessionCheckpoint(ctx) {
     report('error', result.error.split('\n')[0]);
     return result;
   } finally {
-    // Review P2: the candidate folder's removal can fail after its retries; that failure is folded into the
+    // The candidate folder's removal can fail after its retries; that failure is folded into the
     // returned result and never escapes checkpoint() or replaces the original error.
     if (candidate) {
       try { candidate.cleanup(); }
@@ -854,7 +854,7 @@ function sessionCheckpoint(ctx) {
   }
 }
 // E3.3 rule: restore working files and index entries this operation changed, unless they changed again since; keep those.
-// Runs inside the save's own lock acquisition (review P1-2).
+// Runs inside the save's own lock acquisition.
 function restoreRun({memoryDir, root, mutated, report}) {
   for (const [file, wrote] of mutated.written) {
     const absolute = path.join(memoryDir, file), now = readBytes(absolute), prior = mutated.snapshot.get(file) ?? null;

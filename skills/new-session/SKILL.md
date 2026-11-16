@@ -2,7 +2,7 @@
 name: new-session
 description: /new-session or the whole message "We are starting a new session - read this and let me know when we can start".
 metadata:
-  engine_version: "3.3.7"
+  engine_version: "3.3.8"
 ---
 `node scripts/memory/new-session.mjs start --entry <slash|sentence> [--goal '<text>']`
 Args "sentence": entry sentence; goal from Goal: line. Else slash; strip /new-session and leading Goal:.

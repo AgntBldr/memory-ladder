@@ -140,7 +140,7 @@ test('installed hook rejects older engine before gate, accepts equal and refresh
   put(path.join(f.target,'scripts/memory/memory-check.mjs'),"console.log('gate ran');\n");
   const hook=path.join(f.memoryDir,'.git/hooks/pre-commit');assert.equal(install({memoryDir:f.memoryDir,repo:f.target}).ok,true);
   const run=()=>f.exec('git',['-C',f.memoryDir,'hook','run','pre-commit']);
-  const older=run();assert.equal(older.status,1);assert.match(older.stdout+older.stderr,/3\.3\.2.*3\.3\.7|3\.3\.7.*3\.3\.2/);assert.ok((older.stdout+older.stderr).includes(f.target.replaceAll('\\','/')));assert.doesNotMatch(older.stdout,/gate ran/);
+  const older=run();assert.equal(older.status,1);assert.match(older.stdout+older.stderr,/3\.3\.2.*3\.3\.8|3\.3\.8.*3\.3\.2/);assert.ok((older.stdout+older.stderr).includes(f.target.replaceAll('\\','/')));assert.doesNotMatch(older.stdout,/gate ran/);
   put(receipt,JSON.stringify({version:currentVersion}));const equal=ok(run());assert.match(equal.stdout+equal.stderr,/gate ran/);
   put(hook,read(hook).split('\n').slice(0,2).join('\n')+'\necho legacy\n');install({memoryDir:f.memoryDir,repo:f.target});assert.doesNotMatch(read(hook),/echo legacy/);
   put(hook,'#!/bin/sh\necho foreign\n');install({memoryDir:f.memoryDir,repo:f.target});assert.equal(read(hook),'#!/bin/sh\necho foreign\n');

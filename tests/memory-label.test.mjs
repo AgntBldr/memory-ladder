@@ -18,7 +18,7 @@ const ids = s => [...s.matchAll(/^### (row-[a-z0-9]+\.md)$/gm)].map(m => m[1]);
 const fixtureSampling = {expectedOurs:10, roundKinds:{mistake:1, practice:1, observation:1}, negatives:1, pilot:2, roundBundles:3, sentinels:2};
 
 function fixture(t) {
-  // All temporary writes remain inside the lane fence, including the fixture key.
+  // All temporary writes remain inside the fixture's temporary folder, including the fixture key.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'label-fixture-'));
   t.after(() => fs.rmSync(root, {recursive:true, force:true}));
   const memory = path.join(root,'memory'), reference = path.join(root,'reference');
@@ -86,9 +86,14 @@ test('build blinds all fields and filenames; deterministic A/B membership, keys,
   compare(out,second.out); compare(keyDir,second.keyDir);
 });
 
-test('production composition, disjoint sentinels, exclusions and stratification at 419 rows', t => {
+test('production composition, disjoint sentinels, exclusions and stratification at invented row counts', t => {
   const f=fixture(t), rows=[];
-  const counts={'candidate-routed':189,'other-project':180,'other-reference':21,'candidate-unrouted':3,orphan:14,'chain-head':5,'doc-referenced':7};
+  // Invented round counts for example, one for each class name in the order of CLASS_NAMES; every total below is computed from
+  // them, so changing one count changes the totals with it.
+  const CLASS_NAMES=['candidate-routed','other-project','other-reference','candidate-unrouted','orphan','chain-head','doc-referenced'];
+  const INVENTED_COUNTS=[200,150,20,5,10,5,10];
+  const counts=Object.fromEntries(CLASS_NAMES.map((name,index)=>[name,INVENTED_COUNTS[index]]));
+  const EXCLUDED=150,CALIBRATION_OURS=10,total=Object.values(counts).reduce((sum,count)=>sum+count,0);
   let number=0;
   for(const [cls,count] of Object.entries(counts)) for(let i=0;i<count;i++) {
     const file=`invented-${number++}.md`,route=['candidate-unrouted','orphan'].includes(cls)?[]:[families[i%13]];
@@ -96,7 +101,7 @@ test('production composition, disjoint sentinels, exclusions and stratification 
     const body=`# Invented operation ${number}\n`+('Verify the target, then read back the saved value.\n'.repeat(i%5===0 ? 140:22));
     put(path.join(f.options.memory,file),`---\nname: Operation ${number}\ndescription: An invented procedure\n---\n${body}`);
   }
-  for(let i=0;i<169;i++) rows.push({file:`excluded-${i}.md`,class:'system',route:[]});
+  for(let i=0;i<EXCLUDED;i++) rows.push({file:`excluded-${i}.md`,class:'system',route:[]});
   put(f.options.census,{rows});
   for(let i=0;i<120;i++) {
     const kind=i<70?'mistake':i<96?'practice':'observation';
@@ -104,10 +109,10 @@ test('production composition, disjoint sentinels, exclusions and stratification 
   }
   for(let i=0;i<25;i++) put(path.join(f.options.reference,`negative-${i}.md`),`---\nname: State ${i}\ndescription: Invented state\n---\nThe invented project has ${i} queues.\n`);
   const report=build(f.options),key=json(path.join(f.options.keyDir,'key.json'));
-  assert.equal(report.ours,419);assert.equal(report.excluded,169);assert.deepEqual(report.classes,counts);
-  assert.deepEqual(report.calibration,{lessons:60,kinds:{mistake:36,observation:11,practice:13},negatives:20,ours:10});
+  assert.equal(report.ours,total);assert.equal(report.excluded,EXCLUDED);assert.deepEqual(report.classes,counts);
+  assert.deepEqual(report.calibration,{lessons:60,kinds:{mistake:36,observation:11,practice:13},negatives:20,ours:CALIBRATION_OURS});
   const main=report.bundles.filter(b=>b.id.startsWith('b'));
-  assert.equal(main.reduce((sum,b)=>sum+b.ours,0),409);assert.equal(report.sentinels,main.length*2);
+  assert.equal(main.reduce((sum,b)=>sum+b.ours,0),total-CALIBRATION_OURS);assert.equal(report.sentinels,main.length*2);
   const seen=new Set();
   for(const bundle of report.bundles) {
     const text=fs.readFileSync(path.join(f.options.out,'bundles',`${bundle.id}-A.md`),'utf8');
@@ -120,7 +125,7 @@ test('production composition, disjoint sentinels, exclusions and stratification 
       assert.ok(new Set(members.flatMap(id=>key[id].family)).size>=3);
     } else {assert.equal(members.length,30);assert.ok(members.every(id=>!key[id].sentinel));}
   }
-  assert.equal(seen.size,419+80+main.length*2);
+  assert.equal(seen.size,total+report.calibration.lessons+report.calibration.negatives+main.length*2);
   assert.throws(()=>build(f.options),/already exists/);
 });
 

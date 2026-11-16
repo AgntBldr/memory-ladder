@@ -421,7 +421,7 @@ test('real process crash between note and CURRENT leaves recoverable note and no
   success(f.run({replace: '000001'})); assert.equal(listNotes(f.memoryDir).length, 1);
 });
 
-// Kit 3.3.5 E8 (Codex review P2-10): the verdict reads the SHA the checkpoint saved and that SHA's verified publication on
+// Kit 3.3.5 E8: the verdict reads the SHA the checkpoint saved and that SHA's verified publication on
 // the actual remote, in both modes; a commit made after the save (another session's) never changes it. The failing cases
 // therefore change what the checkpoint saves or publishes, and 'later commit' pins that a later unpushed HEAD is ignored.
 for (const change of ['CURRENT', 'note', 'unpushed', 'later commit']) test('verdict uses only committed own note and pushed HEAD: ' + change, t => {
@@ -476,7 +476,7 @@ test('repeat-of existing schema is reused and published', t => {
   const r = success(f.run({lessons: batch})); assert.deepEqual(r.created, first.created);
   assert.match(f.git(f.memoryDir, 'show', 'HEAD:' + first.created[0]), /Validation was skipped/);
   const different = f.batch(); put(different, read(different).replace('## Capture 1', '## Another capture'));
-  // Kit 3.3.5 E8 (Codex review P2-10): the saved SHA is the evidence, so the lesson is lost before the save, not after it.
+  // Kit 3.3.5 E8: the saved SHA is the evidence, so the lesson is lost before the save, not after it.
   const lost = f.run({lessons: different}, {afterCurrent(ctx) { fs.rmSync(path.join(f.memoryDir, ctx.created[0])); }});
   assert.equal(lost.code, 1); assert.match(lost.output, /lesson missing in HEAD/);
 });

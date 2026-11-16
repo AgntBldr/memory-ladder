@@ -14,15 +14,15 @@ An agent pays for memory in two ways. What loads at session start costs context 
 opens costs context every time the trigger fires. A file that nothing opens costs nothing. So the limits sit on the
 files that load or open often, and a memory of a thousand files passes the gate when each layer stays inside its job.
 
-Every layer gets a limit because a limit on one layer only moves the growth to the next one. In real memories the router
-stayed under its budget while the indexes below it grew to 240 KB. [WHY](../WHY.md) gives the idea behind the layers.
+Every layer gets a limit because a limit on one layer only moves the growth to the next one. For example, a router can
+stay under its budget while the indexes below it keep growing. [WHY](../WHY.md) gives the idea behind the layers.
 
 ## One limit comes from Claude Code itself
 
 Claude Code's documentation says: "The first 200 lines of `MEMORY.md`, or the first 25KB, whichever comes first, are
 loaded at the start of every conversation. Content beyond that threshold is not loaded at session start." Topic files
 are not loaded at startup. Claude reads them when it needs them. Source:
-[How Claude remembers your project](https://code.claude.com/docs/en/memory), checked 2026-10-27.
+[How Claude remembers your project](https://code.claude.com/docs/en/memory).
 
 The first router budget was set against that cutoff (see [Router](#router-memorymd)). The FAIL at 16 KiB keeps
 `MEMORY.md` well inside it. The `router.lines` check WARNs above 150 lines and FAILs above 200, even when bytes remain below the cap.
@@ -112,10 +112,10 @@ The limits are design choices informed by observed memory growth. They are not p
 - **Limit.** WARN above 2 KiB. FAIL above 4 KiB.
 - **Why.** A hard rule opens every time its trigger fires, for example on every delegation or every deploy, and the
   agent has to read all of it at that moment.
-- **Where the number came from.** In real memories, the hard-rule files totaled 84 KB, and the rule that fired on
-  every delegation was 32.7 KB, about 8,000 tokens each time. The kit estimates 4 bytes per token, so 2 KiB is about
+- **Where the number came from.** For example, if a rule that fires on every delegation is 30 KB, it costs
+  about 7,500 tokens each time. The kit estimates 4 bytes per token, so 2 KiB is about
   500 tokens, roughly one screen. The 2 and 4 KiB values are a design choice, not a measured
-  threshold. After the rules were split, the bytes opened by triggers fell from 85.9 KB to 14.9 KB.
+  threshold. Splitting such rules means a trigger opens only the card, not the history behind it.
 - **The condition that comes with it.** A card keeps every value needed to obey it: the command, the path, the
   account, and the quota. Only history and explanation move to its background file. A card that fits the limit
   because its command was moved out has failed, even though the gate passes.
@@ -124,8 +124,8 @@ The limits are design choices informed by observed memory growth. They are not p
 
 - **Limit.** WARN above 4 KiB. FAIL above 8 KiB, or with more than one `CURRENT` or `RESUME` heading.
 - **Why.** The state file is read at every resume and handoff, and only the current block is useful.
-- **Where the number came from.** In another memory, the state file had reached 209 KB with 40 "resume here" blocks, 86%
-  of them superseded. The kit uses one current block, overwritten at each checkpoint. Git keeps the
+- **Where the number came from.** For example, a state file grows large when it keeps superseded "resume here" blocks.
+  The kit uses one current block, overwritten at each checkpoint. Git keeps the
   earlier blocks. The sizes fit one block of handoff text.
 
 ### Descriptions
@@ -134,15 +134,15 @@ The limits are design choices informed by observed memory growth. They are not p
   "Newest:"). WARN when it only repeats the filename (`desc.slug`).
 - **Why.** Recall weights the name most, then the description and the first heading equally, then the first 400
   characters of the body. A generated index line prints the description, or the lesson's `hook` when one is set.
-- **Where the number came from.** In another memory, 231 of 454 descriptions exceeded 300 characters as descriptions grew into running changelogs. 200 characters is about one
+- **Where the number came from.** For example, descriptions can exceed 300 characters as they grow into running changelogs. 200 characters is about one
   sentence. A description that repeats the filename gives recall no new words to match.
 
 ### Topic and lesson files
 
 - **Limit.** WARN above 8 KiB. FAIL above 20 KiB.
 - **Why.** A recall result opens one file. It should hold one idea.
-- **Where the number came from.** In another memory, 24 files over 20 KB were running journals: one was 130 KB, and a
-  99 KB file held nine resume headings. 20 KB had been a warning. The kit made it a failure and
+- **Where the number came from.** For example, a topic file over 20 KB can turn into a running journal with many resume
+  headings. 20 KB had been a warning. The kit made it a failure and
   added the 8 KiB warning, so a growing file gets split into linked files instead of appended to.
 
 ### Generated indexes
@@ -152,9 +152,9 @@ The limits are design choices informed by observed memory growth. They are not p
   catalog or hand-written index page over 24 KiB fails. Index lines WARN above 300 characters and FAIL above 450.
 - **Why.** An index opens after the router routes to it, so the page that loads has a budget. The full catalog is paged
   and opened only for a wider search.
-- **Where the number came from.** In real memories, condensing indexes reduced them from 240 KB to 105 KB and set limits
-  just above the result, with the largest index at 20 KB and the longest line at 370 characters, so that regrowth
-  would fail. The indexes still grew back about 2.2 KB a day inside the room those limits left. Per-file pins at the
+- **Where the number came from.** For example, after condensing shrinks the indexes, limits are set just above the
+  result, so that regrowth would fail. Indexes can still grow back a little each day inside the room such limits
+  leave. Per-file pins at the
   file's own size plus a small margin replaced that room. Since kit 3.2 the indexes are generated and the page that
   loads fills to a fixed budget.
 - **Pins.** A pin is the file's size plus 1,024 bytes, with a warning under 400 bytes of room. Pins at the exact size
@@ -173,7 +173,7 @@ The limits are design choices informed by observed memory growth. They are not p
 - **Why.** If a project's `AGENTS.md` sends agents to the end of the log, the log costs context at session start. The
   kit's measurement counts the last 10 entries as session-start cost. The index is read whenever work routes into the
   brain.
-- **Where the number came from.** In another memory, a log reached 1.66 MB. Rotation copies older entries
+- **Where the number came from.** For example, a log that is never rotated keeps growing. Rotation copies older entries
   unchanged into monthly files. The 12 KiB index maximum matches the router's warning size. No separate measurement
   is recorded for it.
 
@@ -182,7 +182,7 @@ The limits are design choices informed by observed memory growth. They are not p
 - **Limit.** WARN above 60 KiB. FAIL above 80 KiB. Rotation keeps six dated "Open work" blocks by default, and as few as
   two when the roadmap is over its warning size.
 - **Why.** The roadmap is read and refreshed at every checkpoint.
-- **Where the number came from.** The live roadmap stays within 80 KiB, with history in a separate file and a generated overview (optional via `caps.roadmapOverview.enabled`). In real memories, rotation took the live roadmap from 434.7 KB to 32.8 KB.
+- **Where the number came from.** The live roadmap stays within 80 KiB, with history in a separate file and a generated overview (optional via `caps.roadmapOverview.enabled`). For example, rotation moves the oldest dated blocks of "Open work" to the history file; the blocks it keeps and all text outside them still count toward the limit.
 
 ### `AGENTS.md`
 
@@ -197,7 +197,7 @@ The limits are design choices informed by observed memory growth. They are not p
 - **Unpushed memory commits.** WARN at 1, FAIL at 10. An unpushed commit exists on one computer only. The values are design choices for detecting push drift.
 - **Stale notes.** WARN when a state file, or a note of type `project` or `reference`, was last committed more than 45
   days ago. A note marked `stable: true` is skipped. Facts about a project go out of date and lessons do not. Older
-  gates flagged stable files too, which produced 8 false warnings in another memory. No calculation behind the
+  gates flagged stable files too, which produced false warnings. No calculation behind the
   number 45 is recorded.
 - **Shelf review.** A paused program in `docs/shelf/` needs a review date no more than 90 days after it was shelved.
 - **Brain nodes.** Off by default. When on, the gate warns on a body over 350 words or a summary over 200 characters,

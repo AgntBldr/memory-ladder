@@ -471,7 +471,7 @@ test('A-T38 unplanned changes anywhere in the project are detected and undone',t
   const f=fixture(t);ok(f.install());const next=bump(f);
   const agents=path.join(f.target,'AGENTS.md'),kept=put(path.join(f.target,'src/host.txt'),'host\n'),created=path.join(f.target,'src/new.txt');
   const start={project:tree(f.target),memory:withoutLock(tree(f.memory)),hook:bytes(hookOf(f.memory))};
-  // Every version change rewrites the standard block's begin marker (lane B), so AGENTS.md is a planned write: the
+  // Every version change rewrites the standard block's begin marker, so AGENTS.md is a planned write: the
   // unplanned change lands right after it, and the kept state is the planned bytes plus the unplanned line.
   const hooks=`afterCopy:(n,file)=>{if(file==='AGENTS.md'){fs.appendFileSync(${JSON.stringify(agents)},'unplanned\\n');fs.writeFileSync(${JSON.stringify(created)},'new\\n');fs.rmSync(${JSON.stringify(kept)});}}`;
   const plannedAgents=read(agents).replace(`(memory kit ${currentVersion})`,`(memory kit ${nextVersion})`);assert.notEqual(plannedAgents,read(agents));
@@ -1204,6 +1204,59 @@ test('A-T63 a relative USERPROFILE, with HOME unset, is refused, naming USERPROF
   const f=fixture(t);ok(f.install());const next=bump(f);const copy=copyMemory(f);
   const env={...f.env,USERPROFILE:'kit-profile'};delete env.HOME;
   assertInputRefusal(f,'USERPROFILE',()=>upgrade(f,['--memory-dir',copy],next,{env}));
+});
+
+// The home folder is checked whenever the scope inventory runs, not only on the paths where git reads it: a set
+// GIT_CONFIG_GLOBAL, XDG_CONFIG_HOME or core.excludesFile each used to let an empty or relative HOME through.
+const homeCombos=[true,false].flatMap(global=>['full','unset'].map(xdg=>({global,xdg})));
+const homeComboName=(combo,excludes)=>`GIT_CONFIG_GLOBAL ${combo.global?'set':'unset'}, XDG_CONFIG_HOME ${combo.xdg}, core.excludesFile ${excludes?'set':'unset'}`;
+// `home` holds the HOME and USERPROFILE values for the run; undefined removes the variable.
+function homeEnv(f,combo,home) {
+  const env={...f.env,...home};
+  for(const [name,value] of Object.entries(home)) if(value===undefined) delete env[name];
+  if(!combo.global) delete env.GIT_CONFIG_GLOBAL;
+  if(combo.xdg==='full') env.XDG_CONFIG_HOME=path.join(f.root,'xdg-config');
+  else delete env.XDG_CONFIG_HOME;
+  return env;
+}
+const setExcludesFile=f=>f.git(f.target,'config','core.excludesFile',path.join(f.root,'global-ignore'));
+function inCase(label,body) {
+  try { return body(); } catch(error) { error.message=label+': '+error.message; throw error; }
+}
+// The setup (install and bump) must not read the developer's XDG_CONFIG_HOME: an inherited $XDG_CONFIG_HOME/git/ignore
+// could change the install. Each upgrade run below sets or removes the variable itself, through homeEnv.
+function homeFixture(t) {
+  const f=fixture(t);
+  delete f.env.XDG_CONFIG_HOME;
+  return f;
+}
+
+test('A-T63 an empty or a relative HOME is refused, naming HOME, whichever other git inputs are set',t=>{
+  const f=homeFixture(t);ok(f.install());const next=bump(f);
+  for(const excludes of [false,true]) {
+    if(excludes) setExcludesFile(f);
+    for(const combo of homeCombos) for(const HOME of ['','kit-home'])
+      inCase(`HOME ${JSON.stringify(HOME)}, ${homeComboName(combo,excludes)}`,()=>assertInputRefusal(f,'HOME',()=>upgrade(f,['--live-memory'],next,{env:homeEnv(f,combo,{HOME})})));
+  }
+});
+
+test('A-T63 a relative USERPROFILE, with HOME unset, is refused, naming USERPROFILE, whichever other git inputs are set',t=>{
+  const f=homeFixture(t);ok(f.install());const next=bump(f);const copy=copyMemory(f);
+  for(const excludes of [false,true]) {
+    if(excludes) setExcludesFile(f);
+    for(const combo of homeCombos)
+      inCase(`USERPROFILE "kit-profile", HOME unset, ${homeComboName(combo,excludes)}`,()=>assertInputRefusal(f,'USERPROFILE',()=>upgrade(f,['--memory-dir',copy],next,{env:homeEnv(f,combo,{HOME:undefined,USERPROFILE:'kit-profile'})})));
+  }
+});
+
+test('A-T63 a full HOME is not refused, with each combination of the other git inputs',t=>{
+  let next;
+  for(const excludes of [false,true]) for(const combo of homeCombos) inCase(homeComboName(combo,excludes),()=>{
+    const f=homeFixture(t);ok(f.install());next??=bump(f);
+    if(excludes) setExcludesFile(f);
+    const result=ok(upgrade(f,['--live-memory'],next,{env:homeEnv(f,combo,{})}));
+    assert.ok(!errors(result).some(line=>line.startsWith('upgrade: cannot establish the git input')),result.stderr);
+  });
 });
 
 test('A-T66 GIT_DIR and GIT_WORK_TREE naming another repository cannot make a linked worktree look like a main checkout',t=>{

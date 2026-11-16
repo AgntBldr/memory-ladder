@@ -408,7 +408,7 @@ test('S6-T13y the session claim check recognises a lock name through the shared 
 // ---- Item 11b: a linked worktree of a bare repository. ----
 
 test('S6-T14b pin: the memory hook is installed at the bare repository\'s own hook path from a worktree of a bare repository', t => {
-  // Pin (green on 3.3.5; ruling: keep treating such a worktree as the main checkout). Mutant: linkedWorktree returns the
+  // Pin (green on 3.3.5; such a worktree is still treated as the main checkout). Mutant: linkedWorktree returns the
   // main record when the first worktree record is bare, so the install refuses as a linked worktree.
   const f = fixture(t);
   const source = path.join(f.root, 'source'), bare = path.join(f.root, 'bare.git'), work = path.join(f.root, 'bare-work');

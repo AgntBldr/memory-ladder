@@ -1,4 +1,4 @@
-// Kit 3.3.5 lane E: a save touches only its own session's work (spec Part 1, tests E10 and E12).
+// Kit 3.3.5: a save touches only its own session's work (spec Part 1, tests E10 and E12).
 // Fixture: a memory git repo with a local bare remote and the kit's real pre-commit hook; two checkouts of one project on
 // branches b1 and b2 (sessions S1 and S2). Barriers between processes synchronise on hook entry, never on sleeps.
 import test from 'node:test';
@@ -249,7 +249,7 @@ test('E-T8 stale and malformed ledgers in list; malformed blocks contention; a c
   assert.match(list, /stale: .*checkout is on b2-other/);
   assert.match(list, /unreadable: \.sessions\/0123456789012345\.json: not valid JSON/);
   assert.match(list, /malformed: \.sessions\/9876543210987654\.json.*does not match/);
-  // Unreadable ownership cannot be established, so claims refuse until it is repaired (review P1-1).
+  // Unreadable ownership cannot be established, so claims refuse until it is repaired.
   assert.throws(() => w.claim(w.S1, ['topic-beta.md']), /ledger \.sessions\/0123456789012345\.json is unreadable/);
   fs.unlinkSync(path.join(w.memoryDir, '.sessions', '0123456789012345.json'));
   assert.throws(() => w.claim(w.S1, ['topic-alpha.md']), /claim refused: topic-alpha\.md/, 'a malformed ledger blocks contention');
@@ -368,7 +368,7 @@ test('E-T2c the candidate matches checkout-index bytes; export attributes neithe
 });
 
 test('E-T2c in-repo memory: an unrelated staged brain addition does not satisfy a link; the file in H does', t => {
-  // With the project's real in-repo pre-commit hook (review P2-11).
+  // With the project's real in-repo pre-commit hook.
   const w = world(t, {inRepo: true, remote: false});
   assert.match(fs.readFileSync(w.hookPath(), 'utf8'), /memory-check\.mjs --hook/);
   const s = w.S1;
@@ -386,7 +386,7 @@ test('E-T2c in-repo memory: an unrelated staged brain addition does not satisfy 
 
 // E-T3 shared-index regeneration.
 test('E-T3 two sessions save in turn; each commit\'s pages resolve in its own tree and an obsolete catalog leaves with the commit that obsoletes it', t => {
-  // With the real pre-commit hook, which reads the same (saved) config (review P2-11).
+  // With the real pre-commit hook, which reads the same (saved) config.
   const w = world(t, {topics: ['alpha', 'beta', 'gamma', 'delta']});
   const big = structuredClone(w.config); big.caps.index.failBytesAbsolute = 100000;
   const probe = path.join(w.root, 'probe'); fs.cpSync(w.memoryDir, probe, {recursive: true, filter: src => !src.includes('.git')});
@@ -575,7 +575,7 @@ test('E-T11 --dry-run leaves files, ledgers, index and refs unchanged', t => {
   assert.deepEqual([w.snapshot(), w.ledgers(), w.indexEntries(), w.refs()], before);
   assert.ok(w.lines.some(line => /would change: .*lesson-\d+-own-lesson\.md/.test(line)), w.lines.join('\n'));
 });
-// Review P2-11: the all-sessions commit compared with a 3.3.4 reference run on an identical fixture.
+// The all-sessions commit compared with a 3.3.4 reference run on an identical fixture.
 test('E-T11 mode all commits the same tree as the 3.3.4 reference sequence on an identical fixture', t => {
   const scenario = w => {
     w.newLesson(w.S2, 'Foreign lesson'); w.newLesson(w.S1, 'Own lesson');
@@ -596,7 +596,7 @@ test('E-T11 mode all commits the same tree as the 3.3.4 reference sequence on an
   assert.deepEqual(a.snapshot(), b.snapshot());
 });
 test('E-T11 in-repo memory: the --commit path follows the same selection rules', t => {
-  // With the project's real in-repo pre-commit hook (review P2-11).
+  // With the project's real in-repo pre-commit hook.
   const w = world(t, {inRepo: true, remote: false});
   const s = w.S1;
   w.write('topic-beta.md', topic('topic-beta') + 'unclaimed edit\n', s);
@@ -705,7 +705,7 @@ test('E-T16 --memory-only runs no repo writer, defers stale repo outputs and kee
   for (const f of outputs) fs.utimesSync(path.join(repo, f), old, old);
   const repoState = () => [outputs.map(f => [fs.readFileSync(path.join(repo, f), 'base64'), fs.statSync(path.join(repo, f)).mtimeMs]), w.git(repo, 'ls-files', '--stage'), w.git(repo, 'rev-parse', 'HEAD'), w.git(repo, 'for-each-ref')];
   const inRepo = world(t, {inRepo: true, hook: false, remote: false});
-  // Review P2-11: a spy on every file-system writer; nothing under the project checkout may be written.
+  // A spy on every file-system writer; nothing under the project checkout may be written.
   const realRepo = fs.realpathSync.native(repo).toLowerCase(), writes = [], mocks = [];
   const under = p => typeof p === 'string' && path.resolve(p).toLowerCase().startsWith(realRepo + path.sep);
   // openSync counts only when it opens for writing (readFileSync opens through it for reading); fd writers need such an open.
@@ -766,7 +766,7 @@ test('E-T17 --files-only commits only the named claimed files and their pages', 
   const retry = w.save(w.S1, {files: [lesson], filesOnly: true});
   assert.equal(retry.status, 0); assert.equal(retry.sha, result.sha, 'a publication-only retry selects the same set, now committed');
   assert.deepEqual(retry.selected, dry.selected);
-  // Review P2-9: a fresh --files claim on an already-saved file is a reservation that stays live until released (E2.6).
+  // A fresh --files claim on an already-saved file is a reservation that stays live until released (E2.6).
   assert.ok(w.ledger(w.S1).claims[lesson], 'the retry\'s fresh claim stays');
   assert.ok(session.foreignClaims(w.memoryDir, session.sessionOf(w.S2.repo).id).has(lesson), 'and blocks other sessions');
   session.releaseFiles({memoryDir: w.memoryDir, repo: w.S1.repo, files: [lesson]});
@@ -890,7 +890,7 @@ test('E-T4 a /handover while another session holds current-state.md writes and c
   assert.equal(w.remoteHead(), w.head());
 });
 
-// ---- Fixes after the first Codex high review: one regression per finding, written red first. ----
+// ---- Ownership checks inside the lock, unmarked stubs, structured failure results and saved-SHA verification: one regression per case. ----
 const engineURL = name => JSON.stringify(pathToFileURL(engine(name)).href);
 const until = async (predicate, label) => { for (let i = 0; i < 2400 && !predicate(); i++) await new Promise(r => setTimeout(r, 25)); assert.ok(predicate(), label + ': barrier not reached'); };
 const child = (file, argv) => new Promise(resolve => {
@@ -900,7 +900,7 @@ const child = (file, argv) => new Promise(resolve => {
 });
 const STUB = name => `---\nname: ${name}\ndescription: "Moved by hand."\nmoved_to: topic-alpha.md\n---\n\nSee topic-alpha.\n`;
 
-test('P1-1 a malformed claim record still blocks; its valid path stays an unresolved claim', t => {
+test('a malformed claim record still blocks; its valid path stays an unresolved claim', t => {
   const w = world(t);
   w.claim(w.S2, ['topic-beta.md']); w.write('topic-beta.md', topic('topic-beta') + 'S2 dirty work\n');
   const s2 = session.sessionOf(w.S2.repo), file = path.join(w.memoryDir, '.sessions', s2.id + '.json');
@@ -912,7 +912,7 @@ test('P1-1 a malformed claim record still blocks; its valid path stays an unreso
   assert.ok(result.malformed.some(m => m.file === `.sessions/${s2.id}.json`), JSON.stringify(result.malformed));
   assert.ok(w.lines.some(line => line.startsWith(`malformed ledger: .sessions/${s2.id}.json`)), w.lines.join('\n'));
 });
-test('P1-1 an unreadable ledger refuses claims and saves; stale needs confirmed absence', t => {
+test('an unreadable ledger refuses claims and saves; stale needs confirmed absence', t => {
   const w = world(t);
   fs.mkdirSync(path.join(w.memoryDir, '.sessions'), {recursive: true});
   fs.writeFileSync(path.join(w.memoryDir, '.sessions', '0123456789012345.json'), '{not json');
@@ -928,7 +928,7 @@ test('P1-1 an unreadable ledger refuses claims and saves; stale needs confirmed 
   assert.throws(() => w.claim(w.S1, ['topic-alpha.md']), /claim refused: topic-alpha\.md/);
 });
 
-test('P1-2 recovery after a failure runs inside the original memory lock', t => {
+test('recovery after a failure runs inside the original memory lock', t => {
   const w = world(t);
   w.newLesson(w.S1, 'Own lesson');
   const lock = path.join(w.memoryDir, '.memory.lock'), seen = [];
@@ -937,7 +937,7 @@ test('P1-2 recovery after a failure runs inside the original memory lock', t => 
   assert.deepEqual(seen, [true], 'restore ran while the lock was held');
 });
 
-test('P1-3 standalone hand-over rotation checks ownership inside the lock that covers its writes', async t => {
+test('standalone hand-over rotation checks ownership inside the lock that covers its writes', async t => {
   const w = world(t, {hook: false});
   for (let i = 1; i <= 3; i++) w.write(`handovers/00000${i}-2026-11-01-100${i}.md`, `---\ntime: 2026-11-01T10:0${i}:00+01:00\nbranch: "b1"\nsha: 1234567\nmode: quick\n---\n**State:** note ${i}\n`);
   w.git(w.memoryDir, 'add', '.'); w.git(w.memoryDir, 'commit', '-q', '-m', 'notes');
@@ -954,7 +954,7 @@ test('P1-3 standalone hand-over rotation checks ownership inside the lock that c
   assert.equal(r.code, 3, r.out); assert.match(r.out, /refused: rotate handovers refused: 1 files pending in other sessions/);
   assert.ok(fs.existsSync(path.join(w.memoryDir, 'handovers/000001-2026-11-01-1001.md')), 'the claimed note is not archived');
 });
-test('P1-3 setup exclusion is checked inside the lock that covers its writes', async t => {
+test('setup exclusion is checked inside the lock that covers its writes', async t => {
   const w = world(t, {hook: false});
   const dir = path.join(w.root, 'drivers'), marks = path.join(w.root, 'marks'); fs.mkdirSync(dir); fs.mkdirSync(marks);
   const holder = w.put(path.join(dir, 'holder.mjs'), `import fs from 'node:fs';\nimport {withMemoryLock} from ${engineURL('memory-lock.mjs')};\nimport {claimFiles} from ${engineURL('memory-session.mjs')};\nconst [memoryDir, repo, file, ready, go] = process.argv.slice(2);\nwithMemoryLock(memoryDir, lock => { fs.writeFileSync(ready, ''); while (!fs.existsSync(go)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); claimFiles({memoryDir, repo, files: [file], lock}); });\n`);
@@ -968,7 +968,7 @@ test('P1-3 setup exclusion is checked inside the lock that covers its writes', a
   assert.equal(h.code, 0, h.out); assert.equal(s.code, 3, s.out); assert.match(s.out, /memory setup refused: 1 files pending/);
 });
 
-test('P1-4 an unmarked stub at a generated path is never overwritten (worktree, staged and standalone)', t => {
+test('an unmarked stub at a generated path is never overwritten (worktree, staged and standalone)', t => {
   const w = world(t);
   const head = w.head(), stub = STUB('INDEX-ops');
   w.write('INDEX-ops.md', stub);
@@ -983,7 +983,7 @@ test('P1-4 an unmarked stub at a generated path is never overwritten (worktree, 
   assert.equal(w.head(), head);
 });
 
-test('P2-5 an empty --files-only selection only publishes: no pages, no repo outputs, no commit, even with stale pages', t => {
+test('an empty --files-only selection only publishes: no pages, no repo outputs, no commit, even with stale pages', t => {
   const w = world(t, {hook: false});
   w.write('INDEX-ops.md', w.read('INDEX-ops.md') + 'stale committed line\n');
   w.git(w.memoryDir, 'commit', '-q', '-am', 'stale page in H'); w.git(w.memoryDir, 'push', '-q');
@@ -999,7 +999,7 @@ test('P2-5 an empty --files-only selection only publishes: no pages, no repo out
   assert.equal(result.publication.verified, true);
 });
 
-test('P2-6 in-repo brain pointers and moved_to targets resolve against the proposed tree', t => {
+test('in-repo brain pointers and moved_to targets resolve against the proposed tree', t => {
   const w = world(t, {inRepo: true, remote: false});
   const s = w.S1;
   w.claim(s, ['topic-alpha.md', 'moved.md']);
@@ -1016,7 +1016,7 @@ test('P2-6 in-repo brain pointers and moved_to targets resolve against the propo
   assert.equal(saved.status, 0, saved.error ?? JSON.stringify(saved.gate?.fails));
 });
 
-test('P2-7 checkpoint() returns structured status 1 in all-sessions mode too, with the evidence so far', t => {
+test('checkpoint() returns structured status 1 in all-sessions mode too, with the evidence so far', t => {
   const w = world(t, {mode: 'all', hook: false, remote: false});
   const early = w.save(w.S1, {session: undefined, today: 'not-a-date'});
   assert.equal(early.status, 1); assert.match(early.error, /invalid --today/); assert.equal(early.gate, null); assert.equal(early.effective.session, false);
@@ -1027,7 +1027,7 @@ test('P2-7 checkpoint() returns structured status 1 in all-sessions mode too, wi
   assert.equal(w.cli(w.S1, ['--all', '--no-push']).status, 1);
 });
 
-test('P2-8 failure results list the changes left behind: kept pages and partial repo writes', t => {
+test('failure results list the changes left behind: kept pages and partial repo writes', t => {
   const w = world(t);
   w.newLesson(w.S1, 'Own lesson');
   const kept = w.save(w.S1, {faults: {beforeGate() { fs.appendFileSync(path.join(w.memoryDir, 'INDEX-craft.md'), 'changed again\n'); throw new Error('injected'); }}});
@@ -1040,7 +1040,7 @@ test('P2-8 failure results list the changes left behind: kept pages and partial 
   for (const file of partial.changed.repo) assert.ok(fs.existsSync(path.join(w.S1.repo, file)), file);
 });
 
-test('P2-10 /handover in session mode with in-repo memory verifies the saved SHA on the project remote', t => {
+test('/handover in session mode with in-repo memory verifies the saved SHA on the project remote', t => {
   const w = world(t, {inRepo: true});
   const s = w.S1;
   w.put(path.join(s.repo, 'AGENTS.md'), '# Project\n\n## Session overlay\nbranch: b1\npush: project\n');
@@ -1050,7 +1050,7 @@ test('P2-10 /handover in session mode with in-repo memory verifies the saved SHA
   assert.equal(r.status, 0, r.stdout + r.stderr); assert.match(r.stdout, /SAFE TO COMPACT \(quick\)/);
   assert.equal(w.git(w.root, '--git-dir', w.bare, 'rev-parse', 'refs/heads/b1'), w.git(s.repo, 'rev-parse', 'HEAD'));
 });
-test('P2-10 an all-sessions /handover verifies its saved SHA, not a later unpublished HEAD', async t => {
+test('an all-sessions /handover verifies its saved SHA, not a later unpublished HEAD', async t => {
   const w = world(t, {mode: 'all'});
   const {runHandover} = await import('../engine/handover.mjs');
   const input = w.put(path.join(w.root, 'input.json'), JSON.stringify({state: 'ready to continue', next: ['review the result']}));
@@ -1061,7 +1061,7 @@ test('P2-10 an all-sessions /handover verifies its saved SHA, not a later unpubl
   assert.equal(result.code, 0, output); assert.match(output, /SAFE TO COMPACT/);
 });
 
-test('P2-11 E-T2c the real gate and hook agree at a CRLF byte boundary', t => {
+test('E-T2c the real gate and hook agree at a CRLF byte boundary', t => {
   const w = world(t);
   w.write('.gitattributes', 'edge.md text eol=crlf\n'); w.git(w.memoryDir, 'add', '.gitattributes'); w.git(w.memoryDir, 'commit', '-q', '-m', 'attributes');
   const head = topic('edge'), line = 'e'.repeat(99) + '\n', fail = w.config.caps.topic.failBytes;
@@ -1080,7 +1080,7 @@ test('P2-11 E-T2c the real gate and hook agree at a CRLF byte boundary', t => {
   assert.equal(saved.status, 0, saved.error ?? JSON.stringify(saved.gate?.fails)); assert.ok(w.committed(saved.sha).includes('edge.md'));
 });
 
-test('P2-11 E-T7 the ledger temp file lives in .sessions, is renamed into place, and a swapped-in junction is refused', t => {
+test('E-T7 the ledger temp file lives in .sessions, is renamed into place, and a swapped-in junction is refused', t => {
   const w = world(t, {hook: false, remote: false});
   const sessions = path.join(fs.realpathSync.native(w.memoryDir), '.sessions'), id = session.sessionOf(w.S1.repo).id;
   const write = fs.writeFileSync, rename = fs.renameSync, events = [];
@@ -1106,7 +1106,7 @@ test('P2-11 E-T7 the ledger temp file lives in .sessions, is renamed into place,
   assert.deepEqual(fs.readdirSync(sessions).filter(n => n.endsWith('.tmp')), []);
 });
 
-test('P2-12 standalone memory-index restores every output when a later write fails, inside its lock', t => {
+test('standalone memory-index restores every output when a later write fails, inside its lock', t => {
   const w = world(t, {hook: false, remote: false});
   w.newLesson(w.S1, 'Own lesson'); w.write('INDEX-ops.md', w.read('INDEX-ops.md') + 'stale\n');
   const pages = () => Object.fromEntries(fs.readdirSync(w.memoryDir).filter(n => /^INDEX-/.test(n)).map(n => [n, fs.readFileSync(path.join(w.memoryDir, n), 'base64')]));
@@ -1122,7 +1122,7 @@ test('P2-12 standalone memory-index restores every output when a later write fai
   assert.ok(calls.length > 2 && calls.every(Boolean), 'writes and restores happen under the lock');
 });
 
-// ---- Fixes after the second Codex high review: one regression per finding, written red first. ----
+// ---- An unreadable claimed path, unreadable outputs after a failed save, and a failed lock release after a commit. ----
 test('R2-2 a claimed path whose inspection fails (EACCES) stays an unresolved blocker', t => {
   const w = world(t, {hook: false, remote: false});
   w.claim(w.S2, ['topic-beta.md']);
@@ -1187,7 +1187,7 @@ test('R2-4 all-sessions mode keeps the commit SHA when the lock cleanup fails af
   assert.match(result.sha ?? '', /^[0-9a-f]{40}$/); assert.equal(result.sha, w.head());
 });
 
-// ---- Fixes after the third Codex high review (a closed list) and the class sweep: written red first. ----
+// ---- Candidate-folder removal and cleanup failures: each keeps the original error and adds the cleanup error. ----
 const CLEANUP_FAILURE = 'EPERM: injected candidate cleanup failure';
 // Candidate folders whose removal was injected to fail are removed here, after the mocks are restored.
 const dropLeftovers = result => { for (const e of result?.cleanupErrors ?? []) { const m = /could not remove the candidate folder (.+?): /.exec(e); if (m) fs.rmSync(m[1], {recursive: true, force: true}); } };
@@ -1221,7 +1221,7 @@ test('R3-2 a candidate-folder removal failure after a failed gate keeps the gate
   assert.ok(result.cleanupErrors.some(e => e.includes(CLEANUP_FAILURE)), JSON.stringify(result.cleanupErrors));
   assert.equal(w.head(), head);
 });
-// Same class, found by the sweep: cleanup after a failure inside the candidate build and in materialiseCandidate.
+// Cleanup after a failure inside the candidate build and in materialiseCandidate.
 test('R3-sweep a candidate build failure keeps its own error when the candidate folder cannot be removed', t => {
   const w = world(t, {hook: false, remote: false});
   w.write('.gitignore', w.read('.gitignore') + 'ignored.md\n'); w.git(w.memoryDir, 'add', '.gitignore'); w.git(w.memoryDir, 'commit', '-q', '-m', 'ignore one file');
@@ -1245,7 +1245,7 @@ test('R3-sweep materialiseCandidate keeps the extraction error when the candidat
   assert.match(thrown.message, /injected extraction failure/);
   assert.ok((thrown.cleanupErrors ?? []).some(e => e.includes(CLEANUP_FAILURE)), JSON.stringify(thrown.cleanupErrors));
 });
-// Same class, found by the sweep: a failed recovery is part of the structured result.
+// A failed recovery is part of the structured result.
 test('R3-sweep a recovery that fails is recorded in cleanupErrors next to the original error', t => {
   const w = world(t, {hook: false, remote: false});
   w.newLesson(w.S1, 'Own lesson');
@@ -1258,7 +1258,7 @@ test('R3-sweep a recovery that fails is recorded in cleanupErrors next to the or
   assert.equal(result.status, 1); assert.match(result.error, /injected writer failure/);
   assert.ok(result.cleanupErrors.some(e => /^restore failed: .*EACCES/.test(e)), JSON.stringify(result.cleanupErrors));
 });
-// Same class, found by the sweep: a lock that cannot be released after a failed run never replaces that run's error.
+// A lock that cannot be released after a failed run never replaces that run's error.
 test('R3-sweep a lock release failure after a failed all-sessions run keeps the gate error', t => {
   const w = world(t, {mode: 'all', hook: false, remote: false});
   const unfilled = w.newLesson(w.S1, 'Unfilled', {fill: false});
@@ -1271,7 +1271,7 @@ test('R3-sweep a lock release failure after a failed all-sessions run keeps the 
   assert.ok(result.cleanupErrors.some(e => /was not released: EPERM: injected lock release failure/.test(e)), JSON.stringify(result.cleanupErrors));
 });
 
-// ---- Fixes after the fourth Codex high review: the repo-output cleanup in writeRepoOutputs. ----
+// ---- The repo-output cleanup in writeRepoOutputs. ----
 test('R4 a failed brain-index regeneration keeps its error when the first-written catalog cannot be removed', t => {
   const w = world(t, {hook: false, remote: false});
   const repo = w.S1.repo, allPath = w.config.caps.brainIndex.allPath, allFile = path.join(repo, allPath);

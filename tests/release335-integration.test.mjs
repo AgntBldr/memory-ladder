@@ -1,5 +1,5 @@
-// Kit 3.3.5 E2.8: the kit upgrade is an exclusive maintenance step (lane E merged with 3.3.4 lanes A and B).
-// Each test was written red first against that merge, before these fixes.
+// Kit 3.3.5 E2.8: the kit upgrade is an exclusive maintenance step.
+// Each test was written red first, before these fixes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -240,7 +240,7 @@ test('I18 E2.8 (c) one lock-name predicate and one .gitignore line', async () =>
   for (const text of ['x\n.memory.lock*\n', '.memory.lock*\r\n']) assert.equal(withLockIgnores(text), text);
 });
 
-// ---- Fixes after the Codex high review of the integration: each finding's path, written red first. ----
+// ---- Unmarked stubs and generated pages, tracked lock files in rollback, and the CLIs under a foreign Git environment. ----
 
 test('I22 E2.8 (d) a route migration never replaces an unmarked stub at a generated path: refused, named, nothing written', t => {
   const f = fixture(t); ok(f.install()); const next = bump(f);
@@ -359,7 +359,7 @@ test('I30 E2.8 (e) the handover CLI saves this project\'s note on this branch wi
   assert.ok(!fs.existsSync(foreignMemory), 'the foreign memory is never created');
 });
 
-// ---- Second review of the fixes: the gate the writers run in-process, cleanup evidence, check before use. ----
+// ---- The gate the writers run in-process, cleanup evidence, check before use. ----
 
 test('I31 E2.8 (e) the checkpoint CLI\'s gate sees this memory\'s unpushed commits with GIT_DIR and GIT_WORK_TREE exported to a foreign linked worktree', t => {
   const f = fixture(t); ok(f.install());

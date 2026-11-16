@@ -13,8 +13,8 @@ import {fleet} from '../engine/memory-fleet.mjs';
 import {migrateRoutes} from '../engine/memory-migrate.mjs';
 const cfg=()=>json(path.join(kitRoot,'engine/memory.config.json'));
 test('release version and log hygiene',()=>{
- assert.equal(read(path.join(kitRoot,'VERSION')).trim(),'3.3.7');
- assert.equal(cfg().engine_version,'3.3.7');
+ assert.equal(read(path.join(kitRoot,'VERSION')).trim(),'3.3.8');
+ assert.equal(cfg().engine_version,'3.3.8');
 });
 test('log hygiene',()=>{
  assert.ok(!fs.readdirSync(path.join(kitRoot,'tests')).some(n=>/^round4-.*\.log$/.test(n)));
@@ -66,12 +66,12 @@ test('fleet status never executes clean filters',t=>{
  put(path.join(f.target,'.gitattributes'),'*.data filter=probe\n');f.git(f.target,'config','filter.probe.clean',`node "${script.replaceAll('\\','/')}"`);put(path.join(f.target,'sample.data'),'after!\n');
  fleet({roots:[f.root],memoryHome:home,localFile:path.join(f.root,'absent')});assert.ok(!fs.existsSync(marker),'project clean filter ran');
 });
-// Kit 3.3.6 item 14 (the cut ruled 2026-11-14, kit-336-item14-cut a). The child runs only the installed selftest cases whose own
+// Kit 3.3.6 item 14: the child runs only the installed selftest cases whose own
 // body reads the configuration (memory.config.json or loadConfig), KIT.local.json or CLAUDE_MEMORY_DIR: the cases a host
 // file or variable could change. The criterion is a grep of engine/memory-selftest-cases.mjs, test by test, leaving out the
 // shared fixture() helper that every case calls and the cases that merely name those files in text. The full selftest, all
 // cases, still runs in the normal suite through engine/memory.test.mjs. Mutant: drop the name pattern (the child runs the
-// full selftest and the count assertion fails). Quiet-machine time at 3.3.5: 52.4 s for the full run.
+// full selftest and the count assertion fails).
 const SELFTEST_CONFIG_CASES='^(?:kit memory precedence|kit measure writes configured|setup fix migrate repo selects|R6 slug replaces|release323 invalid order|memory-init |staged sibling )';
 test('installed selftest ignores host config local and environment (the 22 selftest cases that read them)',t=>{
  const f=fixture(t);ok(f.install());const config=cfg();config.caps.roadmap.path='roadmap.md';config.caps.router.failLineChars=1200;config.brain={dir:'custom-brain'};

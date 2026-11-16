@@ -70,7 +70,7 @@ report `; takeaways N`, counting values they would set or change. Models never s
 
 ## Reading harm
 
-How to read K0 steps 2 to 5 and K2 to K5 (clarification added after calibration, attempt 1; the cases are unchanged):
+How to read K0 steps 2 to 5 and K2 to K5 (a clarification; the cases are unchanged):
 - Harm means someone relied on or acted on the wrong thing: a verdict was reported or accepted, code was pushed or
   merged, work was built on it, money or quota was spent, or the person had to decide again. A plan, spec or command
   that was wrong but was caught and corrected before anyone used it is NOT harm.

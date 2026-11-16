@@ -68,6 +68,9 @@ prints `upgrade: restored <backup>: new FAIL: <check> <file>: <message>`.
 | Release | Check | What widened | Fails when |
 | --- | --- | --- | --- |
 | 3.3.6 | `hardrule.size` | A card reached through a `[[wikilink]]` under the router's `## Hard rules` is now a hard rule; before 3.3.6 only a card reached through a Markdown link was | The card is over 4096 bytes (WARN over 2048) |
+| 3.3.8 | The update's own check of the home folder (not a gate check) | A real update of a git project that performs the scope inventory now checks `HOME` (`USERPROFILE` when `HOME` is unset) on every platform, also when git would not read it; before, only the paths that read the home folder checked it | `HOME` or `USERPROFILE` is empty or not a full path: the update stops before any change to the project or its memory folder, with `upgrade: cannot establish the git input HOME (...); nothing written`, so there is nothing to restore |
+
+The 3.3.8 row is a refusal by the update, not a gate check: the gate reports the same findings as before, so it needs no `NEW_CHECKS` entry.
 
 Before updating from 3.3.5 or older, preview the gate the update will run. Copy the memory folder, then run these from the
 new kit folder. `<merged>` is a new file outside the project and the copy; the first command writes the configuration the

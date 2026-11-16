@@ -19,7 +19,7 @@ export function planInit({memoryDir, planned, config, inRepo}) {
   return {entries,owned};
 }
 
-// Kit 3.3.5 review P2: ONE normalizer for every path the init cleanup compares, counts or walks. A Windows
+// Kit 3.3.5: ONE normalizer for every path the init cleanup compares, counts or walks. A Windows
 // namespaced path (\\?\C:\..., \\.\C:\..., \\?\UNC\server\share\...) becomes its plain form, and the drive letter is
 // upper-cased; keys are case-folded where the file system folds case.
 export function plainPath(p,platform=process.platform) {
@@ -78,7 +78,7 @@ export function rollbackInit({memoryDir,owned,state,createdTop,configFile,config
     }
   };
   left.push(...remaining(memoryDir));
-  // Review: the walk compares through plainKey on both sides, climbs only while createdTop is proven to be
+  // The walk compares through plainKey on both sides, climbs only while createdTop is proven to be
   // memoryDir or an ancestor of it, and stops at the root.
   if(state==='missing' && !relation(createdTop,memoryDir)) problems.push(`created folder ${createdTop} is not ${memoryDir} or one of its parents; folders left in place`);
   else if(state==='missing') {
@@ -162,11 +162,11 @@ export function main(argv=process.argv.slice(2)) {
       console.log('HOOK '+path.join(inRepo?target:memory.dir,'.git/hooks/pre-commit')+' (preserve foreign hook; honor core.hooksPath)');
     } else {
       const completedPersistWrites=[];
-      // Kit 3.3.5 E2.4: init is an exclusive bootstrap step. Review P1-3 (rounds 1 and 2): the bootstrap state planned above
+      // Kit 3.3.5 E2.4: init is an exclusive bootstrap step. The bootstrap state planned above
       // is revalidated inside the lock that covers every write, and rollback removes only what this run created, under
       // that same lock. A lock failure or a refusal changes nothing this run did not create, so it never cleans up.
       // mkdirSync returns the first folder it made (on Windows in namespaced form). Only folders this run made are ever
-      // removed, only when empty, and only when createdBoundary proves where they start (review: memory.dir and
+      // removed, only when empty, and only when createdBoundary proves where they start (memory.dir and
       // made go through the same normalizer; an unproven boundary leaves every folder in place and says so).
       const existing=nearestExisting(memory.dir);
       const made=fs.mkdirSync(memory.dir,{recursive:true});

@@ -329,7 +329,7 @@ test('S7 checkpoint holds one lock, orders steps, trims brain sections and repor
   const seen = [], commands = [];
   const result = checkpoint({...f, report: (step, message) => {
     // The lock state is recorded here and asserted below: the checkpoint's own header and files line are printed through a
-    // guard that would swallow an assertion made inside this callback (kit 3.3.5 D1, review F6).
+    // guard that would swallow an assertion made inside this callback (kit 3.3.5 D1).
     seen.push({step, lockPresent: fs.existsSync(path.join(f.memoryDir, '.memory.lock'))});
   }, git: args => {
     commands.push(args.join(' '));

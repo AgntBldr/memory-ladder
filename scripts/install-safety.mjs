@@ -7,7 +7,7 @@ import {installedManifest, hash} from './manifest.mjs';
 import {readJSON} from '../engine/memory-setup.mjs';
 import {planText,proveText,shippedIndex,unitLine,inRepoVariant,bodyLines,parseLedger,reportEntry} from './instructions-block.mjs';
 const exists = file => fs.existsSync(file) && fs.statSync(file).isFile();
-// Kit 3.3.6 item 6, after review: the kind check the update and the install make before they plan or read a named file:
+// Kit 3.3.6 item 6: the kind check the update and the install make before they plan or read a named file:
 // true for a regular file, false when absent (or a folder). A stat error other than ENOENT or ENOTDIR, and a fifo, socket
 // or device, refuse with refuseSpecial's wording (`cannot resolve <file> (<code>); nothing written`) before anything is
 // read. checkMemoryRouter and toolingHints keep exists(): the first reads none of its candidates, the second runs after

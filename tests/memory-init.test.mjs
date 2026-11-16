@@ -391,7 +391,7 @@ for(const problem of [false,true]) test('memory-init main reports '+(problem?'in
   const injected=problem
     ? "const originalRemove=fs.rmSync; fs.rmSync=(file,options)=>{if(file===path.join(memory.dir,'MEMORY.md')) throw new Error('injected removal failure');return originalRemove(file,options);}; throw new Error('injected');"
     : "fs.writeFileSync(path.join(memory.dir,'foreign.txt'),'keep'); throw new Error('injected');";
-  // Kit 3.3.5 (review P1-3): finishMemory now runs inside init's own lock acquisition and receives it.
+  // Kit 3.3.5: finishMemory now runs inside init's own lock acquisition and receives it.
   const anchor='finishMemory({memory,target,engine,configFile,freshMemory:true,newRepo:!inRepo,inRepo,lock:held});';
   assert.ok(read(script).includes(anchor),'injection anchor');
   put(script,read(script).replace(anchor,injected));
@@ -402,7 +402,7 @@ for(const problem of [false,true]) test('memory-init main reports '+(problem?'in
     : `memory-init rolled back what it created; these entries were left in place: ${path.join(memory,'foreign.txt')}. Review them before you run it again.`;
   assert.deepEqual(result.stderr.trim().split(/\r?\n/),['memory-init: injected',expected]);
 });
-// Kit 3.3.5 review P1: init planned an empty folder, then another initializer filled it (router, .git and a
+// Kit 3.3.5: init planned an empty folder, then another initializer filled it (router, .git and a
 // ledger) before init took its lock. Init must refuse under the lock and clean up nothing it did not create.
 test('memory-init revalidates under its lock; another initializer\'s router, .git and ledger survive',t=>{
   const f=fixture(t);ok(f.install());const memory=path.join(f.root,'raced-notes');
@@ -418,7 +418,7 @@ test('memory-init revalidates under its lock; another initializer\'s router, .gi
   assert.deepEqual(fs.readdirSync(memory).sort(),['.git','.sessions','MEMORY.md']);
   assert.deepEqual(tree(f.target,{git:true}),host,'no project setting was written');
 });
-// Kit 3.3.5 review P2: memory.dir and mkdirSync's answer go through one normalizer; the created boundary is
+// Kit 3.3.5: memory.dir and mkdirSync's answer go through one normalizer; the created boundary is
 // proven or no folder is removed; every upward walk stops at the root.
 test('createdBoundary and plainPath: namespaced, UNC and plain spellings agree; an unproven boundary removes nothing',()=>{
   assert.equal(typeof init.createdBoundary,'function','createdBoundary is exported');

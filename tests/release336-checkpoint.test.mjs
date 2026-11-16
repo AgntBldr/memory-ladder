@@ -1,4 +1,4 @@
-// Kit 3.3.6 lane Z: the checkpoint, the gate's named-file reads and the shared cleanup, write and hard-rule helpers.
+// Kit 3.3.6: the checkpoint, the gate's named-file reads and the shared cleanup, write and hard-rule helpers.
 // Items 7(c), 8, 9 (engine sites), 10 (checkpoint sites), 15, 16, 17, 18 (checkpoint sites), 19, 20, 24 and the test-speed
 // cut of item 14 (the installed-selftest test). Each test was written red first against the base (kit 3.3.6 step 0) and the
 // comment beside it names its mutant: the one small change to the code that makes the test fail. A test that pins
@@ -605,7 +605,7 @@ test('3.3.6 memory lock: a stale lock whose removal fails is broken, the lock is
   assert.ok(!fs.existsSync(file), 'the lock itself was released');
 });
 
-// ---- review fixes ----
+// ---- read helpers, writeText, roadmap spellings and the log group ----
 
 test('3.3.6 read helpers: a stat error that is not an absent path propagates through each helper\'s own error path and nothing is read', t => { // mutant: swallow every stat error in the kind check again (the read goes ahead without knowing the kind)
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kit336z-staterr-')));
@@ -709,7 +709,7 @@ test('3.3.6 checkpoint: --commit leaves the whole brain log group out when a tra
   assert.match(w.git(w.project, 'status', '--porcelain'), /D brain\/00-system\/log-2026-09\.md/, 'the deletion is still the operator\'s');
 });
 
-// ---- review fixes: exact identities, a status query that matches whatever the case, a project below the repository root ----
+// ---- exact identities, a status query that matches whatever the case, a project below the repository root ----
 
 test('3.3.6 checkpoint: files in or below the log folder that look like outputs of another folder mark no group, and the clean outputs are committed', t => { // mutants: ask git about the whole log folder; write the archive glob as **/log-*.md
   const w = world(t, {inRepo: true, brain: true, rotate: true});

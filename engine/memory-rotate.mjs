@@ -108,7 +108,7 @@ function rotateRoadmapUnlocked({repo = repoRoot(), config = loadConfig(), write 
 }
 export function rotateHandovers(options = {}) {
   // Kit 3.3.5 E2.4/E6: moving hand-over notes is coordinated maintenance; it refuses while another live session holds
-  // unresolved claims (the all-sessions checkpoint reports "rotation waits" before it gets here). Review P1-3: the check
+  // unresolved claims (the all-sessions checkpoint reports "rotation waits" before it gets here). The check
   // runs inside the same lock acquisition that covers the moves, so no claim can land between the check and the writes.
   if (!options.write || options.dryRun) return rotateHandoversUnlocked(options);
   if (!options.lock) options.beforeLock?.();

@@ -1,5 +1,31 @@
 # Changelog
 
+## 3.3.8
+
+**An update that performs the scope inventory on a git project now refuses an empty or relative home folder on every platform, naming the variable: `upgrade: cannot establish the git input HOME (...); nothing written`. The shipped text no longer carries private process wording. 3.3.8 adds no gate check and widens none of the gate's checks.**
+
+- Upgrade from 3.3.7 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then, from the project's main checkout, `node scripts/upgrade.mjs --target <PROJECT> --live-memory`. Run the installed gate afterwards.
+
+Changed behaviour
+
+- The home folder is checked whenever the scope inventory runs. A real update of a git project that performs the scope inventory refuses an empty or relative `HOME` (or `USERPROFILE`, the fallback when `HOME` is unset) on every platform, also when git would not read the home folder: before 3.3.8 a set `XDG_CONFIG_HOME`, `core.excludesFile` or `GIT_CONFIG_GLOBAL` could let such a value through. A fresh install, a `--check` preview and a project that is not a git repository do not run that inventory and are unchanged. The update refuses before any change to the project or its memory folder: set the variable to a full path and run it again.
+- The standard block's session-phrases line and reports line no longer end with a dated owner note. An update from 3.3.4, 3.3.5, 3.3.6 or 3.3.7 recognises the block those releases wrote as unedited and replaces it with the new lines, with no `standard block differs from kit` warning and no `edit-inside-block` entry in the report. A block with an edit inside it is still warned about; text added or changed inside it is also reported as an `edit-inside-block` entry, and a deleted line is warned about without an entry.
+
+Documentation
+
+- The figures in [WHY](WHY.md), [docs/LIMITS.md](docs/LIMITS.md) and the lesson-conversion guide are invented examples, not measurements, and say so: the README and WHY read "invented examples; not performance guarantees". Real sizes, counts and event dates are gone from the shipped documents, and the Claude Code memory link in LIMITS no longer carries a check date.
+- Comments and test titles in the shipped engine, scripts and tests describe what the code or the test guards in plain words. No behaviour changed with them.
+
+Gate checks
+
+- New checks: none.
+- Widened checks: none of the gate's checks. The update's own home-folder check widens, as described above; it is a refusal by the update, not a gate check, so the gate reports the same findings as before. [docs/UPGRADE.md](docs/UPGRADE.md), "Checks a release widens", lists it.
+
+Maintainers
+
+- The kit's own export refuses private process wording in the files it ships: internal decision ids, working labels, dated owner notes, real measurements and real event dates. It runs only in the kit's own export; installed projects are unaffected.
+- The kit's own tests run on Linux: a workflow in the kit's development repository runs them for pushed `linux/**` work branches. The workflow is not part of the public export.
+
 ## 3.3.7
 
 **A file the update cannot read is named once: `upgrade: cannot read <file> (not a regular file)`, not `upgrade: cannot read <file>: cannot read <file> (not a regular file)`. 3.3.7 adds no gate check and widens none.**
@@ -54,7 +80,7 @@ Changed behaviour
 
 Known limits in 3.3.6 are listed in [docs/UPGRADE.md](docs/UPGRADE.md).
 
-Correction (2026-11-15): 3.3.6 also widens an existing check. `hardrule.size` (FAIL over 4096 bytes, WARN over 2048) now covers a card reached through a `[[wikilink]]` under the router's `## Hard rules`; before 3.3.6 only a card reached through a Markdown link was a hard rule. An update from 3.3.5 or older whose linked card is over 4096 bytes fails the new gate and restores itself (`new FAIL: hardrule.size <card>`). To fix it, move the card's detail into another file first, writing the new file before shortening the card, then run the update again. [docs/UPGRADE.md](docs/UPGRADE.md), "Checks a release widens", gives a check to run before updating.
+Correction: 3.3.6 also widens an existing check. `hardrule.size` (FAIL over 4096 bytes, WARN over 2048) now covers a card reached through a `[[wikilink]]` under the router's `## Hard rules`; before 3.3.6 only a card reached through a Markdown link was a hard rule. An update from 3.3.5 or older whose linked card is over 4096 bytes fails the new gate and restores itself (`new FAIL: hardrule.size <card>`). To fix it, move the card's detail into another file first, writing the new file before shortening the card, then run the update again. [docs/UPGRADE.md](docs/UPGRADE.md), "Checks a release widens", gives a check to run before updating.
 
 ## 3.3.5
 

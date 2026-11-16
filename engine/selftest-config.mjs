@@ -1,6 +1,6 @@
 // Fixed engine fixture defaults; never load host configuration.
 export default {
-  "engine_version": "3.3.7",
+  "engine_version": "3.3.8",
   "caps": {
     "lesson": {"enforceAfterRepeats": 2, "failAfterRepeats": 4, "lessonOnlyReturns": true},
     "guard": {"kitRules": "scripts/memory/enforce-rules.kit.json", "rules": "scripts/memory/enforce-rules.json"},

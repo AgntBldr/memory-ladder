@@ -22,7 +22,7 @@ import {sessionSettings,skillPlan,standardBlockPlan,instructionsReportLines,dist
 // through a [[wikilink]] under the router's "## Hard rules" now counts as a hard rule (FAIL over 4096 bytes, WARN over 2048).
 // An update from 3.3.5 or older with such a card over 4096 bytes fails the new gate and restores itself. hardrule.size is
 // deliberately not listed here: listing it would let that update finish with a failing gate. See "Checks a release widens"
-// in docs/UPGRADE.md. 3.3.7 adds none and widens none.
+// in docs/UPGRADE.md. 3.3.7 adds none and widens none. 3.3.8 adds none and widens none of the gate's checks.
 export const NEW_CHECKS = ['config.path'];
 const newFailKey=f=>JSON.stringify([f.check,f.file]);
 // The gate's "git status" refreshes a repository's index when it may; during an update that would be a write
@@ -427,7 +427,7 @@ function planUnprinted(opts, root, hooks={}) {
   for(const f of legacy.filter(f=>keptSkills.includes(f))) console.log('WARN kept host-edited skill '+f+': manually move top-level engine_version to metadata.engine_version.');
   const memory=resolveMemory(target,opts['memory-dir']),live=opts['memory-dir']?resolveMemory(target,undefined):memory;
   // Damaged markers, unclear lines, a bad decisions or ledger file and a failed proof refuse the run before the
-  // lock (lane B). --memory-only plans no project write, so the instruction file is not its concern (statement 15).
+  // lock. --memory-only plans no project write, so the instruction file is not its concern (statement 15).
   const instructionRefusal=opts['memory-only']?null:instructionPlan.refusal;
   const plan={root,target,engine,receipt,refusals,version,edited,runLog:[],updates:new Map(),projectChanges:[],memoryChanges:[],memoryLog:[],hook:{},
     memory:memory.dir,memorySource:memory.source,memoryOnly:Boolean(opts['memory-only']),instructions:instructionPlan,instructionRefusal,
@@ -851,6 +851,9 @@ function olderSystemFile(target) {
 // include target (empty or missing included), and the system and global candidates git var names (absent ones
 // recorded too). A location that cannot be established exactly raises InputError (fail closed).
 function gitInputs(target) {
+  // The home folder must be a full path on every platform and whatever git reads: a set XDG_CONFIG_HOME,
+  // core.excludesFile or GIT_CONFIG_GLOBAL would otherwise let an empty or relative HOME through unchecked.
+  homeBase();
   const inputs=[];
   const top=keyOf(canonicalPathFresh(gitOutput(target,['rev-parse','--show-toplevel']).trim())),atRoot=keyOf(canonicalPathFresh(target))===top;
   for(let dir=canonicalPathFresh(target);keyOf(dir)!==top&&path.dirname(dir)!==dir;) { dir=path.dirname(dir); inputs.push(path.join(dir,'.gitignore')); }
@@ -1273,7 +1276,7 @@ function execute(plan,opts,root,{afterCopy=()=>{},afterMigrate=()=>{},afterHook,
   try {
     const {backup,authorised,recovery,files,created,saveRecovery}=writeBackup(plan,before);
     snapshot.skip=backup;
-    // A real first update keeps its sorting report in the backup folder (lane B, statement 10).
+    // A real first update keeps its sorting report in the backup folder (statement 10).
     const reportPath=!plan.memoryOnly&&plan.instructions.report?path.join(backup,'instructions-report.json'):null;
     if(reportPath) fs.writeFileSync(reportPath,JSON.stringify(plan.instructions.report,null,2)+'\n');
     console.log('upgrade backup: '+backup);

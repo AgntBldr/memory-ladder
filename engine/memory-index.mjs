@@ -176,7 +176,7 @@ export function stagedOutputs(memoryDir) {
   }
   return result;
 }
-// The one rule for every writer and planner of generated outputs (E3.3, P1-4; the upgrade's planner too, E2.8 (d)):
+// The one rule for every writer and planner of generated outputs (E3.3; the upgrade's planner too, E2.8 (d)):
 // only a version carrying the marker, in the working tree and in the index, is replaced or removed.
 export function outputRefusal(file, existing, staged) {
   if (existing && !isGenerated(existing.text)) return 'run the route migration first; refusing to overwrite ' + file;
@@ -185,7 +185,7 @@ export function outputRefusal(file, existing, staged) {
 }
 const readBytes = file => { try { return fs.readFileSync(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } };
 const sameBytes = (a, b) => a === null || b === null ? a === b : Buffer.compare(a, b) === 0;
-// Kit 3.3.5 E2.4/E3.3, review P1-4 and P2-12: standalone generation discards only versions carrying the generated marker
+// Kit 3.3.5 E2.4/E3.3: standalone generation discards only versions carrying the generated marker
 // (working and staged; an unmarked moved_to stub is hand content too), and applies its outputs as one transaction under
 // its lock: snapshot first, and on any failure restore every output it changed unless that output changed again since.
 export function writeMemoryIndex(options) {

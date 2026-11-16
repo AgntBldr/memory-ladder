@@ -12,10 +12,10 @@ Hard rules retain every operational value and send only history and explanation 
 backgrounds. Project facts live in the project's typed brain, with memory pointers.
 Git retains earlier state. Roadmap and log history rotate out of the live surfaces.
 
-Figures below: measured in real memories; not performance guarantees.
-In real memories, migration reduced hard-rule trigger bytes from 85.9 KB to 14.9 KB;
-search probes improved from 16/25 to 22/25. Rotation reduced the live
-roadmap from 434.7 KB to 32.8 KB and removed 103 gate exceptions. These figures do not guarantee the same results elsewhere. Start with your own
+Figures below: invented examples; not performance guarantees.
+For example, if migration lets a hard-rule trigger open 15 KB instead of 80 KB, every firing costs less
+context; if rotation keeps the live roadmap under 30 KB, every checkpoint reads less; and a probe set can find the
+right note more often afterwards. These figures do not guarantee the same results elsewhere. Start with your own
 measurement and probes, and compare after normal sessions before declaring success.
 
 Byte proofs answer whether content survived. They cannot prove that an instruction

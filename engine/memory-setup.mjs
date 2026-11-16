@@ -33,7 +33,7 @@ export function freshMemoryWrites(memoryDir,templates) {
 }
 export function finishMemory({memory,target,engine,configFile,freshMemory,newRepo,inRepo,indexPages=files=>files.filter(f=>isIndexPage(f)),lock,beforeLock}) {
   // Kit 3.3.5 E2.4: setup regenerates pages and edits memory's .gitignore, so it is exclusive: it refuses while any live
-  // session holds unresolved claims. Review P1-3: the check runs inside the lock acquisition that covers every write.
+  // session holds unresolved claims. The check runs inside the lock acquisition that covers every write.
   fs.mkdirSync(memory.dir,{recursive:true});
   if(!lock) beforeLock?.();
   return withMemoryLock(memory.dir,held=>{

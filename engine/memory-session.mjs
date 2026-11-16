@@ -1,4 +1,4 @@
-// Kit 3.3.5 lane E: sessions, claims and the ledger (spec E2). A session is one checkout on one branch; it claims the
+// Kit 3.3.5: sessions, claims and the ledger (spec E2). A session is one checkout on one branch; it claims the
 // memory files it writes, and a session-mode checkpoint commits only its own claims. Ledgers live in
 // <memory>/.sessions/<id>.json, are replaced atomically under the memory lock, and only by their own session.
 import fs from 'node:fs';
@@ -81,7 +81,7 @@ export function sessionDir(memoryDir, rel = SESSIONS, {create = false} = {}) {
   if (!within(realMemory(memoryDir), fs.realpathSync.native(dir))) throw new Error(`${slash(rel)} refused: resolves outside memory`);
   return dir;
 }
-// Fresh containment and file-type check for one ledger, temp or generated-output path (E2.3 Codex text).
+// Fresh containment and file-type check for one ledger, temp or generated-output path (E2.3).
 export function checkedFile(memoryDir, file, label = 'file') {
   let stat;
   try { stat = fs.lstatSync(file); }
@@ -101,7 +101,7 @@ export function claimKey(memoryDir, file) {
   if (/[*?]/.test(raw)) fail('a glob, not a file');
   if (/^:/.test(raw)) fail('a pathspec, not a file');
   if (/[\\/]$/.test(raw) || raw === '.' || raw === '..') fail('a directory, not a file');
-  // Review P1: a file-system error while inspecting the path (EACCES, EIO, ...) is indeterminate, not proof that
+  // A file-system error while inspecting the path (EACCES, EIO, ...) is indeterminate, not proof that
   // the key is invalid: it carries code CLAIM_INDETERMINATE so a persisted claim keeps protecting the file. Deliberate
   // refusals (fail) carry no code.
   const indeterminate = error => { throw Object.assign(new Error(`claim refused: ${raw} (could not inspect: ${error.message})`), {code: 'CLAIM_INDETERMINATE', cause: error}); };
@@ -132,7 +132,7 @@ function lexicalKey(memoryDir, key) {
   const rel = path.relative(path.resolve(memoryDir), path.resolve(memoryDir, key));
   return rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel) ? slash(rel) : null;
 }
-// Review P1-1: a ledger whose ownership cannot be read is 'unreadable' (every operation that needs ownership refuses);
+// A ledger whose ownership cannot be read is 'unreadable' (every operation that needs ownership refuses);
 // a readable ledger with bad fields is 'malformed', and every valid memory path it names stays an unresolved claim.
 function parseLedger(memoryDir, name, text) {
   const problems = [];
@@ -149,7 +149,7 @@ function parseLedger(memoryDir, name, text) {
     try { canonical = claimKey(memoryDir, key); }
     catch (error) {
       // A conclusively invalid key (glob, directory, outside memory, .git, ledger, lock) protects nothing and is dropped;
-      // one whose inspection failed stays an unresolved claim under its lexical memory path (review P1).
+      // one whose inspection failed stays an unresolved claim under its lexical memory path.
       const lexical = error.code ? lexicalKey(memoryDir, key) : null;
       if (!lexical) { problems.push(error.message); continue; }
       problems.push(`claim ${key} could not be inspected (${error.cause?.code ?? error.code}); kept as an unresolved claim on ${lexical}`);
@@ -234,7 +234,7 @@ export function matchesHead(memoryDir, key) {
   return (inHead && inIndex && exists) || (!inHead && !inIndex && !exists);
 }
 // Unresolved claims of every other live or malformed session (stale ledgers never block): key -> holders. An unreadable
-// ledger refuses (review P1-1): what it protects cannot be known.
+// ledger refuses: what it protects cannot be known.
 export function foreignClaims(memoryDir, ownId, {ledgers = readLedgers(memoryDir)} = {}) {
   refuseUnreadable(ledgers);
   const result = new Map();

@@ -56,7 +56,7 @@ const validAllow = entry => Boolean(entry && typeof entry.reason === 'string' &&
   typeof entry.file === 'string' && (entry.ceiling === undefined || (Number.isFinite(entry.ceiling) && entry.ceiling >= 0)) &&
   entry.check !== 'secret' && !entry.check.startsWith('config.'));
 
-// proposed (kit 3.3.5 E3.2, review P2-6): the staged or candidate link resolver. For in-repo memory a brain target is a
+// proposed (kit 3.3.5 E3.2): the staged or candidate link resolver. For in-repo memory a brain target is a
 // project file, so it must exist in the proposed commit tree, never merely in the working folder or the real index.
 function stubTargetExists(target, memoryDir, repo, config, proposed) {
   if (typeof target !== 'string' || !target.trim() || path.isAbsolute(target) || path.win32.isAbsolute(target)) return false;
@@ -568,7 +568,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       ...listMd(path.join(repo, 'docs')).filter(file => /^ROADMAP.*\.md$/i.test(file)).map(file => `docs/${file}`),
     ];
     // Kit 3.3.6 item 8: a named file that is a fifo, socket or device is never read: the scan and the size check each say so
-    // in one WARN under their own id (ruling kit-336-secret-warn), and the checks that need the roadmap's text are skipped.
+    // in one WARN under their own id, and the checks that need the roadmap's text are skipped.
     for (const file of secretFiles) {
       let text;
       try { text = read(path.join(repo, file)); }

@@ -109,7 +109,7 @@ function world(t, {mode = 'all', inRepo = false, brain = false, rotate = false, 
   };
   // The same command as a real process: its own stdout and stderr, and its exit status.
   w.cli = (argv, {env = {}, cwd = root} = {}) => spawnSync(process.execPath, [path.join(kitRoot, 'engine/memory-checkpoint.mjs'), ...base, ...argv], {encoding: 'utf8', cwd, env: {...process.env, ...env}});
-  // Programmatic call, as /handover and the tests of other lanes make it.
+  // Programmatic call, as /handover and the other tests make it.
   w.save = (opts = {}) => {
     const lines = [];
     const result = cp.checkpoint({memoryDir, repo: project, config, today: TODAY, noPush: true, report: (step, message) => lines.push(`${step}: ${message}`), ...opts});
@@ -246,7 +246,7 @@ test('D1 the header is first when the command line is refused, a failure follows
     assert.equal(r.lines[0], w.header(), `${argv.join(' ')}: ${r.lines.join('\n')}`);
     assert.equal(headerLines(r.lines).length, 1);
     assert.ok(r.err.some(line => message.test(line)), `${argv.join(' ')}: ${r.lines.join('\n')}`);
-    // Every refusal, the command line's too, ends the way a run ends: external memory is known, so the files line says none (review F5).
+    // Every refusal, the command line's too, ends the way a run ends: external memory is known, so the files line says none.
     assert.equal(lastReport(r.out), repoLine(w, 'none'), `${argv.join(' ')}: ${r.lines.join('\n')}`);
   }
   // The flags that name the folders still count when another option is refused before them.
@@ -500,7 +500,7 @@ function pretendPipe(t, target, run) {
   try { return {result: run(), reads}; } finally { for (const m of mocks) m.mock.restore(); }
 }
 
-test('D1 a dry run reads nothing whose kind is not a regular file, whichever input is the pipe (review F1)', t => {
+test('D1 a dry run reads nothing whose kind is not a regular file, whichever input is the pipe', t => {
   const w = full(t);
   for (const [target, rel] of [[path.join(w.memoryDir, 'MEMORY.md'), 'MEMORY.md'], [path.join(w.project, 'docs/ROADMAP.md'), 'docs/ROADMAP.md'], [path.join(w.project, 'brain/00-system/log.md'), 'brain/00-system/log.md']]) {
     const {result, reads} = pretendPipe(t, target, () => w.run(['--dry-run']));
@@ -510,7 +510,7 @@ test('D1 a dry run reads nothing whose kind is not a regular file, whichever inp
   }
 });
 
-test('D1 a rotation retried after an interruption: the plan, like the run, leaves a filled archive alone, wherever the log lives (review F3)', t => {
+test('D1 a rotation retried after an interruption: the plan, like the run, leaves a filled archive alone, wherever the log lives', t => {
   // The log in the brain folder (its archives are copied with the brain) and the log outside it (they are found next to the log).
   for (const logPath of ['brain/00-system/log.md', 'docs/OPLOG.md']) {
     const w = full(t, {logPath}), folder = path.join(w.memoryDir, 'handovers'), archive = path.posix.dirname(logPath) + '/log-2026-09.md';
@@ -542,7 +542,7 @@ test('D1 a brain folder with no markdown file is still a brain folder: the plan 
   assert.deepEqual(list, [...real.memory, ...real.repo].sort());
 });
 
-test('D1 a dry run refuses what the writer refuses: a generated page kept by hand, in the folder or staged (review F4)', t => {
+test('D1 a dry run refuses what the writer refuses: a generated page kept by hand, in the folder or staged', t => {
   const w = world(t);
   const page = path.join(w.memoryDir, 'INDEX-craft.md'), generated = fs.readFileSync(page, 'utf8');
   fs.writeFileSync(page, '# Craft\n\nKept by hand, with no generated marker.\n');
@@ -562,7 +562,7 @@ test('D1 a dry run refuses what the writer refuses: a generated page kept by han
 
 // ---- what a run that failed before or while writing may list ----
 
-test('D1 a save that never got past the lock lists nothing, whatever another writer changed while it waited (review F2)', t => {
+test('D1 a save that never got past the lock lists nothing, whatever another writer changed while it waited', t => {
   const w = full(t);
   const logFile = path.join(w.project, 'brain/00-system/log.md'), topicFile = path.join(w.memoryDir, 'topic-beta.md');
   // A live owner holds the memory lock; the first wait is the moment the other writer edits two files, and the clock then jumps.
@@ -581,7 +581,7 @@ test('D1 a save that never got past the lock lists nothing, whatever another wri
   assert.equal(lines.at(-1), repoLine(w, 'none'), lines.join('\n'));
 });
 
-test('D1 an archive a failed rotation left is listed although the folder cannot be listed, and a memory folder that cannot be listed is named (review F2)', t => {
+test('D1 an archive a failed rotation left is listed although the folder cannot be listed, and a memory folder that cannot be listed is named', t => {
   const w = full(t);
   const logFile = path.join(w.project, 'brain/00-system/log.md'), original = fs.readFileSync(logFile);
   const rename = fs.renameSync, readdir = fs.readdirSync;

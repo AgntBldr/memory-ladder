@@ -23,8 +23,8 @@ const unitId = text => createHash('sha256').update(text.replace(/\r\n/g, '\n').s
 const first60 = text => Array.from(text.replace(/\r\n/g, '\n').replace(/\n[ \t]*/g, ' ')).slice(0, 60).join('');
 const SESSION_330 = '- Session phrases: when a message is only "We are starting a new session - read this and let me know when we can start" or "handover" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message "<the message>"` and follow its output; never inside a subagent or `codex exec` brief. Offer /handover at a stage end or on wrap-up.';
 const REPORTS_331 = '- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only if /handover reported it since the last change.';
-const SESSION_NOW = '- Session phrases: when a message is only "We are starting a new session - read this and let me know when we can start" or "handover" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message "<the message>"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it (operator, 2026-11-10); do not offer it unprompted.';
-const REPORTS_NOW = '- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it (operator, 2026-11-10).';
+const SESSION_NOW = '- Session phrases: when a message is only "We are starting a new session - read this and let me know when we can start" or "handover" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message "<the message>"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it; do not offer it unprompted.';
+const REPORTS_NOW = '- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it.';
 // The memory gate section as a 3.3.1 install wrote it.
 const old331 = template.replace(SESSION_NOW, SESSION_330).replace(REPORTS_NOW, REPORTS_331);
 const CUSTOM = '- Synthetic project rule: keep the widget log tidy.';
@@ -130,7 +130,7 @@ test('B-T5 an old section of shipped kit wording is replaced without questions',
   const checked = f.run(['--check']);
   assert.equal(checked.status, 1);
   const lines = checked.stdout.split(/\r?\n/);
-  assert.ok(lines.includes(`REPLACE ${unitId('## Memory gate')} (kit pre-3.2.0..v3.3.3): ## Memory gate`));
+  assert.ok(lines.includes(`REPLACE ${unitId('## Memory gate')} (kit pre-3.2.0..v3.3.7): ## Memory gate`));
   assert.ok(lines.includes(`REPLACE ${unitId(SESSION_330)} (kit v3.3.0..v3.3.3): ${first60(SESSION_330)}`));
   assert.ok(lines.includes(`REPLACE ${unitId(REPORTS_331)} (kit v3.3.1..v3.3.3): ${first60(REPORTS_331)}`));
   assert.ok(!lines.some(line => /^(?:UNCLEAR|KEEP|DROP) /.test(line)));
@@ -281,7 +281,7 @@ test('B-T9 conflicting general ledger entries leave the line unclear and show bo
   assert.deepEqual([settled.outcome, settled.source, settled.matched], ['keep', 'decision', entries]);
 });
 
-test('B-T11 the confirmed operator lines stay byte-identical inside the block', t => {
+test('B-T11 the session phrases and reports lines stay byte-identical inside the block', t => {
   const before = '# Host\n\n' + template + '\n## Next\nKeep.\n', result = planned(t, before).plan();
   for (const line of [SESSION_NOW, REPORTS_NOW]) {
     assert.ok(result.lines.includes(`REPLACE ${unitId(line)} (current template): ${first60(line)}`));

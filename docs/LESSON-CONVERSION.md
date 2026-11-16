@@ -1,8 +1,8 @@
 # Convert topic-file memory into numbered lessons
 
 Use this guide when a project's memory holds its know-how in topic files and the gate keeps reporting
-`index.hot-budget`. It is the procedure three projects followed in 2026-10 and 2026-11, written so another project can
-repeat it. Steps 0 to 3 have been run end to end with the tools named here; steps 4 to 6 use `promote`, which ships in
+`index.hot-budget`. It is a procedure written so any project can
+repeat it. Steps 0 to 3 use the tools named here; steps 4 to 6 use `promote`, which ships in
 3.3.3.
 
 ## 1. Know the cause before you act
@@ -11,7 +11,7 @@ A generated hot index page (`INDEX-<family>.md`) lists every routed **topic** fi
 newest **numbered lessons** that fit the 8,192-byte hot budget. Older lessons move to the catalog page on their own;
 topics never do. A memory written mostly as topic files therefore overflows its hot pages, and nothing short of
 numbering its lessons fixes that. Shortening descriptions, raising pins or allow entries, and compressing rule cards
-all fail: compressed cards grew back over their limit in 7 of 12 cases in one project.
+all fail: compressed cards can grow back over their limit.
 
 A file is a lesson only when its name is `lesson-NNN[suffix]-slug.md`. Frontmatter alone does not make one.
 
@@ -21,8 +21,8 @@ references.
 Signs you need this guide:
 - The gate shows `index.hot-budget` WARN on most hot pages.
 - `memory-fleet.mjs` reports few or no lessons beside hundreds of topics.
-- Projects measured on 2026-11-10: 410 lessons and about 102 topics, 0 of 8 pages over; 0 lessons and 560 topics,
-  10 of 13 over; 123 lessons and 913 topics, 12 of 13 over.
+- For example, a memory with many numbered lessons and few topics keeps its hot pages under budget; one with hundreds of
+  topics and few or no lessons goes over on most of its hot pages.
 
 ## 2. Roles and cost
 
@@ -35,14 +35,15 @@ Signs you need this guide:
 | Person | the memory's owner | rules on scope, recovery form and the rows nobody can settle |
 
 A lane never runs the full suite and is never its own final gate. The orchestrator reviews the diff, not the report.
-Keep each lane run under about 10 minutes and resume a killed run by its session id rather than starting over.
+Keep each lane run short and resume a killed run by its session id rather than starting over.
 
 ## 3. The procedure
 
 ### Step 0. Engine and canary
 1. Upgrade the project to 3.3.3 or later (`node scripts/upgrade.mjs --target <PROJECT> --check`, then without
    `--check`). 3.3.2 stopped bare `#N` pull-request numbers from counting as lesson citations; under 3.3.0 the first
-   lesson file turned 23 PR numbers into FAILs.
+   lesson file made the gate scan the router and the `INDEX-craft-` indexes for `#N` and FAIL on each number that matched
+   no lesson file.
 2. Canary: `git clone --no-hardlinks <memory> <copy>`, run `memory-lesson.mjs new --memory-dir <copy> ...`, fill the
    TODO description and the Why/How body, regenerate and gate the copy. Expect 0 FAIL.
 3. Find which engine the memory pre-commit hook runs (`<memory>/.git/hooks/pre-commit` names a project checkout).
@@ -58,7 +59,7 @@ other by type), lists every repository file that names a memory file, and projec
 candidates became lessons. Default reference roots are AGENTS.md, CLAUDE.md, `scripts/`, `.claude/`, `docs/` and
 the configured knowledge folder; repeat `--refs <path>` to add others. The output directory may be anywhere. Read the projection before anything else: it tells you whether numbering lessons is enough.
 
-Measured trap: a `type: feedback` filter is wrong. In two projects many `type: project` notes were plainly lessons
+Trap: a `type: feedback` filter is wrong. Many `type: project` notes are plainly lessons
 ("a renamed env var is a silent provider outage"); judge lesson-ness on content.
 
 ### Step 2. Rulings from the person
@@ -85,20 +86,20 @@ Put these to the person, each with a recommendation, before labelling:
    The merge writes a reference containing only the selected bundles. Proceed only when both labellers pass the
    historical mark (84% overall, 70% practice and observation), A and B disagree on at most 15%, and each labeller marks
    at least 90% of reference lessons as lessons and 70% of negatives as non-lessons.
-   - If both labellers miss the same rows, read three of them before changing anything. In one run two of three shared
-     misses were errors in the reference itself and one was a labeller reading a corrected plan as harm.
+   - If both labellers miss the same rows, read three of them before changing anything. Shared
+     misses can be errors in the reference itself or a labeller reading a corrected plan as harm.
    - The fix that worked was a short clarification appended to the prompt (cases unchanged): harm means someone relied
      on or acted on the wrong thing; a wrong plan caught before use is not harm; a near-miss whose title names the
      catching step is practice (K4); an overturned accepted verdict is mistake (K5); tool behaviour under normal use is
      observation (K2) unless our own command shape caused it (K3). Then rebuild with a new seed and rerun calibration once.
-     Measured: 50/60 and 15/24 before, 52-56/60 and 20-22/24 after.
+     For example, both scores can fall short of the marks before the clarification and pass after it.
 3. **Main run in small batches.** Run 3 bundles first and check them; then batches of 4 bundles (8 sessions). A run
    whose JSON fails `memory-label.mjs check` is resumed once with the validator's one-line message. Two hold-out
    lessons ride in every main bundle as drift sentinels.
 4. **Merge and sheet.** A dispute is only: `lesson` differs; both say lesson and `kind` differs; both say non-lesson
    and `disposition` differs; a `needs_route` row's route differs; a `no_rename` row's extract is empty for one side.
    Confidence, reasons, case ids and trigger wording are reconciled, not disputed (trigger kept only when both gave
-   one; the shorter wins). Measured: 52 disputes in 419 rows (12.4%); lesson yes/no disputes 4.1%; kind test 6.75%.
+   one; the shorter wins). For example, only a small share of rows is disputed, and the kind test is disputed more often than lesson yes/no.
 5. **Settle** in this order, recording `settled_by` per row: a K-case or the lesson test clearly applies; the nearest
    reference-project lesson is precedent (`memory-recall.mjs --memory-dir <reference>`); a third model labels the
    still-open rows blind, mixed with 10 agreed rows and 5 known lessons, majority of three; the rest go to the person in
@@ -107,8 +108,8 @@ Put these to the person, each with a recommendation, before labelling:
    than 3 wrong of 30: widen the sample before emitting.
 7. **Emit** with `memory-label.mjs emit --key-dir <KEY> --out <RUN> --census <census.json> --memory <copy>`: `promote-map.json` (lessons that may be renamed), `extract-batch.md` (new short lessons that link a chain
    head or a doc-referenced file, which are never renamed), `dispositions.md` (non-lessons: stays topic, belongs in the
-   project knowledge folder, or ARCHIVE) and `family-projection.md`. Measured: the agreed lessons alone brought all 13
-   families of one project under 8,192 bytes, so moving facts out of memory was not needed for the budget. The projection
+   project knowledge folder, or ARCHIVE) and `family-projection.md`. For example, the agreed lessons alone can bring all
+   families under 8,192 bytes, so moving facts out of memory is not needed for the budget. The projection
    also lists each map row's date and source, with totals for body, git, modified and other sources, using promotion's date logic.
 
 After the full run, repeat `merge` without `--bundles`, then run:
@@ -142,7 +143,7 @@ bundle, plus twenty reference topics. It reports insufficient samples before wri
      as itself. Before promotion run `memory-selfrecall.mjs snapshot --memory-dir <copy> --repo . --out <snapshot.json>`.
      Afterwards run `memory-selfrecall.mjs compare --before <snapshot.json> --memory-dir <copy> --repo .
      --map <promote-map-STAMP.json>`. It prints each regression and exits 1 if any rank is worse.
-     Accept zero worse ranks. One project ran 735 such queries with none worse.
+     Accept zero worse ranks. The rule holds across hundreds of queries.
    - Inbound links: search the repository (AGENTS.md, CLAUDE.md, scripts, `.claude/`, specs, the knowledge folder) for
      every old filename and `[[old]]`. Promotion scans AGENTS.md, CLAUDE.md, `scripts/`, `.claude/` and `docs/`
      by default when `--repo` is given. Repeat `--scan <path>` for specs and other roots. These scans are read-only,
@@ -150,9 +151,9 @@ bundle, plus twenty reference topics. It reports insufficient samples before wri
      `--protect <file>` lists old filenames that must stay in place, one per line. Accept zero unprotected hits
      outside `metadata.source` and the name map.
    - The gate on the copy shows no `index.hot-budget` WARN.
-5. Lesson dates: promote reads the first date in the opening body lines before git or `modified`. Measured: in one
-   memory no labelled note had `metadata.date`, and both `modified` and first-commit dates clustered on the day of an
-   earlier bulk migration. Body dates covered about 75% of notes.
+5. Lesson dates: promote reads the first date in the opening body lines before git or `modified`. For example, in a
+   memory where no labelled note has `metadata.date`, both `modified` and first-commit dates can cluster on the day of an
+   earlier bulk migration, while body dates cover most notes.
 
 ### Step 5. Review by a different model
 A model that did not build the change reads the copy's diff, the name map and the proofs, and lists every original
@@ -174,11 +175,11 @@ Capture each new piece of know-how with `memory-lesson.mjs new --kind <kind> --r
 Write a topic file only for state, facts and references.
 
 ## 4. Traps seen so far
-- Filtering candidates by `type: feedback` (missed 180 lesson-shaped `project` notes in one memory, 23 in another).
+- Filtering candidates by `type: feedback` (it misses lesson-shaped `project` notes).
 - Lesson dates from `modified` or first commit after a bulk rewrite.
 - Bare `#N` PR numbers in index hooks under an engine older than 3.3.2, and a pre-commit hook pointing at a checkout
   on an old branch.
-- A dispute sheet that counts confidence or wording differences (396 "pending" instead of 52).
+- A dispute sheet that counts confidence or wording differences (it lists far more "pending" rows than real disputes).
 - A full test suite run while a lane is still editing the same tree; and a full suite run before review fixes land.
 - Copying a whole repository with nested worktrees into a rehearsal (promote stages tracked files only).
 - Committing labelling bundles, which contain the memory's private text.

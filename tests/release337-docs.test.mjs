@@ -20,9 +20,9 @@ test('A3-D1 the limits the documents name are the gate limits of hardrule.size',
   }
 });
 
-test('A3-D2 the 3.3.6 entry carries a dated correction that names the widened check, the limits, the rollback and the fix', () => { // mutant: delete the Correction paragraph from the 3.3.6 entry, or move it below "## 3.3.5"
+test('A3-D2 the 3.3.6 entry carries a correction that names the widened check, the limits, the rollback and the fix', () => { // mutant: delete the Correction paragraph from the 3.3.6 entry, or move it below "## 3.3.5"
   const log = doc('CHANGELOG.md'), entry = log.slice(log.indexOf('\n## 3.3.6\n'), log.indexOf('\n## 3.3.5\n'));
-  const at = entry.indexOf('Correction (2026-11-15): 3.3.6 also widens an existing check.');
+  const at = entry.indexOf('Correction: 3.3.6 also widens an existing check.');
   assert.ok(at > 0, 'the correction is inside the 3.3.6 entry');
   const text = entry.slice(at);
   for (const part of ['`hardrule.size`', '`[[wikilink]]`', '`## Hard rules`', 'over 4096 bytes', 'WARN over 2048', 'restores itself', 'writing the new file before shortening the card', 'Checks a release widens']) assert.ok(text.includes(part), part);
@@ -56,5 +56,5 @@ test('B-D1 CHANGELOG has a 3.3.7 entry above the 3.3.6 entry: the upgrade line f
   assert.ok(at7 > 0 && at7 < at6, '3.3.7 is above 3.3.6');
   const entry = log.slice(at7, at6);
   for (const part of ['Upgrade from 3.3.6 with `node scripts/upgrade.mjs --target <PROJECT> --check`', '--live-memory', 'upgrade: cannot read <file> (not a regular file)', 'Checks a release widens', '- Widened checks: none.', 'npm test']) assert.ok(entry.includes(part), part);
-  assert.equal(JSON.parse(doc('engine/upgrades.json')).at(-1).id, 'kit-3-3-7');
+  assert.ok(JSON.parse(doc('engine/upgrades.json')).some(row => row.id === 'kit-3-3-7'), 'the ledger keeps the 3.3.7 row');
 });

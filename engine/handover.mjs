@@ -340,7 +340,7 @@ function fullChecks(ctx) {
   return {text: results.join(', '), failures, verdict};
 }
 function verify(ctx) {
-  // Kit 3.3.5 E8 (review P2-10, both modes): verify the SHA the checkpoint saved and its verified publication on the
+  // Kit 3.3.5 E8 (both modes): verify the SHA the checkpoint saved and its verified publication on the
   // actual remote, never a later HEAD or a cached upstream ref: another session may commit after this save.
   const saved = /^[0-9a-f]{40,64}$/.test(ctx.result?.sha ?? '') ? ctx.result.sha : 'HEAD';
   const failures = [], note = maybeGit(ctx.holder, ['show', saved + ':' + relative(ctx.holder, ctx.noteFile)]);
@@ -464,7 +464,7 @@ export function runHandover(options = {}, dependencies = {}) {
         if (step === 'commit') ctx.command = message.includes('git add --') ? 'to run: ' + message.slice(message.indexOf('git add --')).split('\n')[0] : 'ran: git commit';
       }}), diagnostics);
     ctx.result = result;
-    // E12.1 (review P2-7): the checkpoint returns status 1 instead of throwing, in both modes.
+    // E12.1: the checkpoint returns status 1 instead of throwing, in both modes.
     if (!ctx.session && result.status === 1) throw Error(result.error);
     if (ctx.session) {
       if (result.gate) { ctx.gate = {FAIL: result.gate.fails.length, WARN: result.gate.warns.length}; ctx.gateFailures = result.gate.fails.map(f => findingLine({severity: 'FAIL', ...f})); }
@@ -477,7 +477,7 @@ export function runHandover(options = {}, dependencies = {}) {
     if (result.pushFailed) throw Error('push failed: ' + result.push);
     if (ctx.inRepo && ctx.commit && remote) {
       // In-repo memory is published with the project: push, then verify the saved SHA on the project's actual remote
-      // branch, recorded as the checkpoint result's publication (review P2-10).
+      // branch, recorded as the checkpoint result's publication.
       result.publication = publish({memoryDir: ctx.memoryDir, sha: result.sha, git: (argv, options = {}) => git(ctx.repo, argv, options)});
       if (!result.publication.verified) throw Error('push failed: ' + (result.publication.error ?? 'publication not verified'));
       ctx.command = 'ran: git commit; git push';

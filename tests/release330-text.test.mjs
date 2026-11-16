@@ -9,7 +9,7 @@ import {listNotes, matchPhrase, capText, readOverlay} from '../engine/session-co
 import {FIRST_REPLY_TEMPLATE} from '../engine/new-session.mjs';
 
 const phrase = 'We are starting a new session - read this and let me know when we can start';
-const gateLine = '- Session phrases: when a message is only "We are starting a new session - read this and let me know when we can start" or "handover" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message "<the message>"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it (operator, 2026-11-10); do not offer it unprompted.';
+const gateLine = '- Session phrases: when a message is only "We are starting a new session - read this and let me know when we can start" or "handover" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message "<the message>"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it; do not offer it unprompted.';
 const skill = read(path.join(kitRoot, 'skills/new-session/SKILL.md'));
 const bytes = text => Buffer.byteLength(text);
 const noDelegation = text => assert.doesNotMatch(text.replaceAll('.claude/skills/new-session/SKILL.md', '').replace(/https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9-]{8,64}/g, ''),/\b(?:sub[ -]?agents?|Task|Sonnet|Opus|Haiku|GPT(?:-\d[^\s]*)?|Gemini|Claude|Codex)\b/i);
@@ -35,9 +35,9 @@ test('shipped text caps, exact reply template, entry and goal contract', () => {
 
 test('gate lines are verbatim and adjacent; overlay has every key and precedence', () => {
   const gate = read(path.join(kitRoot, 'templates/AGENTS-memory-gate.md'));
-  assert.equal(bytes(gateLine), 411); // 3.3.4: the confirmed wording replaces the 356-byte line and its 360-byte cap.
+  assert.equal(bytes(gateLine), 388); // 3.3.4: the confirmed wording replaces the 356-byte line and its 360-byte cap.
   assert.equal(gate.split('\n').filter(line => line.startsWith('- ')).at(-2), gateLine);
-  assert.equal(gate.split('\n').filter(line => line.startsWith('- ')).at(-1), '- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it (operator, 2026-11-10).');
+  assert.equal(gate.split('\n').filter(line => line.startsWith('- ')).at(-1), '- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it.');
   assert.ok(gate.includes(gateLine + '\n- Reports:'));
   const overlay = read(path.join(kitRoot, 'templates/AGENTS-session-overlay.md'));
   assert.ok(bytes(overlay) <= 1536);

@@ -97,7 +97,7 @@ export function withMemoryLock(memoryDir, run, {lock, timeoutMs = 30000, note = 
     sleep(Math.min(50, timeoutMs));
   }
   held.add(token);
-  // Kit 3.3.5 class sweep: a failed release never replaces the error run() threw; it is attached to
+  // Kit 3.3.5: a failed release never replaces the error run() threw; it is attached to
   // that error as cleanupErrors and noted. After a successful run the release failure is thrown as before.
   const release = original => {
     held.delete(token);
