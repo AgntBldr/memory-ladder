@@ -13,8 +13,8 @@ import {fleet} from '../engine/memory-fleet.mjs';
 import {migrateRoutes} from '../engine/memory-migrate.mjs';
 const cfg=()=>json(path.join(kitRoot,'engine/memory.config.json'));
 test('release version and log hygiene',()=>{
- assert.equal(read(path.join(kitRoot,'VERSION')).trim(),'3.3.8');
- assert.equal(cfg().engine_version,'3.3.8');
+ assert.equal(read(path.join(kitRoot,'VERSION')).trim(),'3.3.9');
+ assert.equal(cfg().engine_version,'3.3.9');
 });
 test('log hygiene',()=>{
  assert.ok(!fs.readdirSync(path.join(kitRoot,'tests')).some(n=>/^round4-.*\.log$/.test(n)));
@@ -72,7 +72,7 @@ test('fleet status never executes clean filters',t=>{
 // shared fixture() helper that every case calls and the cases that merely name those files in text. The full selftest, all
 // cases, still runs in the normal suite through engine/memory.test.mjs. Mutant: drop the name pattern (the child runs the
 // full selftest and the count assertion fails).
-const SELFTEST_CONFIG_CASES='^(?:kit memory precedence|kit measure writes configured|setup fix migrate repo selects|R6 slug replaces|release323 invalid order|memory-init |staged sibling )';
+const SELFTEST_CONFIG_CASES='^(?:kit memory precedence|kit measure writes configured|setup fix migrate repo selects|slug replaces|release323 invalid order|memory-init |staged sibling )';
 test('installed selftest ignores host config local and environment (the 22 selftest cases that read them)',t=>{
  const f=fixture(t);ok(f.install());const config=cfg();config.caps.roadmap.path='roadmap.md';config.caps.router.failLineChars=1200;config.brain={dir:'custom-brain'};
  put(path.join(f.target,'scripts/memory/memory.config.json'),JSON.stringify(config));put(path.join(f.target,'scripts/memory/KIT.local.json'),'{"memoryDir":"host-only"}');

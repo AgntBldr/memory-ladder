@@ -47,7 +47,7 @@ export function generateOverview({ repo = repoRoot(), config = loadConfig() } = 
   lines.push('', '## History', fs.existsSync(path.join(repo,historyPath)) ? `${historyPath} holds ${history.length} sections; first "${history[0] ?? ''}", last "${history.at(-1) ?? ''}".` : `No roadmap history yet; ${historyPath} is created when old entries are rotated.`, '');
   return lines.join('\n');
 }
-// Kit 3.3.5 F1: the one freshness decision. The gate and --check both call it, so line endings cannot make them
+// The one freshness decision. The gate and --check both call it, so line endings cannot make them
 // disagree: a stored overview is fresh when it exists and equals the generated text once CRLF is read as LF.
 export function overviewFresh({ repo, config, output = generateOverview({ repo, config }) }) {
   const file = repoPath(repo, config.caps.roadmapOverview.path, 'caps.roadmapOverview.path');

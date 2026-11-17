@@ -1123,7 +1123,7 @@ test('standalone memory-index restores every output when a later write fails, in
 });
 
 // ---- An unreadable claimed path, unreadable outputs after a failed save, and a failed lock release after a commit. ----
-test('R2-2 a claimed path whose inspection fails (EACCES) stays an unresolved blocker', t => {
+test('a claimed path whose inspection fails (EACCES) stays an unresolved blocker', t => {
   const w = world(t, {hook: false, remote: false});
   w.claim(w.S2, ['topic-beta.md']);
   const s1 = session.sessionOf(w.S1.repo).id, s2 = session.sessionOf(w.S2.repo).id;
@@ -1141,7 +1141,7 @@ test('R2-2 a claimed path whose inspection fails (EACCES) stays an unresolved bl
   assert.equal(session.readLedgers(w.memoryDir).find(l => l.id === s2).state, 'live', 'once readable, the ledger is live again');
 });
 
-test('R2-3 a failed save whose outputs then cannot be read returns status 1 with the original error, in both modes', t => {
+test('a failed save whose outputs then cannot be read returns status 1 with the original error, in both modes', t => {
   const eacces = file => Object.assign(new Error(`EACCES: permission denied, open '${file}'`), {code: 'EACCES'});
   // All-sessions mode: the page writer fails, then an output cannot be read while changes are collected.
   const a = world(t, {mode: 'all', hook: false, remote: false});
@@ -1168,7 +1168,7 @@ test('R2-3 a failed save whose outputs then cannot be read returns status 1 with
   assert.ok(s.lines.some(line => /could not inspect/.test(line)), s.lines.join('\n'));
 });
 
-test('R2-4 all-sessions mode keeps the commit SHA when the lock cleanup fails after the commit', t => {
+test('all-sessions mode keeps the commit SHA when the lock cleanup fails after the commit', t => {
   const w = world(t, {mode: 'all', hook: false, remote: false});
   w.newLesson(w.S1, 'Own lesson');
   let committed = false;
@@ -1195,7 +1195,7 @@ const failCandidateRemoval = t => {
   const rm = fs.rmSync;
   return t.mock.method(fs, 'rmSync', function (file, ...rest) { if (/memory-candidate-/.test(String(file))) throw Object.assign(new Error(CLEANUP_FAILURE), {code: 'EPERM'}); return rm.call(this, file, ...rest); });
 };
-test('R3-2 a candidate-folder removal failure after a successful session commit returns status 1 with the SHA and the evidence', t => {
+test('a candidate-folder removal failure after a successful session commit returns status 1 with the SHA and the evidence', t => {
   const w = world(t, {hook: false});
   w.newLesson(w.S1, 'Own lesson');
   const m = failCandidateRemoval(t);
@@ -1209,7 +1209,7 @@ test('R3-2 a candidate-folder removal failure after a successful session commit 
   assert.ok(result.changed.memory.includes('INDEX-craft.md'), JSON.stringify(result.changed));
   assert.ok(result.cleanupErrors.some(e => e.includes(CLEANUP_FAILURE)), JSON.stringify(result.cleanupErrors));
 });
-test('R3-2 a candidate-folder removal failure after a failed gate keeps the gate error and adds the cleanup error', t => {
+test('a candidate-folder removal failure after a failed gate keeps the gate error and adds the cleanup error', t => {
   const w = world(t, {hook: false});
   const unfilled = w.newLesson(w.S1, 'Unfilled own lesson', {fill: false});
   const head = w.head(), m = failCandidateRemoval(t);
@@ -1222,7 +1222,7 @@ test('R3-2 a candidate-folder removal failure after a failed gate keeps the gate
   assert.equal(w.head(), head);
 });
 // Cleanup after a failure inside the candidate build and in materialiseCandidate.
-test('R3-sweep a candidate build failure keeps its own error when the candidate folder cannot be removed', t => {
+test('a candidate build failure keeps its own error when the candidate folder cannot be removed', t => {
   const w = world(t, {hook: false, remote: false});
   w.write('.gitignore', w.read('.gitignore') + 'ignored.md\n'); w.git(w.memoryDir, 'add', '.gitignore'); w.git(w.memoryDir, 'commit', '-q', '-m', 'ignore one file');
   w.claim(w.S1, ['ignored.md']); w.write('ignored.md', topic('ignored'));
@@ -1233,7 +1233,7 @@ test('R3-sweep a candidate build failure keeps its own error when the candidate 
   assert.equal(result.status, 1); assert.match(result.error, /ignored/); assert.doesNotMatch(result.error, /injected candidate cleanup failure/);
   assert.ok(result.cleanupErrors.some(e => e.includes(CLEANUP_FAILURE)), JSON.stringify(result.cleanupErrors));
 });
-test('R3-sweep materialiseCandidate keeps the extraction error when the candidate folder cannot be removed', t => {
+test('materialiseCandidate keeps the extraction error when the candidate folder cannot be removed', t => {
   const w = world(t, {hook: false, remote: false});
   const mk = fs.mkdirSync;
   const m1 = t.mock.method(fs, 'mkdirSync', function (dir, ...rest) { if (/memory-candidate-/.test(String(dir)) && path.basename(String(dir)) === 'tree') throw Object.assign(new Error('EIO: injected extraction failure'), {code: 'EIO'}); return mk.call(this, dir, ...rest); });
@@ -1246,7 +1246,7 @@ test('R3-sweep materialiseCandidate keeps the extraction error when the candidat
   assert.ok((thrown.cleanupErrors ?? []).some(e => e.includes(CLEANUP_FAILURE)), JSON.stringify(thrown.cleanupErrors));
 });
 // A failed recovery is part of the structured result.
-test('R3-sweep a recovery that fails is recorded in cleanupErrors next to the original error', t => {
+test('a recovery that fails is recorded in cleanupErrors next to the original error', t => {
   const w = world(t, {hook: false, remote: false});
   w.newLesson(w.S1, 'Own lesson');
   const read = fs.readFileSync;
@@ -1259,7 +1259,7 @@ test('R3-sweep a recovery that fails is recorded in cleanupErrors next to the or
   assert.ok(result.cleanupErrors.some(e => /^restore failed: .*EACCES/.test(e)), JSON.stringify(result.cleanupErrors));
 });
 // A lock that cannot be released after a failed run never replaces that run's error.
-test('R3-sweep a lock release failure after a failed all-sessions run keeps the gate error', t => {
+test('a lock release failure after a failed all-sessions run keeps the gate error', t => {
   const w = world(t, {mode: 'all', hook: false, remote: false});
   const unfilled = w.newLesson(w.S1, 'Unfilled', {fill: false});
   const unlink = fs.unlinkSync;
@@ -1272,7 +1272,7 @@ test('R3-sweep a lock release failure after a failed all-sessions run keeps the 
 });
 
 // ---- The repo-output cleanup in writeRepoOutputs. ----
-test('R4 a failed brain-index regeneration keeps its error when the first-written catalog cannot be removed', t => {
+test('a failed brain-index regeneration keeps its error when the first-written catalog cannot be removed', t => {
   const w = world(t, {hook: false, remote: false});
   const repo = w.S1.repo, allPath = w.config.caps.brainIndex.allPath, allFile = path.join(repo, allPath);
   w.put(path.join(repo, 'brain/02-projects/prj-one.md'), '---\nid: prj-one\ntype: project\nsummary: One project.\n---\n');

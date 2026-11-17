@@ -35,7 +35,7 @@ for (const installed of [false, true]) for (const slash of ['/', '\\']) test(`qu
 const lockFiles=f=>fs.readdirSync(f.memory).filter(name=>name.startsWith('.memory.lock'));
 const handoverFile='.claude/skills/handover/SKILL.md';
 const overlay='## Session overlay\nroadmap: docs/ROADMAP.md | section: Open work\nbranch: main\nmain-only: no\ncheck: node check.cjs\nrules: private-rules.md\nafter-go: project-plan, project-check\nclose: project-check; node close.cjs\npush: none\nlog: docs/log.md, 20 lines\nboard: node board.cjs\npublic: no\n';
-const stage2={SessionStart:'node "${CLAUDE_PROJECT_DIR:-.}/scripts/memory/wave-save.mjs" resume',PreCompact:'node "${CLAUDE_PROJECT_DIR:-.}/scripts/memory/wave-save.mjs" precompact'};
+const waveSaveHooks={SessionStart:'node "${CLAUDE_PROJECT_DIR:-.}/scripts/memory/wave-save.mjs" resume',PreCompact:'node "${CLAUDE_PROJECT_DIR:-.}/scripts/memory/wave-save.mjs" precompact'};
 function handoverRouting(f,owned=true) {
   const helper=path.join(f.target,'scripts/memory/new-session.mjs'),before=snapshot(f);
   const detect=ok(f.exec(process.execPath,[helper,'detect'],{input:JSON.stringify({prompt:'handover'})}));
@@ -235,11 +235,11 @@ test('unknown unchanged files refuse before any write; edited files stay; retire
   put(dest,'// edited unknown\n');ok(upgrade(f,['--force-skills']));assert.equal(read(dest),'// edited unknown\n');
 });
 
-test('stage-2 wave-save hooks refuse install and upgrade before writes with guard disabled',t=>{
+test('wave-save hooks refuse install and upgrade before writes with guard disabled',t=>{
   for(const installed of [false,true]) for(const settingsName of ['settings.json','settings.local.json']) {
     const f=fixture(t);if(installed) ok(f.install(['--no-guard']));
     const file=path.join(f.target,'.claude',settingsName),settings=fs.existsSync(file)?json(file):{};
-    const commands={...stage2,FutureEvent:'node scripts/memory/wave-save.mjs future',MixedCase:'node scripts/memory/Wave-Save.mjs resume',UpperCase:'node scripts/memory/WAVE-SAVE.MJS precompact'};
+    const commands={...waveSaveHooks,FutureEvent:'node scripts/memory/wave-save.mjs future',MixedCase:'node scripts/memory/Wave-Save.mjs resume',UpperCase:'node scripts/memory/WAVE-SAVE.MJS precompact'};
     settings.hooks??={};for(const [event,command] of Object.entries(commands)) settings.hooks[event]=[{hooks:[{command}]}];put(file,JSON.stringify(settings));
     put(path.join(f.target,'scripts/memory/wave-save.mjs'),'// presence does not grant awareness\n');
     fs.mkdirSync(f.memory,{recursive:true});

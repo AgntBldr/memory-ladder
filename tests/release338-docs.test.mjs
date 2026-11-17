@@ -24,9 +24,10 @@ test('B-D2 CHANGELOG has a 3.3.8 entry above the 3.3.7 entry: the upgrade line f
   for (const part of ['Upgrade from 3.3.7 with `node scripts/upgrade.mjs --target <PROJECT> --check`', '--live-memory', 'an empty or relative `HOME` (or `USERPROFILE`, the fallback when `HOME` is unset) on every platform', 'A fresh install, a `--check` preview and a project that is not a git repository', REFUSAL_BEFORE, EDIT_REPORT, '- New checks: none.', 'not a gate check', 'Checks a release widens']) assert.ok(entry.includes(part), part);
   assert.ok(!entry.includes(OVERSTATED), 'the refusal does not promise that nothing at all is written');
   const rows = JSON.parse(doc('engine/upgrades.json'));
-  assert.equal(rows.at(-1).id, 'kit-3-3-8');
-  assert.ok(rows.at(-1).reason.startsWith('Upgrade from 3.3.7: preview with --check first'), 'the ledger row names the update from 3.3.7');
-  assert.ok(rows.at(-1).reason.includes(REFUSAL_BEFORE_SHORT) && !rows.at(-1).reason.includes(OVERSTATED), 'the ledger row says the refusal comes before any change to the project or its memory folder');
+  const row = rows.find(candidate => candidate.id === 'kit-3-3-8');
+  assert.ok(row, 'the ledger keeps the 3.3.8 row');
+  assert.ok(row.reason.startsWith('Upgrade from 3.3.7: preview with --check first'), 'the ledger row names the update from 3.3.7');
+  assert.ok(row.reason.includes(REFUSAL_BEFORE_SHORT) && !row.reason.includes(OVERSTATED), 'the ledger row says the refusal comes before any change to the project or its memory folder');
 });
 
 test('B-D3 UPGRADE.md lists the 3.3.8 home-folder refusal under "Checks a release widens" as the update\'s own refusal, not a gate check', () => { // mutant: delete the 3.3.8 row or the sentence after the table, or put "before it writes anything" back in the row

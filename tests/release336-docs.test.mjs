@@ -1,6 +1,5 @@
 // Kit 3.3.6 docs (spec item 13, S6-T16): the release documentation names what changed in 3.3.6 and drops the
-// 3.3.5 wording it replaces. Written red first against the integration tip; each test names its mutant (one small change
-// to the document that makes it fail).
+// 3.3.5 wording it replaces. Each test names its mutant (one small change to the document that makes it fail).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

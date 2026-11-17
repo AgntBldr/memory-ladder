@@ -1,7 +1,6 @@
 // Kit 3.3.6, the update (scripts/upgrade.mjs, and the operator-named inputs scripts/install-safety.mjs reads for it):
-// spec items 1, 2, 6, 7, 9, 11a, 12, 18, 21 and 23. Each test was run red first at the step-0 base, except the two
-// marked pin (green there by design). The comment beside each test names its mutant: the one small change to the code
-// that makes it fail. This system cannot make a fifo, and may forbid file symlinks: both are emulated in the run's own
+// spec items 1, 2, 6, 7, 9, 11a, 12, 18, 21 and 23. The two tests marked pin guard behaviour that did not change. The
+// comment beside each test names its mutant: the one small change to the code that makes it fail. This system cannot make a fifo, and may forbid file symlinks: both are emulated in the run's own
 // process (the preludes below), as the 3.3.4 and 3.3.5 tests do.
 import test from 'node:test';
 import assert from 'node:assert/strict';

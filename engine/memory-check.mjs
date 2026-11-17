@@ -12,6 +12,7 @@ import {generateMemoryIndex, isGenerated, lessonIdentity, lessonField, routes, r
 import {loadRules} from './memory-guard.mjs';
 import {scanChains, scanLines} from './memory-chains.mjs';
 import {scanChars} from './memory-chars.mjs';
+import {checkpointChecks} from './memory-session.mjs';
 import {loadUpgrades} from './memory-fleet.mjs';
 import { args, locations, requireMemory, isDirect, toolDir, loadConfig, memoryFiles,
   brainPaths, brainNamesFromNodes, walkMd, listMd, parseFrontmatter, fmGet, read, mdLinks, wikilinks, resolveWikilink, memoryWikilink, memoryNameIndex, roadmapOrder, utf8Bytes, pathKey, pathSpelling, inRepoMemory } from './lib.mjs';
@@ -181,6 +182,10 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       caps[group] = structuredClone(fallback);
     }
   }
+  // caps.checkpoint.checks is a list, so it is validated here by the checkpoint's own validator (one definition), after the
+  // group check above and never in the scalar defaults below: a malformed list is one FAIL and the run goes on.
+  try { checkpointChecks(config); }
+  catch (error) { add('FAIL', 'config.caps', 'memory.config.json', null, error.message); }
   const capDefaults = {
     handovers: groupDefaults.handovers,
     roadmapOverview: {enabled: true},
@@ -200,7 +205,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
     }
   }
   caps.handovers = {...groupDefaults.handovers, ...caps.handovers};
-  // Kit 3.3.5 R1: caps.roadmap.procedure is optional guidance text with no default; an invalid value is a WARN (guidance
+  // caps.roadmap.procedure is optional guidance text with no default; an invalid value is a WARN (guidance
   // never blocks a commit or an upgrade), reported once and ignored.
   if (caps.roadmap.procedure !== undefined && (typeof caps.roadmap.procedure !== 'string' || !caps.roadmap.procedure.trim())) {
     add('WARN', 'config.roadmap-procedure', 'memory.config.json', null, `caps.roadmap.procedure has invalid value ${JSON.stringify(caps.roadmap.procedure).slice(0, 80)}; ignoring it`);
@@ -334,7 +339,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
   for (const f of files) {
     if (f.special === 'router') {
       const sized = size('router.size', f.file, f.bytes, caps.router); lineCaps(f, 'router.line', caps.router);
-      // Kit 3.3.5 R2: the target applies from just above targetBytes up to the point where router.size takes over.
+      // The target applies from just above targetBytes up to the point where router.size takes over.
       const target = caps.router.targetBytes ?? 11264, number = n => n.toLocaleString('en-US');
       // A group without a usable warn line (an older or partial configuration) has none to name: never print a missing value.
       const warnNote = Number.isFinite(caps.router.warnBytes) ? `, warn ${number(caps.router.warnBytes)}` : '';
@@ -490,7 +495,7 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
         const split=expected.hotBudgets[family],number=n=>n.toLocaleString('en-US');
         add('WARN','index.hot-budget',`INDEX-${family}.md`,null,`INDEX-${family}.md topics ${number(split.topics)} + pins ${number(split.pins)} of ${number(split.budget)} bytes; topics never leave the hot page: number the lessons (LESSON-CONVERSION.md)`,split.total);
       }
-      // Kit 3.3.5 R2: the free bytes of each hot page before the recent-lesson fill (memory-index hotBudgets), per page.
+      // The free bytes of each hot page before the recent-lesson fill (memory-index hotBudgets), per page.
       const reserve = caps.index.hotReserveBytes ?? 1024, number = n => n.toLocaleString('en-US');
       for (const [family, split] of Object.entries(expected.hotBudgets)) {
         const free = split.budget - split.total;
@@ -596,9 +601,10 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       if (order && dates.length > 1 && (order === 'newest-first' ? dates[0] < dates.at(-1) : dates[0] > dates.at(-1)))
         add('WARN', 'repo.roadmap-order', caps.roadmap.path, null, `Open work dates contradict ${order}: first ${dates[0]}, last ${dates.at(-1)}`);
     }
-    // Kit 3.3.5 R1: over the warn line, and the existing rotation planner (run here without writes, with the configured order
-    // and limits) reports no removable bytes. An invalid order already has config.roadmap-order; any other planner refusal
-    // (keepBlocks, a block date, an unreadable history) is repo.roadmap-rotation, never this warning.
+    // The no-rotation warning applies when the roadmap is over the warn line and the existing rotation planner (run here
+    // without writes, with the configured order and limits) reports no removable bytes. An invalid order already has
+    // config.roadmap-order; any other planner refusal (keepBlocks, a block date, an unreadable history) is
+    // repo.roadmap-rotation, never this warning.
     const roadmapBytes = roadmap === null ? 0 : utf8Bytes(roadmap);
     if (order !== undefined && roadmapBytes > caps.roadmap.warnBytes) {
       try {

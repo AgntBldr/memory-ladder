@@ -69,8 +69,11 @@ prints `upgrade: restored <backup>: new FAIL: <check> <file>: <message>`.
 | --- | --- | --- | --- |
 | 3.3.6 | `hardrule.size` | A card reached through a `[[wikilink]]` under the router's `## Hard rules` is now a hard rule; before 3.3.6 only a card reached through a Markdown link was | The card is over 4096 bytes (WARN over 2048) |
 | 3.3.8 | The update's own check of the home folder (not a gate check) | A real update of a git project that performs the scope inventory now checks `HOME` (`USERPROFILE` when `HOME` is unset) on every platform, also when git would not read it; before, only the paths that read the home folder checked it | `HOME` or `USERPROFILE` is empty or not a full path: the update stops before any change to the project or its memory folder, with `upgrade: cannot establish the git input HOME (...); nothing written`, so there is nothing to restore |
+| 3.3.9 | `config.caps` | A `caps.checkpoint.checks` value is now validated: before 3.3.9 the key was ignored, so any value passed the gate | The key is present and is not a list of at most 20 entries, or an entry is not exactly a `name` (lowercase letters, digits and hyphens, unique) and an `argv` of 1 to 50 non-empty strings: one new FAIL with the list's own message. A valid list, an empty list and an absent key pass |
 
 The 3.3.8 row is a refusal by the update, not a gate check: the gate reports the same findings as before, so it needs no `NEW_CHECKS` entry.
+
+The 3.3.9 row is a widened gate check, and `config.caps` is deliberately not in `NEW_CHECKS`, so an update of a project whose 3.3.8 `memory.config.json` already holds a malformed `caps.checkpoint.checks` value (3.3.8 ignored it) stops, restores the project and memory and prints `upgrade: restored <backup>: new FAIL: config.caps memory.config.json: <message>`. Correct or remove the value and run the update again. A project whose list is valid or empty keeps it, with the same values in the same order, and a project with no `caps.checkpoint.checks` stays without it. As in every update, `memory.config.json` is written again in two-space JSON, so the layout of the file (indentation, a list written on one line, an escaped character) can change while the values do not.
 
 Before updating from 3.3.5 or older, preview the gate the update will run. Copy the memory folder, then run these from the
 new kit folder. `<merged>` is a new file outside the project and the copy; the first command writes the configuration the
@@ -231,7 +234,7 @@ finds a new `FAIL` still restores itself.
     and restored like any other memory file. Workaround: keep paths outside the
     project out of instruction files if the update should not read them.
 
-Tests in `tests/upgrade.test.mjs` and `tests/fixes.test.mjs` cover semantic versions,
+Tests in `tests/upgrade.test.mjs` and `tests/install-and-upgrade-cases.test.mjs` cover semantic versions,
 pre-existing/new FAILs, unique backups, removed files, restore, interrupted copying,
 EPERM recovery, config preservation and skipped/forced skills. Fault injection is
 an importable test callback; the CLI has no fault-injection switch.

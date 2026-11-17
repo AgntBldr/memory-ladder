@@ -15,7 +15,7 @@ test('3.2.1 installed engine accepts an older project systemFiles list', t => {
   config.caps.roadmap.path = 'roadmap.md';
   put(file, JSON.stringify(config, null, 2) + '\n');
   const env = {...f.env}; delete env.NODE_TEST_CONTEXT;
-  const args = ['--test', '--test-reporter=tap', '--test-name-pattern=K\\.8 index omits every missing system page|F7 index discovers pillar by type and uses configured system files|R12 router\\.size warning branch carries bytes', path.join(engine, 'memory.test.mjs')];
+  const args = ['--test', '--test-reporter=tap', '--test-name-pattern=K\\.8 index omits every missing system page|index discovers pillar by type and uses configured system files|router\\.size warning branch carries bytes', path.join(engine, 'memory.test.mjs')];
   const result = ok(f.exec(process.execPath, args, {env}));
   assert.match(result.stdout, /^# fail 0\r?$/m);
   assert.ok(Number(result.stdout.match(/^# pass (\d+)/m)?.[1]) >= 3);
@@ -23,9 +23,9 @@ test('3.2.1 installed engine accepts an older project systemFiles list', t => {
   const entry = path.join(engine, 'memory.test.mjs');
   put(entry, read(entry).replace('JSON.stringify(config)', "fs.readFileSync(path.join(source,'memory.config.json'))"));
   const broken = f.exec(process.execPath, args, {env});
-  assert.equal(broken.status, 1); assert.match(broken.stdout, /not ok .*R12 router\.size warning branch carries bytes/);
+  assert.equal(broken.status, 1); assert.match(broken.stdout, /not ok .*router\.size warning branch carries bytes/);
   assert.doesNotMatch(broken.stderr, /ENOENT/);
-  console.log('Hostile host-config copy: '+broken.stdout.match(/^not ok .*R12 router\.size warning branch carries bytes/m)[0]);
+  console.log('Hostile host-config copy: '+broken.stdout.match(/^not ok .*router\.size warning branch carries bytes/m)[0]);
   console.log('Isolated copy: '+result.stdout.match(/^# pass \d+/m)[0]+', # fail 0');
 });
 
@@ -62,7 +62,7 @@ test('S8 upgrade and route migration share a backup and restore both on forced f
 
 test('S9 release defaults and documentation use generated capture and checkpoint', () => {
   const config = json(path.join(kitRoot, 'engine/memory.config.json'));
-  assert.equal(config.engine_version, '3.3.8'); // Deliberate release pin: update only for a release.
+  assert.equal(config.engine_version, '3.3.9'); // Deliberate release pin: update only for a release.
   assert.equal(config.engine_version, read(path.join(kitRoot, 'VERSION')).trim());
   assert.equal(config.caps.index.hotBytes, 8192); assert.equal(config.caps.roadmap.keepBlocks, 6);
   assert.deepEqual(config.caps.stale.types, ['project', 'reference']);
@@ -92,7 +92,7 @@ test('K.8 config default places memory ladder after agents background', () => {
 });
 
 test('K8 release retains a literal pin', () => {
-  assert.match(read(path.join(kitRoot, 'tests/release32.test.mjs')), /assert\.equal\(config\.engine_version, '3\.3\.8'\)/);
+  assert.match(read(path.join(kitRoot, 'tests/release32.test.mjs')), /assert\.equal\(config\.engine_version, '3\.3\.9'\)/);
 });
 test('K9 index documentation explains shortening', () => {
   const text = read(path.join(kitRoot, 'engine/README.md'));

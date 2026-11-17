@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.3.9
+
+**A project can list its own check commands in `caps.checkpoint.checks`, and every memory save then runs them after the save and its push: a failing check makes a finished save end with status 1 and keeps every saved change. 3.3.9 adds no gate check and widens one: `config.caps` now fails a malformed `caps.checkpoint.checks`.**
+
+- Upgrade from 3.3.8 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then, from the project's main checkout, `node scripts/upgrade.mjs --target <PROJECT> --live-memory`. Run the installed gate afterwards.
+
+Changed behaviour
+
+- A project may list its own check commands in `caps.checkpoint.checks` in `scripts/memory/memory.config.json`: at most 20 entries, each `{"name": ..., "argv": [...]}`. Every save (`memory-checkpoint.mjs`, and therefore the save of a handover) runs them one at a time in the project root after the save and its push, with git's redirect variables (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and the like) removed from their environment. Each check prints `checks: <name> ok` or `checks: <name> FAIL (<reason>)`, and the save ends with `checks: <passed> of <total> passed`. The README and the GLOSSARY entry `caps.checkpoint.checks` give the rules: names, `node` as the first word, no shell, the 300 s and 16 MiB limits.
+- A failing check makes a finished save end with status 1 and `project checks failed: <names>`, and keeps every saved change and commit; a push failure keeps status 2. The checks are skipped, with one `checks: skipped (...)` line, when the save did not finish or a release of a lock it took could not be confirmed. In an in-repository handover a failing check stops the project push that follows the save.
+- A malformed list refuses the save before it writes anything. Nothing changes for a project without the key, or with an empty list: its save prints and returns what it did in 3.3.8.
+
+Documentation
+
+- Test titles, comments and the lesson-conversion guide say what they guard in plain words; 13 test files are renamed for what they test.
+
+Gate checks
+
+- New checks: none.
+- Widened checks: `config.caps` now FAILs a malformed `caps.checkpoint.checks` (not a list, more than 20 entries, or an entry that is not exactly a `name` and an `argv`), with the list's own message. A 3.3.8 project whose configuration already holds such a value, which 3.3.8 ignored, has its update rolled back as a new FAIL: correct or remove the value, then update. A valid list and an empty list are kept, with the same values in the same order, and an absent key stays absent. As in every update, `memory.config.json` is written again in two-space JSON, so the layout of the file can change. [docs/UPGRADE.md](docs/UPGRADE.md), "Checks a release widens", lists it.
+
+Maintainers
+
+- The kit's own export refuses review-round, fix-round, stage and lane labels, notes on how a test was first run, and test files named for a review or fix round, in the files it ships. It runs only in the kit's own export; installed projects are unaffected.
+
 ## 3.3.8
 
 **An update that performs the scope inventory on a git project now refuses an empty or relative home folder on every platform, naming the variable: `upgrade: cannot establish the git input HOME (...); nothing written`. The shipped text no longer carries private process wording. 3.3.8 adds no gate check and widens none of the gate's checks.**
@@ -181,7 +206,7 @@ Known limits
 - Promotion scans repository reference roots and repeated `--scan` paths after rehearsal. Unprotected old-name hits fail the write proof.
 - Hot-budget warnings show topic and pin bytes and explain why topics need numbered lessons. Findings carry a measured byte value for allow ceilings.
 - Owned hooks embed their installing engine version and refuse older checkout engines before running the gate. Reinstallation refreshes the template; upgrades refresh existing owned hooks on a best-effort basis, preserving foreign hooks and memory files.
-- Install includes LESSON-CONVERSION.md and its reusable prompt, with the measured procedure and proofs.
+- Install includes LESSON-CONVERSION.md and its reusable prompt, with the procedure and proofs.
 
 ## 3.3.2
 

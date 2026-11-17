@@ -2,7 +2,6 @@
 // `checkpoint: repo <canonical checkout>; memory <canonical memory folder> (<source>)`; a run against external memory ends
 // with `repo files changed in <checkout>: <list> - commit them in that checkout` (`none` when nothing changed); a dry run
 // prints `would change: <list>`. The list is what THIS invocation changed: an unrelated dirty path is never in it.
-// Each test was written red first against the 3.3.5 base before the change.
 import test, {after} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

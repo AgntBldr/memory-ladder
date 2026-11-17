@@ -1,6 +1,6 @@
 // Kit 3.3.6, the git environment and lock-name group: inherited GIT_* variables must not reach the kit's git calls, and
-// every lock file is recognised by the one predicate. Each test was written red first against the 3.3.5 release; each
-// names the mutant (one small change to the fix) that makes it fail. A test marked "pin" is green on 3.3.5 by design.
+// every lock file is recognised by the one predicate. Each test names the mutant (one small change to the fix) that makes
+// it fail. A test marked "pin" guards behaviour that did not change.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

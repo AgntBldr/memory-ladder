@@ -23,7 +23,7 @@ resolve after installation under `scripts/memory/`; in the kit tree these guides
 
 `node scripts/memory/memory-init.mjs [--memory-dir <MEMORY>] [--dry-run]` creates missing private memory when the engine is already installed. It uses the installer's memory setup, runs the gate and installs the hook; an existing folder is left unchanged. It prints private remote setup commands only for memory outside the repository (none for memory inside it).
 
-Stage 2: `memory-migrate.mjs convert --memory-dir D [--source FILE]
+Lesson conversion: `memory-migrate.mjs convert --memory-dir D [--source FILE]
 [--classes FILE] [--tag NAME] [--write]` splits original lesson blocks without changing their
 body bytes (including CRLF). The default is a JSON dry run. A classes JSON object
 maps every assigned id, including unnumbered/duplicate ids, to one craft activity.
@@ -321,6 +321,13 @@ without committing by default. `--commit` commits those paths on the current bra
 it never pushes. Install preserves project hooks and prints an integration line when needed.
 One .memory.lock covers all in-process steps. Writers wait up to 30 seconds; stale locks break
 only after ten minutes with a dead pid on this host. Foreign-host locks require manual inspection.
+`caps.checkpoint.checks` (optional) lists the project's own check commands, each `{"name", "argv"}`. After the save has
+finished, and every lock it took is released, the checkpoint runs them one at a time in the project root and prints
+`checks: <name> ok` or `checks: <name> FAIL (<reason>)`; a failure ends a successful save with status 1 and the memory
+commit stays. They are skipped when the save fails or a lock release is unconfirmed, and a `--dry-run` that succeeds runs
+them too, so a check must be read-only. The first word `node` is the Node running the save; any other first word runs
+without a shell, in the save's environment without the variables that point git at another repository. A handover runs
+them too. See the README and GLOSSARY for the limits.
 
 ## Fleet status
 

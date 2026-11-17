@@ -22,7 +22,9 @@ import {sessionSettings,skillPlan,standardBlockPlan,instructionsReportLines,dist
 // through a [[wikilink]] under the router's "## Hard rules" now counts as a hard rule (FAIL over 4096 bytes, WARN over 2048).
 // An update from 3.3.5 or older with such a card over 4096 bytes fails the new gate and restores itself. hardrule.size is
 // deliberately not listed here: listing it would let that update finish with a failing gate. See "Checks a release widens"
-// in docs/UPGRADE.md. 3.3.7 adds none and widens none. 3.3.8 adds none and widens none of the gate's checks.
+// in docs/UPGRADE.md. 3.3.7 adds none and widens none. 3.3.8 adds none and widens none of the gate's checks. 3.3.9 adds none
+// and widens config.caps (a malformed caps.checkpoint.checks is now a FAIL); config.caps is deliberately not listed here either,
+// so an update of a project whose configuration already holds such a value restores itself.
 export const NEW_CHECKS = ['config.path'];
 const newFailKey=f=>JSON.stringify([f.check,f.file]);
 // The gate's "git status" refreshes a repository's index when it may; during an update that would be a write

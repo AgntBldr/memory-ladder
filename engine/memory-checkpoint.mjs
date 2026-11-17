@@ -157,9 +157,77 @@ export function checkpoint(options) {
   const say = (...line) => { try { report(...line); } catch {} };
   if (!options.announced) say('checkpoint', checkpointHeader(options));
   const inRepo = inRepoMemory(options.repo, options.memoryDir);
-  const result = checkpointRun({...options, report, inRepo});
+  // `carry` receives the project's validated check list from checkpointRun (the configuration is read once, there).
+  const carry = {};
+  const result = checkpointRun({...options, report, inRepo, carry});
+  // The checks run on the run's final result, after every lock it took is released, and before the files line.
+  if (carry.checks?.length) projectChecks({options, result, list: carry.checks, unconfirmed: Boolean(carry.unconfirmed), say});
   if (!options.dryRun && !inRepo) say(...repoFilesReport(options.repo, result.changed.repo, result.uninspected));
   return result;
+}
+
+// ---- the project's own checks after a save (caps.checkpoint.checks) ----
+// A project lists commands (memory-session.mjs checkpointChecks); the save runs them once its own work is done, so a save
+// that passes the kit gate but fails the project's full check ends non-zero at once. They never hold back a memory commit:
+// they run after it (and after the push). Each is one program with separate arguments, run without a shell, in the
+// environment the save gives its own git calls (cleanGitEnv: ordinary variables and PATH kept, the variables that point git
+// at another repository, index or object store removed), so a check that runs git sees the project's repository.
+export const CHECK_TIMEOUT_MS = 300000;
+export const CHECK_MAX_BUFFER = 16 * 1024 * 1024;
+const TAIL_LINES = 20;
+// The last lines of one captured stream: trailing newlines trimmed first, an unreadable value is no lines.
+function lastLines(text) {
+  try {
+    const body = String(text ?? '').replace(/[\r\n]+$/, '');
+    return body === '' ? [] : body.split(/\r?\n/).slice(-TAIL_LINES);
+  } catch { return []; }
+}
+// Why a check failed, from the error execFileSync threw, in this order: a timeout, output over the buffer, any other
+// execution error (no process ran when pid is 0 or absent), a signal, a non-zero exit. Only a normal return is a pass,
+// so an error this does not recognise is still a failure.
+export function checkFailureReason(error, {timeoutMs = CHECK_TIMEOUT_MS, maxBuffer = CHECK_MAX_BUFFER} = {}) {
+  const code = error?.code;
+  if (code === 'ETIMEDOUT') return `timed out after ${timeoutMs / 1000} s`;
+  if (code === 'ENOBUFS') return `output exceeded ${maxBuffer / (1024 * 1024)} MiB`;
+  if (code !== undefined && code !== null) return error.pid ? `error: ${String(code)}` : `could not start: ${String(code)}`;
+  if (error?.signal) return `signal ${String(error.signal)}`;
+  if (Number.isInteger(error?.status)) return `exit ${error.status}`;
+  return 'error: unknown';
+}
+const positive = (value, fallback) => Number.isSafeInteger(value) && value > 0 ? value : fallback;
+// options.checkRun is internal and for tests only: {timeoutMs, maxBuffer, onLaunch({program, args, options})}. A value that is
+// not a positive integer is ignored, so no option removes the limits.
+export function runOneCheck({name, argv}, {repo, checkRun = {}}) {
+  const timeoutMs = positive(checkRun.timeoutMs, CHECK_TIMEOUT_MS), maxBuffer = positive(checkRun.maxBuffer, CHECK_MAX_BUFFER);
+  const [first, ...args] = argv, program = first === 'node' ? process.execPath : first;
+  try {
+    const launch = {cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs, killSignal: 'SIGKILL', maxBuffer, env: cleanGitEnv(), windowsHide: true};
+    checkRun.onLaunch?.({program, args, options: launch});
+    execFileSync(program, args, launch);
+    return {name, ok: true, reason: null, tail: []};
+  } catch (error) {
+    return {name, ok: false, reason: checkFailureReason(error, {timeoutMs, maxBuffer}), tail: [...lastLines(error?.stdout), ...lastLines(error?.stderr)]};
+  }
+}
+function projectChecks({options, result, list, unconfirmed, say}) {
+  const status = result.status ?? (result.pushFailed ? 2 : 0);
+  // The run ended with a status that is not a finished save (refused, failed, contended): nothing to check.
+  if (status !== 0 && status !== 2) { say('checks', `skipped (the checkpoint ended with status ${status})`); result.checks = []; return; }
+  // A lock this run took was not confirmed released (the push lock, or the memory lock of a dry run's plan): a later check
+  // must not run beside it. Every other memory-lock release failure ends the run with status 1, above.
+  if (unconfirmed || pushLockUnconfirmed(result.publication)) { say('checks', 'skipped (lock release could not be confirmed)'); result.checks = []; return; }
+  result.checks = list.map(entry => {
+    const outcome = runOneCheck(entry, {repo: options.repo, checkRun: options.checkRun ?? {}});
+    say('checks', outcome.ok ? `${outcome.name} ok` : `${outcome.name} FAIL (${outcome.reason})${outcome.tail.map(line => `\n  ${line}`).join('')}`);
+    return outcome;
+  });
+  const failed = result.checks.filter(check => !check.ok).map(check => check.name);
+  say('checks', `${result.checks.length - failed.length} of ${result.checks.length} passed`);
+  // A save that finished (status 0) but failed a check ends 1; status 2 keeps its own code and error.
+  if (failed.length && status === 0) {
+    result.status = 1;
+    result.error = `project checks failed: ${failed.join(', ')}; ${options.dryRun ? 'nothing was saved (dry run)' : 'checkpoint changes and any commit were retained'}`;
+  }
 }
 // The refusal text when the temporary folder is inside the project or the memory folder, else null. It asks scratchFolder
 // (so the rule has one definition) and removes the folder it makes; any other failure of that call is not this check's: a
@@ -176,12 +244,20 @@ function checkpointRun(options) {
     today = new Date().toISOString().slice(0, 10), report, inRepo} = options;
   const effective = {session: false, memoryOnly: false, filesOnly: false};
   const refuse = message => ({...blank(effective), status: 1, error: message});
+  // The project's check list is read once, here, before any refusal: the validator is pure (no lock, no claim, no write). A valid
+  // list goes to checkpoint(), so a run refused below still prints the skip line; a malformed list refuses the run, but only
+  // after the refusals that always came first, so each keeps its message and its place and none prints a skip line.
+  let checks, checksError;
+  try { checks = S.checkpointChecks(config); } catch (error) { checksError = error; }
+  const refuseEarly = message => { if (!checksError) options.carry.checks = checks; return refuse(message); };
   // Kit 3.3.6 item 18: a real run starts only when the temporary folder is outside the project and the memory folder. The
   // check comes first because a session run takes its locks and writes a fresh --files claim before it makes its candidate
   // folder, and a refusal there would leave that claim behind. A dry run keeps its own check where it makes its copy.
-  if (!options.dryRun) { const message = temporaryFolderRefusal(repo, memoryDir); if (message) return refuse(message); }
+  if (!options.dryRun) { const message = temporaryFolderRefusal(repo, memoryDir); if (message) return refuseEarly(message); }
   let mode;
-  try { mode = S.sessionMode(config); } catch (error) { return refuse(error.message); }
+  try { mode = S.sessionMode(config); } catch (error) { return refuseEarly(error.message); }
+  if (checksError) return refuse(checksError.message);
+  options.carry.checks = checks;
   const useSession = !all && (session === true || (session === undefined && mode === 'session'));
   effective.session = useSession;
   if (memoryOnly && !useSession) return refuse('--memory-only needs session mode (--session or caps.checkpoint.mode "session")');
@@ -213,7 +289,7 @@ function allCheckpoint(options) {
     return {...result, status: 1, error: String(error?.message ?? error).trim(), push: 'not run', pushFailed: false};
   }
 }
-function allCheckpointRun({memoryDir, repo, config, dryRun = false, noPush = false, commit = false, noRotate = false, today, report, inRepo,
+function allCheckpointRun({memoryDir, repo, config, dryRun = false, noPush = false, commit = false, noRotate = false, today, report, inRepo, carry = {},
   git = (argv, options = {}) => execFileSync('git', ['-C', inRepo ? repo : memoryDir, ...argv], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: cleanGitEnv(), ...options}), faults = {}, gitRun = S.gitRun}, result, evidence) {
   validateConfigPaths(repo, config);
   if (!validDate(today)) throw new Error('invalid --today date; expected YYYY-MM-DD');
@@ -231,7 +307,11 @@ function allCheckpointRun({memoryDir, repo, config, dryRun = false, noPush = fal
       report('would change', [...result.changed.memory, ...result.changed.repo].join(', ') || 'nothing');
       planned = true;
       leftover(plan.cleanupErrors);
-    } catch (error) { report('would change', `could not be planned (${String(error?.message ?? error).trim().split('\n')[0]})`); leftover(error?.cleanupErrors); }
+    } catch (error) {
+      // The plan took a memory lock on its private copy; one it could not release is evidence for the post-save checks.
+      if (error?.lockNotReleased) carry.unconfirmed = true;
+      report('would change', `could not be planned (${String(error?.message ?? error).trim().split('\n')[0]})`); leftover(error?.cleanupErrors);
+    }
     if (planned) reportAlreadyModified({repo, files: result.changed.repo, gitRun, report});
     return {...result, dryRun: true};
   }
@@ -416,9 +496,19 @@ function headOf(git) { try { const sha = String(git(['rev-parse', 'HEAD'])).trim
 // E7: publication is serialised by the push lock, never blocks memory writers and never forces. The evidence is the
 // actual remote branch (ls-remote), never a later HEAD or only a cached tracking ref. /handover reuses it for the
 // in-repo project push, so both modes verify the saved SHA against the actual remote.
+// Publications whose push lock, taken by this call, could not be confirmed released. withMemoryLock marks the error that
+// leaves it with `lockNotReleased` whenever its release failed, after the work returned or after the work threw; the
+// returned publication is then unverified (status 2). The fact is kept beside the publication, not in it, so the
+// publication's own fields and the printed lines stay what they were; the post-save checks ask.
+const unconfirmedRelease = new WeakSet();
+export const pushLockUnconfirmed = publication => unconfirmedRelease.has(publication);
 export function publish(options) {
   try { return publishLocked(options); }
-  catch (error) { return {sha: options.sha, pushed: false, verified: false, error: String(error.message).trim().split('\n')[0]}; }
+  catch (error) {
+    const publication = {sha: options.sha, pushed: false, verified: false, error: String(error.message).trim().split('\n')[0]};
+    if (error?.lockNotReleased) unconfirmedRelease.add(publication);
+    return publication;
+  }
 }
 // lockTimeoutMs bounds the wait for the push lock (an upgrade holds it for its whole window, E2.8 (b)).
 function publishLocked({memoryDir, sha, git, faults = {}, lockTimeoutMs = 120000}) {

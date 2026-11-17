@@ -99,14 +99,16 @@ export function withMemoryLock(memoryDir, run, {lock, timeoutMs = 30000, note = 
   held.add(token);
   // Kit 3.3.5: a failed release never replaces the error run() threw; it is attached to
   // that error as cleanupErrors and noted. After a successful run the release failure is thrown as before.
+  // Either way the error that leaves this call carries `lockNotReleased` (the lock file), so a caller that must not act
+  // beside a lock it cannot confirm free can tell that failure from any other.
   const release = original => {
     held.delete(token);
     try { if (fs.readFileSync(file, 'utf8') === text) fs.unlinkSync(file); }
     catch (error) {
       if (error.code === 'ENOENT') return;
-      if (original === null) throw error;
+      if (original === null) throw Object.assign(error, {lockNotReleased: file});
       const message = `memory lock ${file} was not released: ${error.message}`;
-      if (original && typeof original === 'object') (original.cleanupErrors ??= []).push(message);
+      if (original && typeof original === 'object') { (original.cleanupErrors ??= []).push(message); original.lockNotReleased = file; }
       try { note(message); } catch {}
     }
   };

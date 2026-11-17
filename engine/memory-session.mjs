@@ -46,6 +46,37 @@ export function sessionMode(config) {
   if (!['all', 'session'].includes(mode)) throw new Error('caps.checkpoint.mode must be all or session');
   return mode;
 }
+// caps.checkpoint.checks: the project's own commands that run after a save. Optional: absent, or a group that is not an
+// object (the gate reports that on its own), is no list; present, it is an array of at most 20 entries, each exactly
+// {name, argv}. The one validator, used by the checkpoint (a bad list refuses the run) and by the gate (a bad list is one
+// FAIL). It returns the normalised list, copies of the entries, or throws a message that names the list, or an entry's
+// zero-based index and field.
+export const CHECK_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
+export const MAX_CHECKS = 20;
+export const MAX_ARGV = 50;
+export function checkpointChecks(config) {
+  const group = config?.caps?.checkpoint;
+  if (!group || typeof group !== 'object' || Array.isArray(group) || !Object.hasOwn(group, 'checks')) return [];
+  const list = group.checks, where = 'caps.checkpoint.checks';
+  if (!Array.isArray(list)) throw new Error(`${where} must be a list of {name, argv} entries`);
+  if (list.length > MAX_CHECKS) throw new Error(`${where} has ${list.length} entries; the most allowed is ${MAX_CHECKS}`);
+  const seen = new Map(), checks = [];
+  // An index loop, never map or forEach: those skip the holes of a sparse list, and a hole is an invalid entry.
+  for (let index = 0; index < list.length; index++) {
+    const entry = list[index], at = `${where}[${index}]`;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error(`${at} must be an object with name and argv`);
+    const extra = Object.keys(entry).find(key => key !== 'name' && key !== 'argv');
+    if (extra !== undefined) throw new Error(`${at} has the key ${JSON.stringify(extra).slice(0, 60)}; only name and argv are allowed`);
+    const {name, argv} = entry;
+    if (typeof name !== 'string' || !CHECK_NAME.test(name)) throw new Error(`${at}.name must be 1 to 40 characters: lowercase letters, digits and hyphens, starting with a letter or digit`);
+    if (seen.has(name)) throw new Error(`${at}.name "${name}" repeats checks[${seen.get(name)}]`);
+    seen.set(name, index);
+    if (!Array.isArray(argv) || argv.length < 1 || argv.length > MAX_ARGV) throw new Error(`${at}.argv must be a list of 1 to ${MAX_ARGV} strings`);
+    for (let position = 0; position < argv.length; position++) if (typeof argv[position] !== 'string' || argv[position] === '') throw new Error(`${at}.argv[${position}] must be a non-empty string`);
+    checks.push({name, argv: [...argv]});
+  }
+  return checks;
+}
 const realMemory = memoryDir => fs.realpathSync.native(memoryDir);
 // Resolve a path canonically even when it, or some of its parents, do not exist yet: existing ancestors are resolved.
 export function canonicalize(file) {

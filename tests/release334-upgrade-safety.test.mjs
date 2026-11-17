@@ -1305,7 +1305,7 @@ fs.readFileSync=function(file,...rest){if(is(file))throw new Error('kit test: th
   assert.deepEqual(everything(f),before);
 });
 
-// ---- Fix R6: the input check compares the selection after the writes with the plan's prediction. ----
+// ---- The input check compares the selection after the writes with the plan's prediction. ----
 // A copy of this kit, installable, whose README is `readme(text)`.
 function kitCopy(f,name,readme) {
   const root=path.join(f.root,name);fs.mkdirSync(root);

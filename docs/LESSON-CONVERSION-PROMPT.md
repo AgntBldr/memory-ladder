@@ -13,7 +13,7 @@ Values:
 - Project repo: <REPO PATH>
 - Memory directory: <MEMORY DIR, or "default">
 - Reference memory with labelled lessons, for calibration and precedent: <REFERENCE MEMORY DIR>
-- Model roles: <e.g. "orchestrator plans and reviews; Codex lanes build and label; a different model is the third
+- Model roles: <e.g. "orchestrator plans and reviews; a builder agent builds and labels; a different model is the third
   labeller and reviews built diffs"; or "follow AGENTS.md">
 
 Rules:
@@ -22,7 +22,7 @@ Rules:
   only in the replay step, after review.
 - Keep labelling bundles, labeller outputs and keys out of git: they hold private memory text.
 - Short loops: run a few bundles or the targeted tests first, then widen. Run the full test suite once, after the
-  last fix, and never while a lane is editing the same tree.
+  last fix, and never while a builder is editing the same tree.
 - Never raise a cap, pin or allow ceiling, never compress a rule's text, never delete a memory.
 
 Stop and report to me (with numbers, file links, and a recommendation) at these points, and wait for my answer:

@@ -224,7 +224,7 @@ for(const module of ['chars','chains','lines']) test('327 '+module+' regeneratio
   assert.throws(()=>fn({memoryDir:f.dir,write:true,max:2000}),/refusing to overwrite/);
   assert.equal(f.read('x-1.md'),original); assert.equal(f.read('INDEX-build.md'),'handwritten page\n'); assert.ok(!fs.existsSync(path.join(f.dir,'.memory.lock')));
 });
-test('327 write CLI parsing and F15 imports', t => {
+test('327 write CLI parsing, and the write modules import neither the check nor the lesson module', t => {
   const f=fixture(t); f.put('x.md','[part](x-1.md)\n'); f.put('x-1.md',dash+'\n');
   for(const [module,command] of [['memory-chars','repair'],['memory-chains','repair'],['memory-chains','lines']]) {
     const r=cli(module,['--write',command,'--memory-dir',f.dir,'--repo',f.dir]); assert.equal(r.status,0,r.stderr); assert.ok(r.stdout.length);

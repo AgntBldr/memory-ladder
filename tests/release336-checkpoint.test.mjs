@@ -1,8 +1,7 @@
 // Kit 3.3.6: the checkpoint, the gate's named-file reads and the shared cleanup, write and hard-rule helpers.
 // Items 7(c), 8, 9 (engine sites), 10 (checkpoint sites), 15, 16, 17, 18 (checkpoint sites), 19, 20, 24 and the test-speed
-// cut of item 14 (the installed-selftest test). Each test was written red first against the base (kit 3.3.6 step 0) and the
-// comment beside it names its mutant: the one small change to the code that makes the test fail. A test that pins
-// behaviour the base already has is marked pin. This system cannot make a fifo, so a special file is emulated: statSync
+// cut of item 14 (the installed-selftest test). The comment beside each test names its mutant: the one small change to
+// the code that makes the test fail. A test that pins behaviour that did not change is marked pin. This system cannot make a fifo, so a special file is emulated: statSync
 // and lstatSync report it as neither a file nor a folder, readdirSync with file types stops listing it as a file where a
 // listing would otherwise reach it first, and a marker records every attempt to read it.
 import test, {after} from 'node:test';
@@ -423,7 +422,7 @@ test('3.3.6 checkpoint: a dry run does not list the brain index as changing beca
 
 // ---- item 20: a hard-rule card linked by wikilink ----
 
-test('3.3.6 lib: hardRuleTargets still reads only inline links (pin); the wikilink cards come from the same heading through memoryFiles', () => { // mutant: none for the pin; the selftest case beside R12 covers the wikilink form
+test('3.3.6 lib: hardRuleTargets still reads only inline links (pin); the wikilink cards come from the same heading through memoryFiles', () => { // mutant: none for the pin; the selftest case 'Hard rules also takes wikilink cards by name, file name, alias and heading, and the cards stop being topics' covers the wikilink form
   assert.deepEqual(hardRuleTargets('## Hard rules\n[Rule](rule.md)\n[[card]]\n## Topics\n[Topic](topic.md)'), ['rule.md']);
 });
 

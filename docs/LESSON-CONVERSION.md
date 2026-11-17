@@ -29,13 +29,13 @@ Signs you need this guide:
 | Role | Who | Does |
 |---|---|---|
 | Orchestrator | the session's top model | writes specs, reviews every built diff, adjudicates, runs the final gates |
-| Build lane | a repository agent with its own sandbox | builds tools test-first, runs only the tests it touched |
+| Builder | a repository agent with its own sandbox | builds tools test-first, runs only the tests it touched |
 | Labellers A and B | two independent sessions of a cheap model (different reasoning effort helps) | label blind bundles |
 | Third labeller C | a different model | labels disputed rows blind, mixed with known rows |
 | Person | the memory's owner | rules on scope, recovery form and the rows nobody can settle |
 
-A lane never runs the full suite and is never its own final gate. The orchestrator reviews the diff, not the report.
-Keep each lane run short and resume a killed run by its session id rather than starting over.
+A builder never runs the full suite and is never its own final gate. The orchestrator reviews the diff, not the report.
+Keep each builder run short and resume a killed run by its session id rather than starting over.
 
 ## 3. The procedure
 
@@ -180,7 +180,7 @@ Write a topic file only for state, facts and references.
 - Bare `#N` PR numbers in index hooks under an engine older than 3.3.2, and a pre-commit hook pointing at a checkout
   on an old branch.
 - A dispute sheet that counts confidence or wording differences (it lists far more "pending" rows than real disputes).
-- A full test suite run while a lane is still editing the same tree; and a full suite run before review fixes land.
+- A full test suite run while a builder is still editing the same tree; and a full suite run before review fixes land.
 - Copying a whole repository with nested worktrees into a rehearsal (promote stages tracked files only).
 - Committing labelling bundles, which contain the memory's private text.
 - New index families or rule cards each cost a router line; check router headroom.

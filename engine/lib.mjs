@@ -115,7 +115,7 @@ export function read(file) {
     throw error;
   }
 }
-// Kit 3.3.5 R1: a read that a gate check newly reaches must not block on a FIFO, a device or a socket. True for a
+// A read that a gate check newly reaches must not block on a FIFO, a device or a socket. True for a
 // regular file, false when absent; anything else (a folder too) is refused before any read. stat follows links, so a link
 // to a regular file is a regular file.
 export function regularFileOrAbsent(file, label) {

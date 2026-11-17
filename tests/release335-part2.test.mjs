@@ -1,9 +1,9 @@
-// Kit 3.3.5 Part 2a: R1 (roadmap procedures and the no-rotation warning), R2 (hot-page reserve and router target) and
-// F1's gate change (the overview comparison ignores CRLF exactly as roadmap-overview --check does).
-// Written red first against the Part 2 base: every test here failed there, except R1-T9 (a deleted history file is
-// recreated), R2-T10c (a page with nothing in it stays quiet), F1-T21 (a real difference stays a WARN) and F1-T24 (an
-// unreadable overview stays an error), which pin behaviour that already held, or a degenerate case that must stay quiet. Each group names the one-token changes to its guard (mutants) that
-// make a test in it fail.
+// Kit 3.3.5 Part 2a: the roadmap procedures and the no-rotation warning, the hot-page reserve and router target, and the
+// gate's overview comparison, which ignores CRLF exactly as roadmap-overview --check does.
+// Four tests pin behaviour that already held, or a degenerate case that must stay quiet: a history file deleted between
+// two rotations is recreated, a page with nothing in it stays quiet, a real overview difference stays a WARN and an
+// unreadable overview stays an error. Each group names the one-token changes to its guard (mutants) that make a test in
+// it fail.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -54,14 +54,14 @@ const block = (date, size = 400) => `**${date} block ${date}**\n${'x'.repeat(siz
 const roadmap = (...blocks) => `# Roadmap\n\n## Open work\n\n${blocks.join('')}`;
 const severities = hits => hits.map(x => x.severity);
 
-// ---------------------------------------------------------------- R1: repo.roadmap-no-rotation
+// ---------------------------------------------------------------- the no-rotation warning: repo.roadmap-no-rotation
 // Mutants: `roadmapBytes > warnBytes` to `>=` (T2); `!(plan.bytesRemoved > 0)` to `>= 0` (T1, T2, T3, T4, T5, T7) or
 // without the `!` (T1, T3, T4); `write: false` to `write: true` (T5); `order !== undefined` to `===` (T1 to T7); the
 // planner-refusal id changed to the warning's id (T6); procedure cut `200` to `300` (T7), its type guard `!==` to `===`
 // (T7); a misspelt id in the memory-scope list (T8); the planner's `slice(0` to `slice(1` (T9); ROADMAPS left out of the
 // owned-file pattern (T18); the invalid-procedure id's severity WARN to FAIL (T7, T15).
 
-test('R1-T1 a roadmap with no Open work section over warnBytes warns, and repo.roadmap keeps its own size WARN', t => {
+test('a roadmap with no Open work section over warnBytes warns, and repo.roadmap keeps its own size WARN', t => {
   const f = setup(t);
   f.put(f.config.caps.roadmap.path, '# Roadmap\n\nNo dated blocks here.\n' + 'y'.repeat(1200) + '\n');
   const [warn] = f.hits('repo.roadmap-no-rotation');
@@ -76,7 +76,7 @@ test('R1-T1 a roadmap with no Open work section over warnBytes warns, and repo.r
   assert.equal(f.hits('repo.roadmap-rotation').length, 0);
 });
 
-test('R1-T2 boundary: exactly warnBytes is quiet, one byte over warns (no Open work, nothing to rotate)', t => {
+test('boundary: exactly warnBytes is quiet, one byte over warns (no Open work, nothing to rotate)', t => {
   const f = setup(t), warnBytes = f.config.caps.roadmap.warnBytes;
   const filled = n => '# Roadmap\n\n' + 'y'.repeat(n - 11);
   f.put(f.config.caps.roadmap.path, filled(warnBytes));
@@ -90,7 +90,7 @@ test('R1-T2 boundary: exactly warnBytes is quiet, one byte over warns (no Open w
   assert.deepEqual(f.ids().filter(id => id.startsWith('repo.roadmap')), []);
 });
 
-test('R1-T3 four blocks with keepBlocks 6 over warnBytes are rotatable: repo.roadmap warns, no-rotation does not', t => {
+test('four blocks with keepBlocks 6 over warnBytes are rotatable: repo.roadmap warns, no-rotation does not', t => {
   const f = setup(t);
   assert.equal(f.config.caps.roadmap.keepBlocks, 6);
   f.put(f.config.caps.roadmap.path, roadmap(block('2026-11-04'), block('2026-11-03'), block('2026-11-02'), block('2026-11-01')));
@@ -107,7 +107,7 @@ test('R1-T3 four blocks with keepBlocks 6 over warnBytes are rotatable: repo.roa
   assert.equal(f.hits('repo.roadmap-rotation').length, 0);
 });
 
-test('R1-T4 a roadmap still over after every removable block warns; one the planner can still shrink does not', t => {
+test('a roadmap still over after every removable block warns; one the planner can still shrink does not', t => {
   const f = setup(t);
   // Two blocks: the planner never removes the last two, so nothing is removable.
   f.put(f.config.caps.roadmap.path, roadmap(block('2026-11-02', 700), block('2026-11-01', 700)));
@@ -132,7 +132,7 @@ test('R1-T4 a roadmap still over after every removable block warns; one the plan
   assert.equal(f.hits('repo.roadmap-no-rotation').length, 1);
 });
 
-test('R1-T5 the gate plans without writes: the folder is byte-identical, history absent or present, rotatable or not', t => {
+test('the gate plans without writes: the folder is byte-identical, history absent or present, rotatable or not', t => {
   for (const history of [false, true]) for (const rotatable of [true, false]) {
     const f = setup(t), name = `history ${history}, rotatable ${rotatable}`;
     f.put(f.config.caps.roadmap.path, rotatable ? roadmap(block('2026-11-04'), block('2026-11-03'), block('2026-11-02'), block('2026-11-01')) : '# Roadmap\n\n' + 'y'.repeat(1700) + '\n');
@@ -152,7 +152,7 @@ test('R1-T5 the gate plans without writes: the folder is byte-identical, history
   }
 });
 
-test('R1-T6 invalid input keeps its own diagnostic: never the no-rotation warning', t => {
+test('invalid input keeps its own diagnostic: never the no-rotation warning', t => {
   const f = setup(t), over = () => f.put(f.config.caps.roadmap.path, roadmap(block('2026-11-03', 700), block('2026-11-02', 700), block('2026-11-01', 700)));
   over();
   // (a) keepBlocks below the planner's minimum, and a non-number
@@ -185,7 +185,7 @@ test('R1-T6 invalid input keeps its own diagnostic: never the no-rotation warnin
   assert.ok(!f.ids().includes('repo.roadmap-rotation'));
 });
 
-test('R1-T7 caps.roadmap.procedure changes the guidance, never the predicate', t => {
+test('caps.roadmap.procedure changes the guidance, never the predicate', t => {
   const f = setup(t);
   f.put(f.config.caps.roadmap.path, '# Roadmap\n\n' + 'y'.repeat(1200) + '\n');
   const plain = f.check().findings, base = plain.map(x => [x.check, x.severity, x.file, x.value]);
@@ -220,7 +220,7 @@ test('R1-T7 caps.roadmap.procedure changes the guidance, never the predicate', t
   }
 });
 
-test('R1-T8 the repo checks are evaluated only in the all scope, so allow entries are stale only there', t => {
+test('the repo checks are evaluated only in the all scope, so allow entries are stale only there', t => {
   const f = setup(t);
   f.put(f.config.caps.roadmap.path, '# Roadmap\n\nshort\n');
   for (const check of ['repo.roadmap-no-rotation', 'repo.roadmap-rotation']) {
@@ -237,7 +237,7 @@ test('R1-T8 the repo checks are evaluated only in the all scope, so allow entrie
   assert.deepEqual(f.ids({scope: 'memory'}).filter(id => id.startsWith('repo.roadmap')), []);
 });
 
-test('R1-T9 a history file deleted between two rotations is recreated with only the newly moved blocks', t => {
+test('a history file deleted between two rotations is recreated with only the newly moved blocks', t => {
   const f = setup(t);
   f.config.caps.roadmap.warnBytes = 1000000; f.config.caps.roadmap.failBytes = 2000000;
   const days = n => Array.from({length: n}, (_, i) => `2026-10-${String(i + 1).padStart(2, '0')}`);
@@ -276,7 +276,7 @@ function stubKind(t, target, kind = {isFile: () => false, isFIFO: () => true, is
   return {reads, restore};
 }
 
-test('R1-T22 a history destination that is not a regular file is refused before any read; an absent one is allowed', t => {
+test('a history destination that is not a regular file is refused before any read; an absent one is allowed', t => {
   const f = setup(t);
   f.put(f.config.caps.roadmap.path, roadmap(block('2026-11-04'), block('2026-11-03'), block('2026-11-02'), block('2026-11-01')));
   assert.equal(f.hits('repo.roadmap-rotation').length, 0, 'absent history on a rotatable roadmap: nothing to report');
@@ -298,7 +298,7 @@ test('R1-T22 a history destination that is not a regular file is refused before 
   assert.equal(f.hits('repo.roadmap-rotation').length, 0);
 });
 
-test('F1-T25 an overview path that is not a regular file is refused before any read', t => {
+test('an overview path that is not a regular file is refused before any read', t => {
   const f = overviewFixture(t);
   // The overview sits outside docs/ROADMAP*.md: the gate's own secret scan already reads every file of that name (before this
   // release too), so a path matching it would be read there first, at a site this release did not add.
@@ -318,7 +318,7 @@ test('F1-T25 an overview path that is not a regular file is refused before any r
   assert.equal(overviewFresh({repo: f.repo, config: f.config}), false);
 });
 
-// ---------------------------------------------------------------- R2: index.hot-reserve
+// ---------------------------------------------------------------- the hot-page reserve: index.hot-reserve
 // Mutants: `free < reserve` to `free <= reserve` (T10, T10b, T11, T12); `caps.index.hotReserveBytes` read as
 // `caps.index.pinSlackBytes` (T11); `split.total` to `split.pins` in the free-byte sum (T10, T10b, T11, T12); default
 // `1024` to `1025` (T12); a misspelt key in the validated-keys table (T12); shipped value 1024 to 1025 in the config or
@@ -339,7 +339,7 @@ function hotFixture(t, families = ['craft']) {
 }
 const reserveHits = f => f.hits('index.hot-reserve', {scope: 'memory'});
 
-test('R2-T10 a hot page with fewer than 1,024 bytes free before the recent-lesson fill warns; 1,024 does not', t => {
+test('a hot page with fewer than 1,024 bytes free before the recent-lesson fill warns; 1,024 does not', t => {
   const f = hotFixture(t), total = f.budgets().craft.total;
   assert.ok(total > 0);
   for (const [free, warns] of [[1023, true], [1024, false], [1025, false], [0, true], [-1, true], [1, true], [4000, false]]) {
@@ -358,7 +358,7 @@ test('R2-T10 a hot page with fewer than 1,024 bytes free before the recent-lesso
   }
 });
 
-test('R2-T10b the reserve is per hot page and counts only that page', t => {
+test('the reserve is per hot page and counts only that page', t => {
   const f = hotFixture(t, ['craft', 'ops']), totals = f.budgets();
   // Give each page a different budget slack by growing one family.
   f.put('lesson-099-example.md', `---\nname: lesson-099-example\ndescription: "${'x'.repeat(190)}"\nmetadata:\n  type: feedback\n  route: ops\n  pin: true\n---\nBody.\n`, f.memoryDir);
@@ -376,7 +376,7 @@ test('R2-T10b the reserve is per hot page and counts only that page', t => {
   assert.deepEqual(files(), []);
 });
 
-test('R2-T10c a family with no lessons has a tiny hot page: no reserve finding, nothing stale', t => {
+test('a family with no lessons has a tiny hot page: no reserve finding, nothing stale', t => {
   const f = hotFixture(t, ['craft']);
   f.put('MEMORY.md', '# Memory\n- [craft](INDEX-craft.md) OPEN BEFORE craft work.\n- [empty](INDEX-empty.md) OPEN BEFORE empty work.\n', f.memoryDir);
   writeMemoryIndex({memoryDir: f.memoryDir, config: f.config});
@@ -391,7 +391,7 @@ test('R2-T10c a family with no lessons has a tiny hot page: no reserve finding, 
 
 // Mutant: the free bytes measured on the final generated page (`Buffer.byteLength(expected.pages[...])`) instead of the
 // pre-fill `split.total`.
-test('R2-T22 the reserve is counted before the newest lessons fill the page: unpinned recent lessons never eat into it', t => {
+test('the reserve is counted before the newest lessons fill the page: unpinned recent lessons never eat into it', t => {
   const f = hotFixture(t);
   for (let i = 1; i <= 6; i++) f.put(`lesson-10${i}-recent.md`, `---\nname: lesson-10${i}-recent\ndescription: "Recent lesson ${i} with a sentence long enough to take real room on the page."\nmetadata:\n  type: feedback\n  route: craft\n---\nBody.\n`, f.memoryDir);
   const total = f.budgets().craft.total, page = () => Buffer.byteLength(fs.readFileSync(path.join(f.memoryDir, 'INDEX-craft.md'), 'utf8'));
@@ -412,7 +412,7 @@ test('R2-T22 the reserve is counted before the newest lessons fill the page: unp
   assert.deepEqual(reserveHits(f), []);
 });
 
-test('R2-T11 caps.index.hotReserveBytes is its own setting: pinSlackBytes and pinWarnRoomBytes never move it', t => {
+test('caps.index.hotReserveBytes is its own setting: pinSlackBytes and pinWarnRoomBytes never move it', t => {
   const f = hotFixture(t), total = f.budgets().craft.total;
   f.config.caps.index.hotBytes = total + 700;
   writeMemoryIndex({memoryDir: f.memoryDir, config: f.config});
@@ -432,7 +432,7 @@ test('R2-T11 caps.index.hotReserveBytes is its own setting: pinSlackBytes and pi
   }
 });
 
-test('R2-T12 the reserve default and validation: a missing key uses 1,024, an invalid one is a config.caps FAIL and uses 1,024', t => {
+test('the reserve default and validation: a missing key uses 1,024, an invalid one is a config.caps FAIL and uses 1,024', t => {
   const f = hotFixture(t), total = f.budgets().craft.total;
   f.config.caps.index.hotBytes = total + 1023;
   writeMemoryIndex({memoryDir: f.memoryDir, config: f.config});
@@ -457,7 +457,7 @@ test('R2-T12 the reserve default and validation: a missing key uses 1,024, an in
   assert.ok(result.findings.some(x => x.check === 'config.caps' && /^caps\.index has invalid value 5; using defaults$/.test(x.message)));
 });
 
-// ---------------------------------------------------------------- R2: router.target
+// ---------------------------------------------------------------- the router target: router.target
 // Mutants: `f.bytes > target` to `>=` (T13, T14); `!sized` to `sized` (T13, T14); `targetBytes ?? 11264` to `?? 11265`
 // (T14); a misspelt key in the validated-keys table (T14); severity WARN to FAIL (T13, T16); the id listed in NEW_CHECKS
 // (T15).
@@ -470,7 +470,7 @@ const routerState = (f, n) => {
   return found.map(x => `${x.check} ${x.severity}`);
 };
 
-test('R2-T13 router.target at target-1, target, target+1, warn, warn+1, fail, fail+1', t => {
+test('router.target at target-1, target, target+1, warn, warn+1, fail, fail+1', t => {
   const f = setup(t), targetBytes = 11264, warnBytes = 12288, failBytes = 16384;
   assert.deepEqual([f.config.caps.router.warnBytes, f.config.caps.router.failBytes], [warnBytes, failBytes]);
   const expected = [
@@ -492,7 +492,7 @@ test('R2-T13 router.target at target-1, target, target+1, warn, warn+1, fail, fa
   assert.match(hit.message, /move detail down a layer/);
 });
 
-test('R2-T14 router.target setting: default for a missing key, validation, a configured value, a target above warn', t => {
+test('router.target setting: default for a missing key, validation, a configured value, a target above warn', t => {
   const f = setup(t);
   delete f.config.caps.router.targetBytes;           // a configuration from before this release
   assert.deepEqual(routerState(f, 11264), []);
@@ -518,8 +518,8 @@ test('R2-T14 router.target setting: default for a missing key, validation, a con
     assert.deepEqual(routerState(f, bytes), want, `${bytes} bytes, custom limits`);
 });
 
-// ---------------------------------------------------------------- R2: defaults, severities, upgrade list
-test('R2-T15 shipped defaults, no new id in NEW_CHECKS, and a configuration from before this release gains no FAIL', t => {
+// ---------------------------------------------------------------- the new checks: defaults, severities, upgrade list
+test('shipped defaults, no new id in NEW_CHECKS, and a configuration from before this release gains no FAIL', t => {
   const shipped = json(path.join(kitRoot, 'engine/memory.config.json')).caps;
   for (const caps of [shipped, defaults.caps]) {
     assert.equal(caps.index.hotReserveBytes, 1024);
@@ -536,7 +536,7 @@ test('R2-T15 shipped defaults, no new id in NEW_CHECKS, and a configuration from
   assert.deepEqual(old.filter(x => x.severity === 'FAIL'), [], 'no FAIL from the missing keys');
   assert.deepEqual(old.map(x => [x.check, x.severity]), before.map(x => [x.check, x.severity]), 'the same findings as with the keys present');
   assert.deepEqual(old.filter(x => x.check.startsWith('config.')).map(x => x.check), before.filter(x => x.check.startsWith('config.')).map(x => x.check));
-  // What is NOT guaranteed, stated here so nobody reads this test as more: an invalid R2 number follows the existing
+  // What is NOT guaranteed, stated here so nobody reads this test as more: an invalid reserve or target number follows the existing
   // config.caps convention (a FAIL that upgrade's post-check can see); invalid procedure text is only a WARN.
   f.config.caps.index.hotReserveBytes = 0; f.config.caps.router.targetBytes = '11264'; f.config.caps.roadmap.procedure = null;
   const bad = f.check().findings;
@@ -544,7 +544,7 @@ test('R2-T15 shipped defaults, no new id in NEW_CHECKS, and a configuration from
   assert.deepEqual(bad.filter(x => x.check === 'config.roadmap-procedure').map(x => x.severity), ['WARN']);
 });
 
-test('R2-T16 the new checks are WARN only, whatever the size or the state', t => {
+test('the new checks are WARN only, whatever the size or the state', t => {
   const f = hotFixture(t), total = f.budgets().craft.total;
   const seen = [];
   const collect = () => { for (const x of f.check().findings) if (NEW_IDS.includes(x.check)) seen.push(x); };
@@ -563,7 +563,7 @@ test('R2-T16 the new checks are WARN only, whatever the size or the state', t =>
 // `caps.index.hotReserveBytes` instead of `reserve` (T20, T12); `roadmapBytes > caps.roadmap.warnBytes` to
 // `> (caps.roadmap.warnBytes ?? 0)` (T21); the planner's `keepBlocks ?? 6` to `?? 1` (T21).
 
-test('R2-T19 a router group without warnBytes (or with a junk one) reports router.target and never crashes', t => {
+test('a router group without warnBytes (or with a junk one) reports router.target and never crashes', t => {
   const f = setup(t);
   const text = routerBytes(11603);
   f.put('MEMORY.md', text, f.memoryDir);
@@ -614,7 +614,7 @@ const CAP_READS = [['router', 'warnBytes'], ['router', 'failBytes'], ['router', 
   ['roadmapHistory', 'path'], ['roadmapOverview', 'enabled']];
 const NEW_MESSAGE_IDS = ['router.target', 'index.hot-reserve', 'repo.roadmap-no-rotation'];
 
-test('R2-T20 no cap key missing from, or junk in, a present group can crash the gate or put a missing value in a new message', t => {
+test('no cap key missing from, or junk in, a present group can crash the gate or put a missing value in a new message', t => {
   let ran = 0, fired = new Set();
   for (const rotatable of [false, true]) {
     const f = degenerateScenario(t, rotatable);
@@ -647,7 +647,7 @@ test('R2-T20 no cap key missing from, or junk in, a present group can crash the 
   assert.deepEqual([...fired].sort(), [...NEW_MESSAGE_IDS].sort());
 });
 
-test('R2-T21 an absent limit means no limit: no roadmap size finding, no planner run, and a missing keepBlocks takes its default', t => {
+test('an absent limit means no limit: no roadmap size finding, no planner run, and a missing keepBlocks takes its default', t => {
   for (const rotatable of [false, true]) {
     const f = degenerateScenario(t, rotatable), name = rotatable ? 'rotatable' : 'unmovable';
     const ids = change => { const config = structuredClone(f.config); change(config.caps); return runCheck({memoryDir: f.memoryDir, repo: f.repo, config, today, noGit: true, scope: 'all'}).findings.map(x => x.check); };
@@ -673,7 +673,7 @@ test('R2-T21 an absent limit means no limit: no roadmap size finding, no planner
 });
 
 // ---------------------------------------------------------------- glossary and the procedures doc
-test('R2-T17 the glossary defines every new check id, caps key, module and flag', () => {
+test('the glossary defines every new check id, caps key, module and flag', () => {
   const text = read(path.join(kitRoot, 'docs/GLOSSARY.md'));
   const terms = new Map([...text.matchAll(/^\*\*([^*]+)\*\* - (.+)$/gm)].map(m => [m[1], m[2]]));
   for (const term of [...NEW_IDS, 'caps.checkpoint.mode', 'caps.roadmap.procedure', 'caps.index.hotReserveBytes', 'caps.router.targetBytes',
@@ -698,7 +698,7 @@ test('R2-T17 the glossary defines every new check id, caps key, module and flag'
   for (const flag of ['--session', '--all', '--files', '--files-only', '--memory-only', '--no-rotate', '--take']) assert.ok(parsed.includes(flag), flag + ' is a real checkpoint flag');
 });
 
-test('R1-T18 docs/ROADMAPS.md gives the three procedures and ships as a kit-owned file', () => {
+test('docs/ROADMAPS.md gives the three procedures and ships as a kit-owned file', () => {
   const file = path.join(kitRoot, 'docs/ROADMAPS.md'), text = read(file);
   assert.ok(!text.includes('\r'), 'LF');
   for (const heading of ['## Open work with dated blocks', '## An anchored block mover', '## Anything else'])
@@ -712,7 +712,7 @@ test('R1-T18 docs/ROADMAPS.md gives the three procedures and ships as a kit-owne
   assert.equal(json(path.join(kitRoot, 'MANIFEST.json')).files['docs/ROADMAPS.md'], hash(file), 'MANIFEST.json lists the current bytes');
 });
 
-// ---------------------------------------------------------------- F1 (gate part): CRLF and the overview
+// ---------------------------------------------------------------- the overview comparison (gate part): CRLF and the overview
 // Mutants: no `normalizeEol` on the stored side (T20, T22, T23) or on the generated side (T23) of overviewFresh; the shared
 // normalizeEol reading a lone CR as a line ending, `/\r\n/g` to `/\r\n?/g` (T22).
 
@@ -728,7 +728,7 @@ function overviewFixture(t) {
 }
 const crlf = text => text.replace(/\r?\n/g, '\r\n');
 
-test('F1-T20 an overview that differs only in line endings is fresh for the gate and for --check', t => {
+test('an overview that differs only in line endings is fresh for the gate and for --check', t => {
   const f = overviewFixture(t), output = f.generated();
   assert.ok(output.includes('\n') && !output.includes('\r'));
   for (const [name, stored] of [['LF', output], ['CRLF', crlf(output)], ['mixed', output.replace('\n', '\r\n')]]) {
@@ -741,7 +741,7 @@ test('F1-T20 an overview that differs only in line endings is fresh for the gate
   }
 });
 
-test('F1-T21 different content keeps the WARN in every line ending, and --check keeps exit 1', t => {
+test('different content keeps the WARN in every line ending, and --check keeps exit 1', t => {
   const f = overviewFixture(t), output = f.generated();
   const changed = output.replace('another item', 'another  item');
   assert.notEqual(changed, output);
@@ -759,7 +759,7 @@ test('F1-T21 different content keeps the WARN in every line ending, and --check 
   assert.equal(f.cliCheck().status, 1);
 });
 
-test('F1-T22 the gate and --check agree on every ending: only CRLF is normalised, a lone CR is a real difference', t => {
+test('the gate and --check agree on every ending: only CRLF is normalised, a lone CR is a real difference', t => {
   const f = overviewFixture(t), output = f.generated();
   assert.ok(output.includes('- one item\n- another item'), 'fixture line for the lone CR case');
   const cases = {
@@ -776,7 +776,7 @@ test('F1-T22 the gate and --check agree on every ending: only CRLF is normalised
   assert.deepEqual(verdicts, {'same': false, 'crlf': false, 'lone CR': true, 'crlf plus trailing CR': true, 'no final newline': true, 'bom + crlf': false, 'real change': true});
 });
 
-test('F1-T23 a CRLF roadmap: the overview the writer made, then stored with all-LF or all-CRLF endings, stays fresh for the gate and --check', t => {
+test('a CRLF roadmap: the overview the writer made, then stored with all-LF or all-CRLF endings, stays fresh for the gate and --check', t => {
   const f = overviewFixture(t);
   // A roadmap with Windows line endings: the generated text carries a carriage return inside its release lines, so it
   // is neither all-LF nor all-CRLF, while a checkout or an editor stores the overview in one ending or the other.
@@ -794,7 +794,7 @@ test('F1-T23 a CRLF roadmap: the overview the writer made, then stored with all-
   }
 });
 
-test('F1-T24 an overview path that is a folder is an error in the gate and in --check, not a stale verdict', t => {
+test('an overview path that is a folder is an error in the gate and in --check, not a stale verdict', t => {
   const f = overviewFixture(t);
   fs.mkdirSync(f.overviewPath(), {recursive: true});
   const found = f.stale();

@@ -212,7 +212,7 @@ test('promote compares individual probes even when probe ids repeat', t => {
   assert.deepEqual(hashes(f.root),before);
 });
 
-test('review1 non-promoted destinations leave body bytes identical', t=>{
+test('non-promoted destinations leave body bytes identical', t=>{
   const f=setup(t),file=path.join(f.memoryDir,'alpha-note.md');
   put(file,note('alpha-note','  date: 2026-01-02\n','Violet calibration [[undated]] [Detail](undated.md) `undated.md`\n').replaceAll('\n','\r\n'));
   const before=Buffer.from(migrate.rawBody(read(file))),r=promote({...f.options,write:true}),row=r.rows[1];
@@ -220,7 +220,7 @@ test('review1 non-promoted destinations leave body bytes identical', t=>{
   assert.deepEqual(Buffer.from(migrate.rawBody(read(path.join(f.memoryDir,row.new)))),before);
   assert.equal(r.proof.bodies[1].reversible,true);
 });
-test('review1 an unplanned body edit fails measured proof and restores every input', t=>{
+test('an unplanned body edit fails measured proof and restores every input', t=>{
   for(const edit of ['extra text','invalid bytes']) {
     const f=setup(t);
     if(edit==='invalid bytes') fs.appendFileSync(path.join(f.memoryDir,'beta-note.md'),'\uFFFD\n');
@@ -234,7 +234,7 @@ test('review1 an unplanned body edit fails measured proof and restores every inp
     });assert.deepEqual(hashes(f.root),before);
   }
 });
-test('review1 git rehearsal excludes untracked bulk and nested worktrees with visible cost', t=>{
+test('git rehearsal excludes untracked bulk and nested worktrees with visible cost', t=>{
   const f=setup(t); f.git(f.target,'add','AGENTS.md','.claude/settings.json');
   const before=hashes(f.root),baseline=promote(f.options);assert.deepEqual(hashes(f.root),before);
   assert.ok(baseline.rehearsal.files>0);assert.ok(baseline.rehearsal.bytes>0);
@@ -243,7 +243,7 @@ test('review1 git rehearsal excludes untracked bulk and nested worktrees with vi
   const polluted=hashes(f.root),r=promote(f.options);assert.deepEqual(r.rehearsal,baseline.rehearsal);assert.deepEqual(hashes(f.root),polluted);
   assert.equal(r.proof.recall.after[0].pass,true);assert.deepEqual(r.proof.gate.newFails,[]);
 });
-test('review1 non-git rehearsal skips nested repositories and node_modules', t=>{
+test('non-git rehearsal skips nested repositories and node_modules', t=>{
   const f=setup(t),repo=path.join(f.root,'plain-project');fs.mkdirSync(repo);
   for(const file of ['memory.config.json','recall-probes.json']) put(path.join(repo,'scripts/memory',file),read(path.join(f.target,'scripts/memory',file)));
   const options={...f.options,repo},baseline=promote(options);assert.ok(baseline.rehearsal.files>0);
@@ -252,7 +252,7 @@ test('review1 non-git rehearsal skips nested repositories and node_modules', t=>
   put(path.join(repo,'node_modules/c.txt'),'hidden');
   assert.deepEqual(promote(options).rehearsal,baseline.rehearsal);
 });
-test('review1 date precedence uses map metadata and body before migration timestamps', t=>{
+test('date precedence uses map metadata and body before migration timestamps', t=>{
   const f=setup(t);
   put(path.join(f.memoryDir,'alpha-note.md'),note('alpha-note','  modified: 2026-10-07T12:00:00Z\n','**What happened (2026-08-03).** Violet calibration\n'));
   put(path.join(f.memoryDir,'beta-note.md'),note('beta-note','  modified: 2026-10-06T12:00:00Z\n','**What happened (2026-07-02).**\n'));
@@ -264,19 +264,19 @@ test('review1 date precedence uses map metadata and body before migration timest
   assert.deepEqual(r.dates,{map:1,metadata:1,body:2,git:0,modified:0});
   assert.equal(parseFrontmatter(read(path.join(f.memoryDir,r.rows[0].new))).data.metadata.date,'2026-05-01');
 });
-test('review1 body dates ignore fenced code and stop after ten nonblank eligible lines', t=>{
+test('body dates ignore fenced code and stop after ten nonblank eligible lines', t=>{
   const f=setup(t);
   put(path.join(f.memoryDir,'alpha-note.md'),note('alpha-note','  modified: 2026-10-07T12:00:00Z\n','```md\n2020-01-01\n```\n~~~text\n2021-01-01\n~~~\n\n2026-08-03 Violet calibration\n'));
   put(path.join(f.memoryDir,'beta-note.md'),note('beta-note','  modified: 2026-10-06T12:00:00Z\n',Array.from({length:10},(_,i)=>`Line ${i}\n\n`).join('')+'2022-01-01\n'));
   const r=promote(f.options);assert.deepEqual(r.rows.map(r=>[r.date,r.date_source]),[['2026-08-03','body'],['2026-10-06','modified']]);
   for(const date of ['2026-02-30','2026-8-3',null]) {f.map.promote['alpha-note.md'].date=date;put(f.mapFile,JSON.stringify(f.map));assert.throws(()=>promote(f.options),/date/);}
 });
-test('review1 first git commit outranks metadata modified', t=>{
+test('first git commit outranks metadata modified', t=>{
   const f=setup(t);f.git(f.memoryDir,'init');f.git(f.memoryDir,'add','beta-note.md');
   ok(f.exec('git',['-C',f.memoryDir,'commit','-m','Fixture'],{env:{...f.env,GIT_AUTHOR_DATE:'2025-04-03T00:00:00Z',GIT_COMMITTER_DATE:'2025-04-03T00:00:00Z'}}));
   const r=promote(f.options);assert.equal(r.rows[0].date,'2025-04-03');assert.equal(r.rows[0].date_source,'git');assert.equal(r.dates.git,1);
 });
-test('review1 optional stubs preserve source endings and types and remain idempotent', t=>{
+test('optional stubs preserve source endings and types and remain idempotent', t=>{
   const f=setup(t);put(path.join(f.memoryDir,'beta-note.md'),read(path.join(f.memoryDir,'beta-note.md')).replace('metadata:\r\n  type: feedback','type: reference\r\nmetadata:'));
   const r=JSON.parse(ok(f.cli(['--stubs','--write'])).stdout);
   for(const row of r.rows) {

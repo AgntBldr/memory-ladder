@@ -1,7 +1,7 @@
 // Kit 3.3.7, part A2: a file that cannot be read is named once. readKitJSON used to put "cannot read <file>: " in front of
 // every error, including the one readRequired already words "cannot read <file>" or "cannot read <file> (not a regular
 // file)", so a special project memory.config.json printed "cannot read <file>: cannot read <file> (not a regular file)".
-// Written red first at the 3.3.6 base; each test names its mutant (the one small change that makes it fail).
+// Each test names its mutant (the one small change that makes it fail).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

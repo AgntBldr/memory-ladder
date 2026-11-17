@@ -158,7 +158,7 @@ test('kit measure writes configured evidence directory and default fallback', t 
   }
 });
 
-test('fix1 topic backgrounds are reachable without archive part entries', t => {
+test('topic backgrounds are reachable without archive part entries', t => {
   const f = fixture(t);
   f.put('ARCHIVE.md', '# Archive\n- [Parent](parent.md)\n');
   f.put('parent.md', f.topic('parent', 'Topic', '', '[Background](parent-background.md)'));
@@ -170,7 +170,7 @@ test('fix1 topic backgrounds are reachable without archive part entries', t => {
   finding(f.check(), 'link.dead', 'FAIL', 'parent-background.md');
 });
 
-test('fix1 unrooted topic cycles remain orphans', t => {
+test('unrooted topic cycles remain orphans', t => {
   const f = fixture(t);
   f.put('island.md', f.topic('island', 'Topic', '', '[Other](island-background.md)'));
   f.put('island-background.md', f.topic('island-background', 'Context', '', '[Parent](island.md)'));
@@ -182,10 +182,10 @@ import { snapshot, verify, distinctiveTokens } from './memory-conserve.mjs';
 import * as conserve from './memory-conserve.mjs';
 import { install, marker } from './install-hooks.mjs';
 
-// Stage 3 contracts: fixtures only; production implementations are loaded lazily
-// so absent CLIs produce individual red tests rather than hiding the suite.
-const stage3Module = name => import(pathToFileURL(path.join(toolDir, name)).href);
-function stage3Config(f) {
+// Tool fixtures: the tools are loaded lazily, so a missing CLI fails its own case
+// rather than hiding the suite.
+const loadTool = name => import(pathToFileURL(path.join(toolDir, name)).href);
+function withToolConfig(f) {
   f.config.caps.shelf = { path: 'docs/shelf', reviewDays: 90 };
   f.config.caps.brainShared = { paths: ['brain/_shared/'] };
   f.config.caps.roadmapOverview = { path: 'docs/ROADMAP-OVERVIEW.md' };
@@ -193,10 +193,10 @@ function stage3Config(f) {
   f.config.caps.brainLog.keepEntries = 20;
   return f;
 }
-const stage3Node = (id, extra = '') => `---\nid: ${id}\ntype: concept\nstatus: active\nupdated: 2026-10-22\nsummary: Useful summary\n${extra}---\nBody.\n`;
+const brainNodeText = (id, extra = '') => `---\nid: ${id}\ntype: concept\nstatus: active\nupdated: 2026-10-22\nsummary: Useful summary\n${extra}---\nBody.\n`;
 
-test('stage3 rotate routes out-of-order months, preserves bytes and preamble, appends and is idempotent', async t => {
-  const f = stage3Config(fixture(t)), { rotateLog } = await stage3Module('memory-rotate.mjs');
+test('rotate routes out-of-order months, preserves bytes and preamble, appends and is idempotent', async t => {
+  const f = withToolConfig(fixture(t)), { rotateLog } = await loadTool('memory-rotate.mjs');
   const preamble = '# Log\n\n', entries = ['## [2026-07-02] One\nπ  \n\n', '## [2026-06-01] Two\n\n', '## [2026-07-01] Three\n', '## [2026-10-22] Four\n'];
   f.putRepo('brain/00-system/log.md', preamble + entries.join(''));
   f.putRepo('brain/00-system/log-2026-07.md', '# Existing\n\n');
@@ -211,7 +211,7 @@ test('stage3 rotate routes out-of-order months, preserves bytes and preamble, ap
   assert.equal(fs.readFileSync(path.join(f.repo, 'brain/00-system/log-2026-06.md'), 'utf8'), '# Operation log — 2026-06\n\nRotated from log.md by scripts/memory/memory-rotate.mjs; append-only; the newest entries are in log.md.\n\n' + entries[1]);
   assert.equal(rotateLog({ ...opts, write: true }).moved, 0);
 });
-test('stage3 rotate CLI keep override and default keep, JSON and nothing to rotate', t => {
+test('rotate CLI keep override and default keep, JSON and nothing to rotate', t => {
   const f = fixture(t);
   f.putRepo('brain/00-system/log.md', '# Log\n' + Array.from({ length: 22 }, (_, i) => `## [2026-10-22] ${i}\n`).join(''));
   const dry = f.cli('memory-rotate.mjs', ['log', '--json']);
@@ -220,8 +220,8 @@ test('stage3 rotate CLI keep override and default keep, JSON and nothing to rota
   const second = f.cli('memory-rotate.mjs', ['log', '--keep', '2']);
   assert.equal(second.status, 0); assert.match(second.stdout, /nothing to rotate/);
 });
-test('stage3 rotate invalid dates name the line and refuse all writes', async t => {
-  const f = stage3Config(fixture(t)), { rotateLog } = await stage3Module('memory-rotate.mjs');
+test('rotate invalid dates name the line and refuse all writes', async t => {
+  const f = withToolConfig(fixture(t)), { rotateLog } = await loadTool('memory-rotate.mjs');
   for (const date of ['2026-02-30', '2026-13-01', 'not-a-date']) {
     const text = `# Log\n## [2026-01-01] Valid\n## [${date}] Invalid\n`;
     f.putRepo('brain/00-system/log.md', text);
@@ -230,15 +230,15 @@ test('stage3 rotate invalid dates name the line and refuse all writes', async t 
     assert.ok(!fs.existsSync(path.join(f.repo, 'brain/00-system/log-2026-01.md')));
   }
 });
-test('stage3 rotate ignores nested backtick and tilde fenced headings', async t => {
-  const f = stage3Config(fixture(t)), { rotateLog } = await stage3Module('memory-rotate.mjs');
+test('rotate ignores nested backtick and tilde fenced headings', async t => {
+  const f = withToolConfig(fixture(t)), { rotateLog } = await loadTool('memory-rotate.mjs');
   const text = '# Log\n## [2026-07-01] One\n````md\n## [invalid] hidden\n```\n## [2025-01-01] hidden too\n````\n~~~\n## [invalid] hidden\n~~~\n## [2026-10-22] Two\n';
   f.putRepo('brain/00-system/log.md', text);
   assert.equal(rotateLog({ ...f, keep: 1 }).moved, 1);
 });
 for (const [today, due] of [['2027-01-19', false], ['2027-01-20', true], ['2027-01-21', true]]) {
-  test(`stage3 shelf review ${today}`, t => {
-    const f = stage3Config(fixture(t));
+  test(`shelf review ${today}`, t => {
+    const f = withToolConfig(fixture(t));
     f.putRepo('docs/shelf/nested/program.md', '---\nstatus: shelved\nshelved: 2026-10-22\nreview: 2027-01-20\n---\nProgram\n');
     const r = runCheck({ ...f, scope: 'all', today });
     const found = r.findings.filter(x => x.check === 'shelf.review-due');
@@ -246,8 +246,8 @@ for (const [today, due] of [['2027-01-19', false], ['2027-01-20', true], ['2027-
     if (due) { assert.equal(found[0].severity, 'WARN'); assert.equal(found[0].message, 'review due 2027-01-20 (shelved 2026-10-22)'); }
   });
 }
-test('stage3 shelf rejects missing and invalid fields, absent shelf is quiet, today CLI', t => {
-  const f = stage3Config(fixture(t));
+test('shelf rejects missing and invalid fields, absent shelf is quiet, today CLI', t => {
+  const f = withToolConfig(fixture(t));
   assert.ok(!runCheck({ ...f, scope: 'all' }).findings.some(x => x.check.startsWith('shelf.')));
   for (const [key, value] of [['review', ''], ['review', '2027-02-30'], ['shelved', 'bad'], ['status', 'active']]) {
     const data = { status: 'shelved', shelved: '2026-10-22', review: '2027-01-20', [key]: value };
@@ -258,19 +258,19 @@ test('stage3 shelf rejects missing and invalid fields, absent shelf is quiet, to
   const r = f.cli('memory-check.mjs', ['--today', '2027-01-20', '--json']);
   finding(JSON.parse(r.stdout), 'shelf.review-due', 'WARN');
 });
-test('stage3 shared unresolved edges are external; local edges still warn; other checks still run', t => {
-  const f = stage3Config(fixture(t));
-  f.putRepo('brain/_shared/patterns/cpt-shared.md', stage3Node('cpt-shared', 'supports: ["[[pil-other]]"]\nstatus: active\n'));
+test('shared unresolved edges are external; local edges still warn; other checks still run', t => {
+  const f = withToolConfig(fixture(t));
+  f.putRepo('brain/_shared/patterns/cpt-shared.md', brainNodeText('cpt-shared', 'supports: ["[[pil-other]]"]\nstatus: active\n'));
   let result = runCheck({ ...f, scope: 'all' });
   assert.deepEqual(result.externalEdges, [{ file: 'brain/_shared/patterns/cpt-shared.md', key: 'supports', target: 'pil-other' }]);
   assert.ok(!result.findings.some(x => x.check === 'brain.edge')); finding(result, 'fm.parse', 'WARN');
-  f.putRepo('brain/03-knowledge/process/cpt-local.md', stage3Node('cpt-local', 'supports: ["[[pil-other]]"]\n'));
+  f.putRepo('brain/03-knowledge/process/cpt-local.md', brainNodeText('cpt-local', 'supports: ["[[pil-other]]"]\n'));
   finding(runCheck({ ...f, scope: 'all' }), 'brain.edge', 'WARN', 'brain/03-knowledge/process/cpt-local.md');
   assert.match(f.cli('memory-check.mjs').stdout, /1 external edges in shared folders \(owned by the shared core; see --json externalEdges\)/);
   assert.doesNotMatch(f.cli('memory-check.mjs', ['--session-start']).stdout, /external edges/);
 });
-test('stage3 overview deterministic release continuations, lists, programs, sorted shelf and history', async t => {
-  const f = stage3Config(fixture(t)), { generateOverview } = await stage3Module('roadmap-overview.mjs');
+test('overview deterministic release continuations, lists, programs, sorted shelf and history', async t => {
+  const f = withToolConfig(fixture(t)), { generateOverview } = await loadTool('roadmap-overview.mjs');
   f.putRepo('docs/ROADMAP.md', '# Roadmap\nLast updated: 2026-10-22\n  continuation\nCurrent release candidate: v1\n\n## Open work (today)\n### Needs action\n- **One**\n  - nested\n2. ' + 'x'.repeat(150) + '\n### Own work\n- Two\n## Active — program\n');
   f.putRepo('docs/ROADMAP-HISTORY.md', '# History\n## First\ntext\n## Last\n');
   for (const name of ['zeta', 'alpha']) f.putRepo(`docs/shelf/${name}.md`, `---\nname: ${name}\nshelved: 2026-10-22\nreview: 2027-01-20\nmoved_from: source-${name}\n---\n`);
@@ -282,8 +282,8 @@ test('stage3 overview deterministic release continuations, lists, programs, sort
   assert.ok(result.indexOf('| alpha |') < result.indexOf('| zeta |'));
   assert.match(result, /holds 2 sections; first "First", last "Last"/);
 });
-test('stage3 missing overview warns when source exists; write makes fresh, check does not write', async t => {
-  const f = stage3Config(fixture(t));
+test('missing overview warns when source exists; write makes fresh, check does not write', async t => {
+  const f = withToolConfig(fixture(t));
   f.putRepo('docs/ROADMAP.md', '# Roadmap\n');
   finding(runCheck({ ...f, scope: 'all' }), 'repo.roadmap-overview', 'WARN');
   assert.equal(f.cli('roadmap-overview.mjs', ['--check']).status, 1);
@@ -295,18 +295,18 @@ test('stage3 missing overview warns when source exists; write makes fresh, check
   assert.equal(f.cli('roadmap-overview.mjs', ['--check']).status, 1);
   assert.equal(fs.readFileSync(path.join(f.repo, 'docs/ROADMAP-OVERVIEW.md'), 'utf8'), 'stale');
 });
-test('stage3 index preserves frontmatter, uses node dates, counts, sorts and emits all nodes', async t => {
-  const f = stage3Config(fixture(t)), { generateIndex } = await stage3Module('brain-index.mjs');
+test('index preserves frontmatter, uses node dates, counts, sorts and emits all nodes', async t => {
+  const f = withToolConfig(fixture(t)), { generateIndex } = await loadTool('brain-index.mjs');
   const fm = '---\ncustom: "verbatim"\nupdated: 2000-01-01\n---';
   f.putRepo('brain/00-system/index.md', fm + '\nold');
   f.putRepo('brain/00-system/agents-background.md', '# Agent background\n');
-  f.putRepo('brain/01-pillars/pil-example.md', stage3Node('pil-example').replace('type: concept', 'type: pillar'));
-  for (const id of ['cpt-b', 'cpt-a', 'cpt-c', 'cpt-d']) f.putRepo(`brain/03-knowledge/process/${id}.md`, stage3Node(id));
-  f.putRepo('brain/02-projects/prj-one.md', stage3Node('prj-one').replace('type: concept', 'type: project'));
-  f.putRepo('brain/02-projects/tsk-one.md', stage3Node('tsk-one').replace('type: concept', 'type: task').replace('status: active', 'status: done'));
-  f.putRepo('brain/02-projects/evt-one.md', stage3Node('evt-one').replace('type: concept', 'type: event'));
-  f.putRepo('brain/_templates/cpt-hidden.md', stage3Node('cpt-hidden'));
-  f.putRepo('brain/_shared/patterns/cpt-shared.md', stage3Node('cpt-shared'));
+  f.putRepo('brain/01-pillars/pil-example.md', brainNodeText('pil-example').replace('type: concept', 'type: pillar'));
+  for (const id of ['cpt-b', 'cpt-a', 'cpt-c', 'cpt-d']) f.putRepo(`brain/03-knowledge/process/${id}.md`, brainNodeText(id));
+  f.putRepo('brain/02-projects/prj-one.md', brainNodeText('prj-one').replace('type: concept', 'type: project'));
+  f.putRepo('brain/02-projects/tsk-one.md', brainNodeText('tsk-one').replace('type: concept', 'type: task').replace('status: active', 'status: done'));
+  f.putRepo('brain/02-projects/evt-one.md', brainNodeText('evt-one').replace('type: concept', 'type: event'));
+  f.putRepo('brain/_templates/cpt-hidden.md', brainNodeText('cpt-hidden'));
+  f.putRepo('brain/_shared/patterns/cpt-shared.md', brainNodeText('cpt-shared'));
   const r = generateIndex(f);
   assert.ok(r.index.startsWith(fm.replace('2000-01-01', '2026-10-22')));
   assert.match(r.index, /9 typed nodes; 1 knowledge domains/);
@@ -319,7 +319,7 @@ test('stage3 index preserves frontmatter, uses node dates, counts, sorts and emi
 
 
 test('K.8 index omits every missing system page in configured and fallback lists', async t => {
-  const f = fixture(t), { generateIndex } = await stage3Module('brain-index.mjs');
+  const f = fixture(t), { generateIndex } = await loadTool('brain-index.mjs');
   f.putRepo('brain/00-system/AGENTS.md', '# System rules\n');
   for (const fallback of [false, true]) {
     if (fallback) delete f.config.caps.brainIndex.systemFiles;
@@ -332,8 +332,8 @@ test('K.8 index omits every missing system page in configured and fallback lists
 
 
 test('K.8 first index write counts the generated all-nodes link before accepting the byte cap', async t => {
-  const f = fixture(t), { generateIndex } = await stage3Module('brain-index.mjs');
-  f.putRepo('brain/03-knowledge/cpt-one.md', stage3Node('cpt-one'));
+  const f = fixture(t), { generateIndex } = await loadTool('brain-index.mjs');
+  f.putRepo('brain/03-knowledge/cpt-one.md', brainNodeText('cpt-one'));
   const original = '# Index\n\nStatic index, regenerated by scripts/memory/brain-index.mjs --write. old\n';
   f.putRepo('brain/00-system/index.md', original);
   f.config.caps.brainIndex.maxBytes = utf8Bytes(generateIndex(f).index);
@@ -347,9 +347,9 @@ test('K.8 first index write counts the generated all-nodes link before accepting
   assert.match(generateIndex(f).index, /\d+ more/);
 });
 
-test('stage3 index stale and fresh gate, CLI check, byte cap refuses both outputs', async t => {
-  const f = stage3Config(fixture(t)), { generateIndex } = await stage3Module('brain-index.mjs');
-  f.putRepo('brain/03-knowledge/process/cpt-one.md', stage3Node('cpt-one'));
+test('index stale and fresh gate, CLI check, byte cap refuses both outputs', async t => {
+  const f = withToolConfig(fixture(t)), { generateIndex } = await loadTool('brain-index.mjs');
+  f.putRepo('brain/03-knowledge/process/cpt-one.md', brainNodeText('cpt-one'));
   f.putRepo('brain/00-system/index.md', '[[cpt-one]] stale');
   assert.ok(runCheck({ ...f, scope: 'all' }).findings.some(x => x.check === 'repo.brain-index' && /stale/.test(x.message)));
   assert.equal(f.cli('brain-index.mjs', ['--check']).status, 1);
@@ -361,7 +361,7 @@ test('stage3 index stale and fresh gate, CLI check, byte cap refuses both output
   const config = f.putRepo('config.json', JSON.stringify(f.config));
   assert.equal(f.cli('brain-index.mjs', ['--write', '--config', config]).status, 1);
 });
-test('stage3 conserve file snapshot records extras, verify reuses and accepts additional files', t => {
+test('conserve file snapshot records extras, verify reuses and accepts additional files', t => {
   const f = fixture(t);
   f.putRepo('AGENTS.md', 'https://unique.invalid/extra-token\n');
   const base = snapshot({ ...f, extraFiles: ['AGENTS.md'] });
@@ -380,8 +380,8 @@ test('stage3 conserve file snapshot records extras, verify reuses and accepts ad
   assert.equal(f.cli('memory-conserve.mjs', ['verify', '--baseline', out]).status, 1);
 });
 
-test('F1 CRLF fences ignore headings and rotation preserves raw bytes by date', async t => {
-  const f = fixture(t), { rotateLog } = await stage3Module('memory-rotate.mjs');
+test('CRLF fences ignore headings and rotation preserves raw bytes by date', async t => {
+  const f = fixture(t), { rotateLog } = await loadTool('memory-rotate.mjs');
   const preamble = '# Log\r\n```md\r\n## [2026-01-01] x | y\r\n```\r\n';
   const entry = '## [2026-06-02] real\r\n~~~\r\n## [2026-01-01] x | y\r\n~~~\r\n';
   const text = preamble + entry + '## [2026-10-22] keep\r\n';
@@ -396,16 +396,16 @@ test('F1 CRLF fences ignore headings and rotation preserves raw bytes by date', 
   assert.equal(read(path.join(f.repo, 'brain/00-system/log.md')), preamble + '## [2026-10-22] keep\r\n');
 });
 
-test('F2 overview counts lettered items and singular, with Unicode truncation', async t => {
-  const f = fixture(t), { generateOverview } = await stage3Module('roadmap-overview.mjs');
+test('overview counts lettered items and singular, with Unicode truncation', async t => {
+  const f = fixture(t), { generateOverview } = await loadTool('roadmap-overview.mjs');
   f.putRepo('docs/ROADMAP.md', '## Open work\n### Single\n2a. **One**\n  - nested\n### Long\n- ' + 'x'.repeat(137) + '😀more\n');
   const output = generateOverview(f);
   assert.match(output, /### Single \(1 item\)\n2a\. One\n/);
   assert.ok(output.includes('- ' + 'x'.repeat(137) + '😀…'));
 });
 
-test('F2 overview shelf fallback, code-point order and path tie-break', async t => {
-  const f = fixture(t), { generateOverview } = await stage3Module('roadmap-overview.mjs');
+test('overview shelf fallback, code-point order and path tie-break', async t => {
+  const f = fixture(t), { generateOverview } = await loadTool('roadmap-overview.mjs');
   for (const [file, name, source] of [['fallback', '', 'fallback'], ['a', 'same', 'first'], ['b', 'same', 'second'], ['z', 'Z', 'upper'], ['lower', 'a', 'lower'], ['bmp', '\uE000', 'bmp'], ['astral', '😀', 'astral']]) {
     f.putRepo(`docs/shelf/${file}.md`, `---\n${name ? `name: ${name}\n` : ''}moved_from: ${source}\n---\n`);
   }
@@ -416,15 +416,15 @@ test('F2 overview shelf fallback, code-point order and path tie-break', async t 
   assert.ok(output.indexOf('| \uE000 |') < output.indexOf('| 😀 |'));
 });
 
-test('F2 overview history path comes from config', async t => {
-  const f = fixture(t), { generateOverview } = await stage3Module('roadmap-overview.mjs');
+test('overview history path comes from config', async t => {
+  const f = fixture(t), { generateOverview } = await loadTool('roadmap-overview.mjs');
   f.config.caps.roadmapHistory = { path: 'docs/custom-history.md' };
   f.putRepo('docs/custom-history.md', '# History\n## Custom\n');
   assert.match(generateOverview(f), /docs\/custom-history\.md holds 1 sections; first "Custom", last "Custom"/);
 });
 
 for (const [instant, due] of [['2027-01-19T23:30:00-05:00', true], ['2027-01-19T23:30:00Z', false]]) {
-  test(`F4 shelf UTC boundary ${instant}`, t => {
+  test(`shelf UTC boundary ${instant}`, t => {
     const f = fixture(t);
     f.putRepo('docs/shelf/program.md', '---\nstatus: shelved\nshelved: 2026-10-22\nreview: 2027-01-20\n---\n');
     const result = runCheck({ ...f, scope: 'all', now: new Date(instant) });
@@ -432,7 +432,7 @@ for (const [instant, due] of [['2027-01-19T23:30:00-05:00', true], ['2027-01-19T
   });
 }
 
-test('F5 shelf enforces configured reviewDays at 90 and 91 days', t => {
+test('shelf enforces configured reviewDays at 90 and 91 days', t => {
   const f = fixture(t);
   for (const [review, fails] of [['2027-01-20', false], ['2027-01-21', true]]) {
     f.putRepo('docs/shelf/program.md', `---\nstatus: shelved\nshelved: 2026-10-22\nreview: ${review}\n---\n`);
@@ -444,8 +444,8 @@ test('F5 shelf enforces configured reviewDays at 90 and 91 days', t => {
   assert.ok(!f.check('all').findings.some(x => x.check === 'shelf.frontmatter'));
 });
 
-test('F6 rotate skips exact destination suffix after interrupted append', async t => {
-  const f = fixture(t), { rotateLog } = await stage3Module('memory-rotate.mjs');
+test('rotate skips exact destination suffix after interrupted append', async t => {
+  const f = fixture(t), { rotateLog } = await loadTool('memory-rotate.mjs');
   const entries = ['## [2026-06-01] first\nraw  \n', '## [2026-06-02] second\n', '## [2026-06-03] third\n'];
   for (const completed of [1, 2, 3]) {
     f.putRepo('brain/00-system/log.md', '# Log\n' + entries.join(''));
@@ -455,8 +455,8 @@ test('F6 rotate skips exact destination suffix after interrupted append', async 
   }
 });
 
-test('F6 rotate separates an existing destination without a newline', async t => {
-  const f = fixture(t), { rotateLog } = await stage3Module('memory-rotate.mjs');
+test('rotate separates an existing destination without a newline', async t => {
+  const f = fixture(t), { rotateLog } = await loadTool('memory-rotate.mjs');
   const entry = '## [2026-06-01] first\n';
   f.putRepo('brain/00-system/log.md', '# Log\n' + entry);
   const dest = f.putRepo('brain/00-system/log-2026-06.md', '# Archive');
@@ -464,8 +464,8 @@ test('F6 rotate separates an existing destination without a newline', async t =>
   assert.equal(read(dest), '# Archive\n' + entry);
 });
 
-test('F6 rotate atomically replaces log through temp rename and preserves it on failure', async t => {
-  const f = fixture(t), { rotateLog } = await stage3Module('memory-rotate.mjs');
+test('rotate atomically replaces log through temp rename and preserves it on failure', async t => {
+  const f = fixture(t), { rotateLog } = await loadTool('memory-rotate.mjs');
   const original = '# Log\n## [2026-06-01] first\n', file = f.putRepo('brain/00-system/log.md', original);
   const rename = fs.renameSync.bind(fs), calls = [];
   let fail = true;
@@ -485,7 +485,7 @@ test('F6 rotate atomically replaces log through temp rename and preserves it on 
   assert.ok(calls.every(file => !fs.existsSync(file)));
 });
 
-test('F6 rotate CLI rejects invalid keep and accepts zero', t => {
+test('rotate CLI rejects invalid keep and accepts zero', t => {
   const f = fixture(t);
   f.putRepo('brain/00-system/log.md', '# Log\n');
   for (const value of ['-1', '1.5', 'NaN', 'Infinity', ' ', '9007199254740992']) {
@@ -495,10 +495,10 @@ test('F6 rotate CLI rejects invalid keep and accepts zero', t => {
   assert.equal(f.cli('memory-rotate.mjs', ['log', '--keep', '0']).status, 0);
 });
 
-test('F7 index discovers pillar by type and uses configured system files', async t => {
-  const f = fixture(t), { generateIndex } = await stage3Module('brain-index.mjs');
-  f.putRepo('brain/01-pillars/pil-custom.md', stage3Node('pil-custom').replace('type: concept', 'type: pillar'));
-  f.putRepo('brain/03-knowledge/cpt-fake.md', stage3Node('pil-example'));
+test('index discovers pillar by type and uses configured system files', async t => {
+  const f = fixture(t), { generateIndex } = await loadTool('brain-index.mjs');
+  f.putRepo('brain/01-pillars/pil-custom.md', brainNodeText('pil-custom').replace('type: concept', 'type: pillar'));
+  f.putRepo('brain/03-knowledge/cpt-fake.md', brainNodeText('pil-example'));
   f.config.caps.brainIndex.systemFiles = ['rules.md', 'custom-background.md'];
   for (const name of f.config.caps.brainIndex.systemFiles) f.putRepo('brain/00-system/' + name, '# System page\n');
   const index = generateIndex(f).index;
@@ -507,18 +507,18 @@ test('F7 index discovers pillar by type and uses configured system files', async
   assert.match(index, /## System\n- \[rules.md\]\(rules.md\)\n- \[custom-background.md\]\(custom-background.md\)/);
 });
 
-test('F7 index ignores malformed updated values for recency and frontmatter', async t => {
-  const f = fixture(t), { generateIndex } = await stage3Module('brain-index.mjs');
+test('index ignores malformed updated values for recency and frontmatter', async t => {
+  const f = fixture(t), { generateIndex } = await loadTool('brain-index.mjs');
   f.putRepo('brain/00-system/index.md', '---\nupdated: 2000-01-01\n---\n');
   for (const [id, date] of [['a', 'zzz'], ['b', '2026-10-22T23:00:00Z'], ['c', '2026-10-22'], ['d', '2026-10-21'], ['e', '2026-10-20']]) {
-    f.putRepo(`brain/03-knowledge/process/cpt-${id}.md`, stage3Node(`cpt-${id}`).replace('updated: 2026-10-22', `updated: ${date}`));
+    f.putRepo(`brain/03-knowledge/process/cpt-${id}.md`, brainNodeText(`cpt-${id}`).replace('updated: 2026-10-22', `updated: ${date}`));
   }
   const index = generateIndex(f).index;
   assert.match(index, /^---\nupdated: 2026-10-22\n---/);
   assert.match(index, /\*\*process\*\* \(5\): \[\[cpt-c\]\], \[\[cpt-d\]\], \[\[cpt-e\]\]/);
 });
 
-test('F7 shelf uses fmGet and accepts quoted review dates', t => {
+test('shelf uses fmGet and accepts quoted review dates', t => {
   const f = fixture(t);
   f.putRepo('docs/shelf/program.md', '---\nmetadata:\n  status: shelved\n  shelved: 2026-10-22\n  review: "2027-01-20"\n---\n');
   const result = runCheck({ ...f, scope: 'all', today: '2027-01-20' });
@@ -526,7 +526,7 @@ test('F7 shelf uses fmGet and accepts quoted review dates', t => {
   finding(result, 'shelf.review-due', 'WARN');
 });
 
-test('F8 overview generator errors warn without crashing gate', t => {
+test('overview generator errors warn without crashing gate', t => {
   const f = fixture(t), readdir = fs.readdirSync.bind(fs);
   f.putRepo('docs/ROADMAP.md', '# Roadmap\n');
   f.putRepo('docs/ROADMAP-OVERVIEW.md', 'stale');
@@ -540,15 +540,15 @@ test('F8 overview generator errors warn without crashing gate', t => {
   assert.match(finding(f.check('all'), 'repo.roadmap-overview', 'WARN').message, /overview test failure/);
 });
 
-test('F8 external edge filenames are redacted', t => {
+test('external edge filenames are redacted', t => {
   const f = fixture(t), fake = 'sk-' + 'a'.repeat(40);
-  f.putRepo(`brain/_shared/${fake}.md`, stage3Node('cpt-shared', 'supports: ["[[pil-other]]"]\n'));
+  f.putRepo(`brain/_shared/${fake}.md`, brainNodeText('cpt-shared', 'supports: ["[[pil-other]]"]\n'));
   const result = f.check('all');
   assert.equal(result.externalEdges[0].file, 'brain/_shared/[REDACTED:openai].md');
   assert.ok(!JSON.stringify(result).includes(fake));
 });
 
-test('F9 conserve default repo resolves without ReferenceError', t => {
+test('conserve default repo resolves without ReferenceError', t => {
   const f = fixture(t), exists = fs.existsSync.bind(fs);
   // Keep the default-repo path isolated from real content, including brain discovery.
   t.mock.method(fs, 'existsSync', file => path.resolve(file).startsWith(path.resolve(f.root) + path.sep) ? exists(file) : false);
@@ -557,7 +557,7 @@ test('F9 conserve default repo resolves without ReferenceError', t => {
   assert.throws(() => conserve.blocksSnapshot({ sources: ['missing.md'] }), /cannot read/);
 });
 
-test('F10 conversion skill preserves original-first, every destination and pre-adoption gates', t => {
+test('conversion skill preserves original-first, every destination and pre-adoption gates', t => {
   const { text, settings } = skillFixture(t, 'memory-ladder');
   const conversion = text.split('## Convert old memory with proof')[1].split('## Install')[0];
   assert.match(conversion, /Tag and snapshot the original FIRST/);
@@ -912,7 +912,7 @@ test('setup skill version absent file produces nothing', t => {
   assert.ok(!runCheck({ ...f, repo: path.join(f.repo, 'empty') }).findings.some(x => x.check === 'repo.skill-version'));
 });
 
-test('stage2 splitter preserves mixed headings, dates, letters, duplicates and every body byte', async t => {
+test('splitter preserves mixed headings, dates, letters, duplicates and every body byte', async t => {
   const { splitLessons } = await import('./memory-migrate.mjs');
   const body = '\r\nPreamble.\r\n**149 (2026-09-08). Alpha title.**\r\nA.\r\n**#149 (2026-09-09). Duplicate.**\r\nB.\r\n**149b. Explicit letter.**\r\nC.\r\n## 2026-08-25\r\n**54b Next title.**\r\nD.\r\n**#54c Another title.**\r\nE.\r\n## 94. Hash heading.\r\nF.\r\n**7. Plain title.**\r\n**5.4 GB** is not a lesson.\r\n';
   const result = splitLessons('---\r\nname: source\r\n---\r\n' + body);
@@ -932,7 +932,7 @@ test('stage2 splitter preserves mixed headings, dates, letters, duplicates and e
   }
 });
 
-test('stage2 splitter dry run, class indexes, stub and second-run no-op', async t => {
+test('splitter dry run, class indexes, stub and second-run no-op', async t => {
   const { migrateLessons } = await import('./memory-migrate.mjs');
   const f = fixture(t), source = 'lessons.md';
   const original = f.topic('source', 'Old', '', '**#8 (2026-10-21). Test source.**\nExact body.\n');
@@ -953,7 +953,7 @@ test('stage2 splitter dry run, class indexes, stub and second-run no-op', async 
   assert.equal(migrateLessons({ ...options, write: true }).noop, true);
 });
 
-test('stage2 splitter refuses malformed candidates, invalid classes and clobbers before writes', async t => {
+test('splitter refuses malformed candidates, invalid classes and clobbers before writes', async t => {
   const { migrateLessons } = await import('./memory-migrate.mjs');
   const f = fixture(t), source = 'lessons.md';
   f.put(source, f.topic('source', 'Old', '', '**#8 (2026-10-21). Test source.**\n**#9??? malformed\n'));
@@ -964,7 +964,7 @@ test('stage2 splitter refuses malformed candidates, invalid classes and clobbers
   assert.throws(() => migrateLessons({ memoryDir: f.memoryDir, write: true }), /exists/i);
 });
 
-for (const file of ['MEMORY.md', 'INDEX-craft-verification.md']) test(`stage2 lessons.cite ${file}`, t => {
+for (const file of ['MEMORY.md', 'INDEX-craft-verification.md']) test(`lessons.cite ${file}`, t => {
   const f = fixture(t); f.put(file, '# Activity\nlessons #54b, #54 and #999\n');
   assert.ok(!f.check().findings.some(x => x.check === 'lessons.cite'));
   f.put('lesson-054b-test.md', f.topic('lesson-054b-test'));
@@ -974,25 +974,25 @@ for (const file of ['MEMORY.md', 'INDEX-craft-verification.md']) test(`stage2 le
   assert.ok(!citations.some(x => x.message.includes('#54b ')));
 });
 
-for (const target of ['brain/03-knowledge/absent.md', 'elsewhere.md', 'brain/../outside.md']) test(`stage2 brain.pointer rejects ${target}`, t => {
+for (const target of ['brain/03-knowledge/absent.md', 'elsewhere.md', 'brain/../outside.md']) test(`brain.pointer rejects ${target}`, t => {
   const f = fixture(t); f.putRepo('outside.md', 'outside');
   f.put('topic.md', f.topic('topic', 'Fact', `brain: ${target}\n`));
   finding(f.check(), 'brain.pointer', 'FAIL', 'topic.md');
 });
 
-test('stage2 brain.pointer accepts existing brain file', t => {
+test('brain.pointer accepts existing brain file', t => {
   const f = fixture(t); f.putRepo('brain/03-knowledge/fct-topic.md', '---\nid: fct-topic\ntype: fact\n---\nFact');
   f.put('topic.md', f.topic('topic', 'Fact', 'type: project\nbrain: brain/03-knowledge/fct-topic.md\n'));
   assert.ok(!f.check().findings.some(x => /^brain.pointer/.test(x.check)));
 });
 
-for (const type of ['project', 'reference']) for (const suffix of ['', '-2026-10', '-2026-10-21']) test(`stage2 brain.pointer-missing ${type} ${suffix}`, t => {
+for (const type of ['project', 'reference']) for (const suffix of ['', '-2026-10', '-2026-10-21']) test(`brain.pointer-missing ${type} ${suffix}`, t => {
   const f = fixture(t); f.putRepo('brain/03-knowledge/node.md', `---\nid: fct-topic${suffix}\ntype: fact\n---\nFact`);
   f.put('topic.md', f.topic('topic', 'Fact', `metadata:\n  type: ${type}\n`));
   finding(f.check(), 'brain.pointer-missing', 'WARN', 'topic.md');
 });
 
-test('stage2 pointer warning does not fuzzy-match subjects or feedback', t => {
+test('pointer warning does not fuzzy-match subjects or feedback', t => {
   const f = fixture(t); f.putRepo('brain/03-knowledge/node.md', '---\nid: fct-other-topic-2026-10-21\ntype: fact\n---\nFact');
   f.put('topic.md', f.topic('topic', 'Fact', 'type: project\n'));
   assert.ok(!f.check().findings.some(x => x.check === 'brain.pointer-missing'));
@@ -1001,7 +1001,7 @@ test('stage2 pointer warning does not fuzzy-match subjects or feedback', t => {
   assert.ok(!f.check().findings.some(x => x.check === 'brain.pointer-missing'));
 });
 
-test('stage2 noGit skips every git invocation, reports incomplete coverage', t => {
+test('noGit skips every git invocation, reports incomplete coverage', t => {
   const f = fixture(t); fs.mkdirSync(path.join(f.memoryDir, '.git'));
   let calls = 0; t.mock.method(childProcess, 'execFileSync', () => { calls++; throw new Error('Forbidden'); });
   const result = runCheck({ ...f, noGit: true });
@@ -1009,13 +1009,13 @@ test('stage2 noGit skips every git invocation, reports incomplete coverage', t =
   assert.ok(!result.findings.some(x => x.check === 'config.allow-stale' && x.message.includes('repo.not-git')));
 });
 
-test('F2.1 next-line flow lists support trailing commas and apostrophes', () => {
+test('next-line flow lists support trailing commas and apostrophes', () => {
   const data = parseFrontmatter("---\nrelated_to:\n  [\n    '[[dec-a]]',\n    '[[dec-b]]',\n    owner's-rule,\n    'owner''s rule',\n  ]\nafter: intact\n---").data;
   assert.deepEqual(data.related_to, ['[[dec-a]]', '[[dec-b]]', "owner's-rule", "owner's rule"]);
   assert.equal(data.after, 'intact');
 });
 
-for (const nextLine of [false, true]) test(`F2.1 unclosed flow is linear over 8000 lines nextLine=${nextLine}`, t => {
+for (const nextLine of [false, true]) test(`unclosed flow is linear over 8000 lines nextLine=${nextLine}`, t => {
   const text = `---\nitems:${nextLine ? '\n  [' : ' ['}\n` + '  unfinished,\n'.repeat(8000) + 'next: intact\ntail: [\n  unfinished\n---\nBody';
   const start = performance.now(), result = parseFrontmatter(text), ms = performance.now() - start;
   assert.equal(result.data.items, '[');
@@ -1023,30 +1023,30 @@ for (const nextLine of [false, true]) test(`F2.1 unclosed flow is linear over 80
   assert.ok(ms < 200, `Parser took ${ms} ms`); t.diagnostic(`8000-line parser: ${ms.toFixed(2)} ms`);
 });
 
-test('F2.2 distinctive secret prefixes match escaped and embedded keys', t => {
+test('distinctive secret prefixes match escaped and embedded keys', t => {
   const f = fixture(t), key = secretExamples.anthropic;
   f.put('topic.md', f.topic('topic', 'Fact', '', ['\\n', 'KEY_', '%0A'].map(prefix => prefix + key).join('\n')));
   assert.equal(f.check().findings.filter(x => x.check === 'secret').length, 3);
   for (const prefix of ['\\n', 'KEY_', '%0A']) assert.equal(redact(prefix + key), prefix + '[REDACTED:anthropic]');
 });
 
-test('F2.2 all scope scans every brain markdown and repo instruction roadmap file', t => {
+test('all scope scans every brain markdown and repo instruction roadmap file', t => {
   const f = fixture(t), files = ['brain/top.md', 'brain/00-system/log.md', 'brain/.claude/SKILL.md', 'brain/_templates/node.md', 'brain/03-knowledge/README.md', 'brain/03-knowledge/node.md', 'AGENTS.md', 'CLAUDE.md', 'docs/ROADMAP.md', 'docs/ROADMAP-next.md'];
   for (const file of files) f.putRepo(file, secretExamples.anthropic);
   assert.deepEqual(f.check('all').findings.filter(x => x.check === 'secret').map(x => x.file).sort(), files.sort());
   assert.equal(f.check('memory').findings.filter(x => x.check === 'secret').length, 0);
 });
 
-test('F2.3 conserve extracts bare paths from markup line refs and fragments', () => {
+test('conserve extracts bare paths from markup line refs and fragments', () => {
   for (const [text, token] of [['[Index](INDEX-main.md)', 'INDEX-main.md'], ['**scripts/a.mjs**', 'scripts/a.mjs'], ['file.md:12', 'file.md'], ['file.md#sec', 'file.md'], ['href="foo/bar.json"', 'foo/bar.json'], ['`SKILL.md`', 'SKILL.md']]) assert.deepEqual(distinctiveTokens(text), [token]);
 });
 
-for (const [label, value] of [['null', ''], ['explicit-null', 'null'], ['empty', '""'], ['whitespace', '"   "'], ['number', '42'], ['boolean', 'true'], ['list', '[one]']]) test(`F2.4 desc.missing rejects ${label}`, t => {
+for (const [label, value] of [['null', ''], ['explicit-null', 'null'], ['empty', '""'], ['whitespace', '"   "'], ['number', '42'], ['boolean', 'true'], ['list', '[one]']]) test(`desc.missing rejects ${label}`, t => {
   const f = fixture(t); f.put('topic.md', `---\nname: topic\ndescription: ${value}\n---\nBody`);
   finding(f.check(), 'desc.missing', 'FAIL', 'topic.md');
 });
 
-for (const kind of ['empty', 'dot', 'directory', 'parent', 'absolute', 'memory-escape', 'brain-directory', 'brain-escape', 'number']) test(`F2.5 stub.target rejects ${kind}`, t => {
+for (const kind of ['empty', 'dot', 'directory', 'parent', 'absolute', 'memory-escape', 'brain-directory', 'brain-escape', 'number']) test(`stub.target rejects ${kind}`, t => {
   const f = fixture(t);
   f.put('folder/target.md', '# Target'); f.putRepo('brain/folder/target.md', '# Target');
   f.putRepo('outside.md', '# Outside'); fs.writeFileSync(path.join(f.root, 'x'), '# Outside');
@@ -1055,7 +1055,7 @@ for (const kind of ['empty', 'dot', 'directory', 'parent', 'absolute', 'memory-e
   finding(f.check(), 'stub.target', 'FAIL', 'stub.md');
 });
 
-test('F2.6 hook installer ignores global hooksPath', t => {
+test('hook installer ignores global hooksPath', t => {
   const f = fixture(t); fs.mkdirSync(path.join(f.memoryDir, '.git'));
   let calls = 0;
   t.mock.method(childProcess, 'execFileSync', (command, argv) => {
@@ -1068,7 +1068,7 @@ test('F2.6 hook installer ignores global hooksPath', t => {
   assert.ok(!fs.existsSync(path.join(f.root, 'global-hooks')));
 });
 
-for (const missing of ['file', 'check']) test(`F2.7 allowlist writer refuses invalid entry missing ${missing}`, t => {
+for (const missing of ['file', 'check']) test(`allowlist writer refuses invalid entry missing ${missing}`, t => {
   const f = fixture(t), entry = { check: 'router.line', file: 'MEMORY.md', reason: 'Baseline', added: '2026-10-21' };
   delete entry[missing]; f.config.allow.push(entry); f.put('MEMORY.md', 'x'.repeat(601));
   const configFile = f.putRepo('allow.json', JSON.stringify(f.config));
@@ -1080,17 +1080,17 @@ for (const missing of ['file', 'check']) test(`F2.7 allowlist writer refuses inv
   assert.equal(updated.allow.filter(x => x.check === 'router.line' && x.file === 'MEMORY.md').length, 0);
 });
 
-for (const words of ['cache caches', 'case cases', 'response responses', 'release releases', 'database databases', 'size sizes', 'name named names', 'use uses', 'rule rules', 'process processes', 'policy policies']) test(`F2.8 stems agree for ${words}`, () => {
+for (const words of ['cache caches', 'case cases', 'response responses', 'release releases', 'database databases', 'size sizes', 'name named names', 'use uses', 'rule rules', 'process processes', 'policy policies']) test(`stems agree for ${words}`, () => {
   const stems = words.split(' ').map(word => tokenize(word)[0]); assert.equal(new Set(stems).size, 1);
   assert.deepEqual(tokenize('status bus'), ['status', 'bus']);
 });
 
-for (const ceiling of [NaN, Infinity, -Infinity, -1]) test(`F2.9 config.allow rejects ceiling ${ceiling}`, t => {
+for (const ceiling of [NaN, Infinity, -Infinity, -1]) test(`config.allow rejects ceiling ${ceiling}`, t => {
   const f = fixture(t); f.config.allow.push({ check: 'router.line', file: 'MEMORY.md', ceiling, reason: 'Baseline', added: '2026-10-21' });
   finding(f.check(), 'config.allow', 'FAIL');
 });
 
-test('F2.9 memory allowlist write preserves repo scope entries', t => {
+test('memory allowlist write preserves repo scope entries', t => {
   const f = fixture(t), entries = ['repo.brain-log', 'repo.brain-index', 'repo.roadmap', 'repo.agents', 'brain.edge'].map(check => ({ check, file: 'absent', reason: 'Repo baseline', added: '2026-10-21' }));
   f.config.allow.push(...entries);
   const configFile = f.putRepo('allow.json', JSON.stringify(f.config));
@@ -1099,7 +1099,7 @@ test('F2.9 memory allowlist write preserves repo scope entries', t => {
   const updated = JSON.parse(read(configFile)); for (const entry of entries) assert.ok(updated.allow.some(x => JSON.stringify(x) === JSON.stringify(entry)));
 });
 
-for (const file of ['MEMORY.md', 'MEM*.md']) test(`F2.9 growth never duplicates or raises ceiling ${file}`, t => {
+for (const file of ['MEMORY.md', 'MEM*.md']) test(`growth never duplicates or raises ceiling ${file}`, t => {
   const f = fixture(t); f.put('MEMORY.md', read(path.join(f.memoryDir, 'MEMORY.md')) + 'x'.repeat(602));
   const entry = { check: 'router.line', file, ceiling: 601, reason: 'Baseline', added: '2026-10-21' }; f.config.allow.push(entry);
   const configFile = f.putRepo('allow.json', JSON.stringify(f.config));
@@ -1110,20 +1110,20 @@ for (const file of ['MEMORY.md', 'MEM*.md']) test(`F2.9 growth never duplicates 
   }
 });
 
-test('F2.9 secret filename is redacted in findings and largest stats', t => {
+test('secret filename is redacted in findings and largest stats', t => {
   const f = fixture(t), key = secretExamples.anthropic;
   f.put(key + '.md', f.topic('ordinary', 'Fact', '', 'x'.repeat(22000)));
   const result = f.check(); assert.ok(result.findings.some(x => x.file === '[REDACTED:anthropic].md'));
   assert.equal(result.stats.largest.file, '[REDACTED:anthropic].md'); assert.ok(!JSON.stringify(result).includes(key));
 });
 
-test('F2.9 secret allow reason is redacted', t => {
+test('secret allow reason is redacted', t => {
   const f = fixture(t); f.put('MEMORY.md', 'x'.repeat(601));
   f.config.allow.push({ check: 'router.line', file: 'MEMORY.md', reason: secretExamples.anthropic, added: '2026-10-21' });
   assert.equal(finding(f.check(), 'router.line', 'FAIL').reason, '[REDACTED:anthropic]');
 });
 
-test('F2.9 secret internal error is redacted', t => {
+test('secret internal error is redacted', t => {
   const f = fixture(t), output = [];
   t.mock.method(console, 'log', value => output.push(value));
   t.mock.method(fs, 'readFileSync', () => { throw new Error('Cannot read ' + secretExamples.anthropic); });
@@ -1131,7 +1131,7 @@ test('F2.9 secret internal error is redacted', t => {
   assert.deepEqual(output, ['memory-check: error Cannot read [REDACTED:anthropic]']);
 });
 
-test('F2.9 secret ceiling suffix is redacted', t => {
+test('secret ceiling suffix is redacted', t => {
   const f = fixture(t); f.put('MEMORY.md', 'x'.repeat(602));
   f.config.allow.push({ check: 'router.line', file: 'MEMORY.md', ceiling: 601, reason: 'Baseline', added: '2026-10-21' });
   // Inject at the numeric formatting boundary: config itself rejects string ceilings.
@@ -1139,30 +1139,30 @@ test('F2.9 secret ceiling suffix is redacted', t => {
   assert.ok(finding(f.check(), 'router.line', 'FAIL').message.endsWith('(grew past allowed ceiling [REDACTED:anthropic])'));
 });
 
-test('F2.9 single quoted values unescape doubled apostrophes', () => {
+test('single quoted values unescape doubled apostrophes', () => {
   assert.equal(parseFrontmatter("---\nname: 'owner''s rule'\n---").data.name, "owner's rule");
 });
 
-test('F2.9 hard rules also receive description checks', t => {
+test('hard rules also receive description checks', t => {
   const f = fixture(t); f.put('rule.md', '---\nname: rule\n---\nRule');
   finding(f.check(), 'desc.missing', 'FAIL', 'rule.md');
   f.put('rule.md', f.topic('rule', 'Newest: ' + 'x'.repeat(401)));
   finding(f.check(), 'desc.length', 'FAIL', 'rule.md'); finding(f.check(), 'desc.changelog', 'FAIL', 'rule.md');
 });
 
-test('F2.9 recall idf ranks rare above common at equal tf and length', () => {
+test('recall idf ranks rare above common at equal tf and length', () => {
   const doc = (name, word) => ({ path: name, terms: new Map([[tokenize(word)[0], 1]]), length: 1 });
   const result = search([doc('a-common', 'common'), doc('b-common', 'common'), doc('z-rare', 'rare')], 'common rare');
   assert.equal(result[0].path, 'z-rare'); assert.ok(result[0].score > result[1].score);
 });
 
-test('F2.9 recall length normalisation ranks shorter at equal tf', () => {
+test('recall length normalisation ranks shorter at equal tf', () => {
   const doc = (name, length) => ({ path: name, terms: new Map([['orchard', 1]]), length });
   const result = search([doc('a-long', 40), doc('z-short', 4)], 'orchard');
   assert.equal(result[0].path, 'z-short'); assert.ok(result[0].score > result[1].score);
 });
 
-for (const [field, weight] of [['name', 3], ['description', 2], ['id', 3], ['tags', 2], ['summary', 2], ['h1', 2]]) test(`F2.9 recall field weight ${field} beats body`, t => {
+for (const [field, weight] of [['name', 3], ['description', 2], ['id', 3], ['tags', 2], ['summary', 2], ['h1', 2]]) test(`recall field weight ${field} beats body`, t => {
   const f = fixture(t), brain = ['id', 'tags', 'summary'].includes(field);
   const text = (value, body) => `---\n${field === 'h1' ? 'name' : field}: ${value}\n---\n${body}`;
   if (brain) {
@@ -1177,20 +1177,20 @@ for (const [field, weight] of [['name', 3], ['description', 2], ['id', 3], ['tag
   const results = search([bodyDoc, fieldDoc], 'orchard'); assert.equal(results[0].path, fieldDoc.path); assert.ok(results[0].score > results[1].score);
 });
 
-test('F2.9 recall body window excludes term at char 500', t => {
+test('recall body window excludes term at char 500', t => {
   const f = fixture(t); f.put('late.md', f.topic('late', 'Useful', '', 'x'.repeat(500) + ' orchard'));
   f.put('early.md', f.topic('early', 'Useful', '', 'orchard ' + 'x'.repeat(500)));
   assert.deepEqual(search(buildCorpus(f), 'orchard').map(x => x.path), ['early.md']);
 });
 
-for (const source of ['memory', 'brain']) test(`F2.9 recall --${source}-only filters results`, t => {
+for (const source of ['memory', 'brain']) test(`recall --${source}-only filters results`, t => {
   const f = fixture(t); f.put('orchard.md', f.topic('orchard'));
   f.putRepo('brain/03-knowledge/orchard.md', '---\nid: orchard\nsummary: Orchard\n---\nBody');
   const result = f.cli('memory-recall.mjs', ['orchard', '--json', `--${source}-only`]); assert.equal(result.status, 0);
   assert.deepEqual(JSON.parse(result.stdout).map(x => x.path), [source === 'memory' ? 'orchard.md' : 'brain/03-knowledge/orchard.md']);
 });
 
-test('F2.9 measure even median averages the two middle values', t => {
+test('measure even median averages the two middle values', t => {
   const f = fixture(t); f.put('topic.md', f.topic('topic', 'Orchard', '', 'orchard')); f.put('rule.md', f.topic('rule', 'Orchard', '', 'orchard '.repeat(20)));
   const result = measure({ ...f, probesFile: f.probes([{ id: 'a', q: 'orchard', expect: ['topic.md'] }, { id: 'b', q: 'orchard', expect: ['rule.md'] }]) }).recall;
   for (const [field, median] of [['ladderBytes', 'medianLadderBytes'], ['searchBytes', 'medianSearchBytes']]) {
@@ -1199,7 +1199,7 @@ test('F2.9 measure even median averages the two middle values', t => {
   }
 });
 
-test('F2.9 conserve sha requires both hex letters and digits', () => {
+test('conserve sha requires both hex letters and digits', () => {
   assert.deepEqual(distinctiveTokens('deadbeef'), []); assert.deepEqual(distinctiveTokens('1234567'), []);
   assert.deepEqual(distinctiveTokens('a1b2c3d'), ['a1b2c3d']);
 });
@@ -1626,7 +1626,7 @@ test('1000-file gate fixture stays under the 5000 ms ceiling', t => {
 
 
 // Regression checks for parsing, paths and file handling.
-test('R1 frontmatter preserves raw quotes, paths, tabs and partial scalar shapes', () => {
+test('frontmatter preserves raw quotes, paths, tabs and partial scalar shapes', () => {
   const fm = parseFrontmatter(String.raw`---
 description: "the "STOP and report" clause and D:\work\x path"
 alternatives: [owner's call, b]
@@ -1644,7 +1644,7 @@ Body`);
   assert.equal(parseFrontmatter('---\nx: "a\tb"\n---').data.x, 'a\tb');
   assert.equal(fm.data.__error, undefined);
 });
-test('R1 frontmatter supports BOM CRLF trailing delimiters and both block lists', t => {
+test('frontmatter supports BOM CRLF trailing delimiters and both block lists', t => {
   const f = fixture(t);
   const text = '\uFEFF--- \r\ndescription: valid\r\na:\r\n- one\r\n- two\r\nb:\r\n  - three\r\n  - four\r\n---\t\r\nBody';
   const fm = parseFrontmatter(text);
@@ -1655,7 +1655,7 @@ test('R1 frontmatter supports BOM CRLF trailing delimiters and both block lists'
   assert.ok(!f.check().findings.some(x => ['fm.parse', 'desc.missing'].includes(x.check)));
   assert.ok(memoryFiles(f.memoryDir).find(x => x.file === 'rule.md').hardRule);
 });
-test('R1 frontmatter supports multiline flow lists, block scalars and object lists', () => {
+test('frontmatter supports multiline flow lists, block scalars and object lists', () => {
   const fm = parseFrontmatter(`---
 links: [
   "[[a]]",
@@ -1687,7 +1687,7 @@ after: retained
   assert.deepEqual(fm.data.edges, [{ type: 'supports', target: '[[pat-x]]' }, { type: 'depends_on', target: '[[pat-y]]' }]);
   assert.equal(fm.data.after, 'retained');
 });
-test('R1 fm.parse warns once per file and preserves understood fields', t => {
+test('fm.parse warns once per file and preserves understood fields', t => {
   const f = fixture(t), text = '---\nname: topic\n???\ndescription: retained\n!bad\n---\nBody';
   const fm = parseFrontmatter(text);
   assert.deepEqual(fm.data.__warnings, [{ line: 3, text: '???' }, { line: 5, text: '!bad' }]);
@@ -1700,7 +1700,7 @@ test('R1 fm.parse warns once per file and preserves understood fields', t => {
     assert.equal(result.findings.filter(x => x.check === 'fm.parse' && x.file === file).length, 1);
   }
 });
-test('R1 R12 desc.missing true positive and unclosed frontmatter negative', t => {
+test('desc.missing true positive and unclosed frontmatter negative', t => {
   const f = fixture(t); f.put('topic.md', '---\nname: topic\n---\nBody');
   finding(f.check(), 'desc.missing', 'FAIL', 'topic.md');
   f.put('topic.md', '---\nname: topic');
@@ -1807,7 +1807,7 @@ test('1000 files by 1000 allow entries stays under the 5000 ms ceiling', t => {
   assert.ok(result.stats.ms < 5000, `Gate took ${result.stats.ms} ms`);
   t.diagnostic(`1000 files x 1000 entries: ${result.stats.ms} ms`);
 });
-test('R4 isDirect resolves both real paths including Windows case differences', t => {
+test('isDirect resolves both real paths including Windows case differences', t => {
   const f = fixture(t), original = process.argv[1], calls = [];
   const alias = path.join(f.root, 'junction', 'check.mjs'), actual = path.join(f.root, 'real', 'check.mjs');
   process.argv[1] = alias; t.after(() => { process.argv[1] = original; });
@@ -1819,7 +1819,7 @@ test('R4 isDirect resolves both real paths including Windows case differences', 
   assert.ok(calls.includes(alias));
   assert.ok(calls.includes(actual));
 });
-test('R5 stubs resolve string and list targets in memory and repo brain', t => {
+test('stubs resolve string and list targets in memory and repo brain', t => {
   const f = fixture(t); f.putRepo('brain/03-knowledge/target.md', '# Target');
   f.put('stub.md', f.topic('stub', 'Moved.', 'moved_to: [topic.md, brain/03-knowledge/target.md]\n'));
   assert.ok(!f.check().findings.some(x => x.check === 'stub.target'));
@@ -1828,7 +1828,7 @@ test('R5 stubs resolve string and list targets in memory and repo brain', t => {
   f.put('stub.md', f.topic('stub', 'Moved.', 'moved_to: [topic.md, brain/absent.md, absent.md]\n'));
   assert.equal(f.check().findings.filter(x => x.check === 'stub.target' && x.severity === 'FAIL').length, 2);
 });
-test('R5 Windows path spelling resolves links orphans hard rules and measure ladder', t => {
+test('Windows path spelling resolves links orphans hard rules and measure ladder', t => {
   const f = fixture(t), spelling = file => process.platform === 'win32' ? '.\\' + file.toUpperCase() : './' + file;
   f.put('MEMORY.md', `## Hard rules\n[Rule](${spelling('rule.md')})\n## Topics\n[Index](${spelling('INDEX-main.md')})`);
   f.put('INDEX-main.md', `[Topic](${spelling('topic.md')})`);
@@ -1838,7 +1838,7 @@ test('R5 Windows path spelling resolves links orphans hard rules and measure lad
   assert.equal(measured.recall.probes[0].ladderFile, 'topic.md');
   if (process.platform === 'win32') assert.equal(pathKey(f.memoryDir, '.\\TOPIC.md'), pathKey(f.memoryDir, 'topic.md'));
 });
-test('R6 slug replaces every nonalphanumeric and lookup keeps case fallback and override', t => {
+test('slug replaces every nonalphanumeric and lookup keeps case fallback and override', t => {
   const f = fixture(t), old = process.env.CLAUDE_MEMORY_DIR;
   delete process.env.CLAUDE_MEMORY_DIR;
   t.after(() => { if (old === undefined) delete process.env.CLAUDE_MEMORY_DIR; else process.env.CLAUDE_MEMORY_DIR = old; });
@@ -1855,32 +1855,32 @@ test('R6 slug replaces every nonalphanumeric and lookup keeps case fallback and 
   assert.equal(memoryDir(repo), lower);
   process.env.CLAUDE_MEMORY_DIR = f.memoryDir; assert.equal(memoryDir(repo), f.memoryDir);
 });
-test('R7 brain discovery skips helper filenames in every case', t => {
+test('brain discovery skips helper filenames in every case', t => {
   const f = fixture(t);
   for (const name of ['README.md', '_Manifest.MD', 'InDeX.md', 'node.md']) f.putRepo(`brain/03-knowledge/${name}`, 'body');
   assert.deepEqual(brainPaths(f.repo), ['03-knowledge/node.md']);
 });
-test('R7 brain duplicate ids ignore mirror pairs but retain duplicates within each side', t => {
+test('brain duplicate ids ignore mirror pairs but retain duplicates within each side', t => {
   const f = fixture(t), node = '---\nid: fct-same\ntype: fact\n---\nBody';
   f.putRepo('brain/03-knowledge/a.md', node); f.putRepo('brain/_shared/a.md', node);
   assert.ok(!f.check('all').findings.some(x => x.check === 'brain.duplicate-id'));
   f.putRepo('brain/03-knowledge/b.md', node); f.putRepo('brain/_shared/b.md', node);
   assert.equal(f.check('all').findings.filter(x => x.check === 'brain.duplicate-id' && x.severity === 'FAIL').length, 2);
 });
-test('R7 brain.edge reads object-list targets as well as flat fields', t => {
+test('brain.edge reads object-list targets as well as flat fields', t => {
   const f = fixture(t);
   f.putRepo('brain/03-knowledge/a.md', '---\nid: fct-a\ntype: fact\nedges:\n  - type: supports\n    target: "[[missing-object]]"\n  - type: supports\n    target: "[[fct-a]]"\nsupports: ["[[missing-flat]]"]\n---');
   const edges = f.check('all').findings.filter(x => x.check === 'brain.edge');
   assert.equal(edges.length, 2); assert.ok(edges.every(x => x.severity === 'WARN'));
   assert.ok(edges.some(x => x.message.includes('missing-object'))); assert.ok(edges.some(x => x.message.includes('missing-flat')));
 });
-test('R8 stemming handles plurals suffixes and expanded stopwords', () => {
+test('stemming handles plurals suffixes and expanded stopwords', () => {
   for (const [one, many] of [['rule', 'rules'], ['type', 'types'], ['name', 'names'], ['run', 'runs'], ['process', 'processes'], ['policy', 'policies'], ['push', 'pushes']]) assert.deepEqual(tokenize(many), tokenize(one));
   assert.deepEqual(tokenize('status bus'), ['status', 'bus']);
   assert.deepEqual(tokenize('how why what when where which who whom do does did should would could can i we you my our'), []);
   assert.deepEqual(tokenize('running tested'), ['runn', 'test']);
 });
-test('R8 name matches outrank body matches and stubs are excluded', t => {
+test('name matches outrank body matches and stubs are excluded', t => {
   const f = fixture(t);
   f.put('orchard.md', f.topic('orchard', 'Useful.', '', 'Plain text'));
   f.put('body.md', f.topic('body', 'Useful.', '', 'orchard text'));
@@ -1888,20 +1888,20 @@ test('R8 name matches outrank body matches and stubs are excluded', t => {
   const corpus = buildCorpus(f);
   assert.ok(!corpus.some(x => x.path === 'stub.md')); assert.equal(search(corpus, 'orchard')[0].path, 'orchard.md');
 });
-test('R8 probe counts only top three even when fourth result matches', t => {
+test('probe counts only top three even when fourth result matches', t => {
   const f = fixture(t);
   for (const name of ['a', 'b', 'c', 'd']) f.put(`${name}.md`, f.topic(name, 'orchard', '', ''));
   const corpus = buildCorpus(f); assert.equal(search(corpus, 'orchard', 4)[3].path, 'd.md');
   const result = runProbes({ corpus, probes: { probes: [{ id: 'p', q: 'orchard', expect: ['d.md'] }] } })[0];
   assert.equal(result.pass, false); assert.equal(result.results.length, 3);
 });
-test('R8 probe CLI rounds percentages and reports missing files without JSON stack', t => {
+test('probe CLI rounds percentages and reports missing files without JSON stack', t => {
   const f = fixture(t), probesFile = f.putRepo('probes.json', JSON.stringify({ version: 1, minPass: 0.57, probes: [] }));
   assert.match(f.cli('memory-recall.mjs', ['--probe', probesFile]).stdout, /minPass 57%/);
   const missing = path.join(f.root, 'missing.json'), result = f.cli('memory-recall.mjs', ['--probe', missing]);
   assert.equal(result.status, 1); assert.equal(result.stderr.trim(), `recall probes: file not found: ${missing}`);
 });
-test('R9 hook skips repo status checks but retains stale checks', t => {
+test('hook skips repo status checks but retains stale checks', t => {
   const f = fixture(t), calls = fakeGit(t, f, { remote: '', status: ' M topic.md', 'rev-list': '20', log: '\0' + '2026-01-01\ntopic.md\n' });
   f.put('topic.md', f.topic('topic', 'A reference.', 'metadata:\n  type: reference\n')); // stale checks cover project/reference types.
   const result = runCheck({ ...f, scope: 'memory', hook: true, now: '2026-10-21' });
@@ -1909,7 +1909,7 @@ test('R9 hook skips repo status checks but retains stale checks', t => {
   assert.ok(!calls.some(x => ['remote', 'status', 'rev-list'].includes(x[0])));
   finding(result, 'stale', 'WARN', 'topic.md');
 });
-test('R9 hook allows internal errors and rejects ordinary staged FAIL findings', t => {
+test('hook allows internal errors and rejects ordinary staged FAIL findings', t => {
   const f = fixture(t), bad = f.putRepo('bad.json', '{');
   const error = f.cli('memory-check.mjs', ['--hook', '--scope', 'memory', '--config', bad]);
   assert.equal(error.status, 0); assert.match(error.stdout, /^memory gate: error: /); // Only snapshot extraction errors block.
@@ -1919,7 +1919,7 @@ test('R9 hook allows internal errors and rejects ordinary staged FAIL findings',
   const fail = f.cli('memory-check.mjs', ['--hook', '--scope', 'memory']);
   assert.equal(fail.status, 1); assert.match(fail.stdout, /FAIL router.line/);
 });
-test('R9 hook honors configured relative and absolute hooksPath with portable shell paths', t => {
+test('hook honors configured relative and absolute hooksPath with portable shell paths', t => {
   const f = fixture(t); fs.mkdirSync(path.join(f.memoryDir, '.git'));
   f.putRepo('scripts/memory/memory-check.mjs', '// Installed gate fixture.\n');
   for (const configured of ['custom-hooks', path.join(f.root, 'absolute-hooks')]) {
@@ -1934,21 +1934,21 @@ test('R9 hook honors configured relative and absolute hooksPath with portable sh
     assert.ok(text.indexOf('command -v node') < text.indexOf('\nnode '));
   }
 });
-test('R9 state headings cannot cross line boundaries', t => {
+test('state headings cannot cross line boundaries', t => {
   const f = fixture(t);
   f.put('topic.md', f.topic('topic', 'State', 'state: true\n', '#\nRESUME\n#\nCURRENT\n'));
   assert.ok(!f.check().findings.some(x => x.check === 'state.headings'));
   f.put('topic.md', f.topic('topic', 'State', 'state: true\n', '#\tRESUME\n## CURRENT\n'));
   assert.equal(finding(f.check(), 'state.headings', 'FAIL').value, 2);
 });
-test('R9 stale skips router indexes archive and disables git path quoting', t => {
+test('stale skips router indexes archive and disables git path quoting', t => {
   const f = fixture(t), calls = fakeGit(t, f, { log: '\0' + '2026-01-01\nMEMORY.md\nINDEX-main.md\nARCHIVE.md\ntopic.md\n' });
   f.put('topic.md', f.topic('topic', 'A reference.', 'metadata:\n  type: reference\n')); // stale checks cover project/reference types.
   const items = f.check().findings.filter(x => x.check === 'stale');
   assert.deepEqual(items.map(x => x.file), ['topic.md']);
   assert.ok(calls.some(x => x[0] === '-c' && x[1] === 'core.quotepath=off' && x[2] === 'log'));
 });
-test('R10 conserve path scanning is linear and trims path URL punctuation', t => {
+test('conserve path scanning is linear and trims path URL punctuation', t => {
   const start = performance.now(), tokens = distinctiveTokens('x'.repeat(30000));
   const ms = performance.now() - start; assert.ok(ms < 100, `Conserve took ${ms} ms`); assert.deepEqual(tokens, []);
   t.diagnostic(`30000-char conserve: ${ms.toFixed(2)} ms`);
@@ -1956,12 +1956,12 @@ test('R10 conserve path scanning is linear and trims path URL punctuation', t =>
   assert.ok(found.includes('scripts/a.tsx')); assert.ok(found.includes('scripts/b.mjs')); assert.ok(found.includes('https://example.test/a'));
   assert.ok(!distinctiveTokens('x'.repeat(201) + '.md').some(x => x.endsWith('.md')));
 });
-test('R10 conserve ignores originSessionId modified frontmatter but retains body tokens', () => {
+test('conserve ignores originSessionId modified frontmatter but retains body tokens', () => {
   const tokens = distinctiveTokens('---\noriginSessionId: abc1234\nmodified: 2026-09-01\nkeep: 2026-08-01\n---\nmodified: 2026-10-01');
   assert.ok(!tokens.includes('abc1234')); assert.ok(!tokens.includes('2026-09-01'));
   assert.ok(tokens.includes('2026-08-01')); assert.ok(tokens.includes('2026-10-01'));
 });
-test('R11 forgetting uses explicit date or body date and narrow correction markers', t => {
+test('forgetting uses explicit date or body date and narrow correction markers', t => {
   const f = fixture(t);
   const lessons = [
     ['date: 2026-06-01\nmodified: 2026-01-01\n', '2026-07-01 same mistake'],
@@ -1974,46 +1974,46 @@ test('R11 forgetting uses explicit date or body date and narrow correction marke
   assert.equal(result.lessonsParsed, 5); assert.equal(result.corrections, 3);
   assert.deepEqual(result.correctionsPerMonth, { '2026-06': 1, '2026-08': 1, '2026-09': 1 });
 });
-test('R12 router.missing name.mismatch and link.orphan positive checks', t => {
+test('router.missing name.mismatch and link.orphan positive checks', t => {
   const f = fixture(t); fs.unlinkSync(path.join(f.memoryDir, 'MEMORY.md'));
   finding(f.check(), 'router.missing', 'FAIL', 'MEMORY.md');
   f.put('orphan.md', f.topic('different'));
   const result = f.check(); finding(result, 'name.mismatch', 'WARN', 'orphan.md'); finding(result, 'link.orphan', 'WARN', 'orphan.md');
 });
-test('R12 index.size and archive.line positive checks carry measurements', t => {
+test('index.size and archive.line positive checks carry measurements', t => {
   const f = fixture(t); f.put('INDEX-main.md', 'x'.repeat(24577)); f.put('ARCHIVE.md', 'x'.repeat(301));
   const result = f.check(); assert.equal(finding(result, 'index.size', 'FAIL').value, 24577);
   assert.equal(finding(result, 'archive.line', 'FAIL').value, 301);
 });
-for (const [key, id, severity] of [['brainLog', 'repo.brain-log', 'FAIL'], ['roadmap', 'repo.roadmap', 'FAIL'], ['agents', 'repo.agents', 'WARN']]) test(`R12 ${id} positive size check`, t => {
+for (const [key, id, severity] of [['brainLog', 'repo.brain-log', 'FAIL'], ['roadmap', 'repo.roadmap', 'FAIL'], ['agents', 'repo.agents', 'WARN']]) test(`positive size check for ${id}`, t => {
   const f = fixture(t), cap = f.config.caps[key], bytes = (cap.failBytes ?? cap.warnBytes) + 1;
   f.putRepo(cap.path, 'x'.repeat(bytes)); assert.equal(finding(f.check('all'), id, severity).value, bytes);
   assert.ok(!f.check().findings.some(x => x.check === id));
 });
-test('R12 repo.brain-index positive and resolved cases', t => {
+test('repo.brain-index positive and resolved cases', t => {
   const f = fixture(t); f.putRepo('brain/03-knowledge/fct-example.md', '---\nid: fct-example\ntype: fact\n---\n'); f.putRepo(f.config.caps.brainIndex.path, '# Empty');
   finding(f.check('all'), 'repo.brain-index', 'WARN');
   f.putRepo(f.config.caps.brainIndex.path, '[[fct-example]]');
   assert.ok(!f.check('all').findings.some(x => x.check === 'repo.brain-index' && /no wikilinks/.test(x.message)));
 });
-for (const [file, capKey, id, extra] of [['MEMORY.md', 'router', 'router.size', ''], ['topic.md', 'topic', 'topic.size', ''], ['topic.md', 'state', 'state.size', 'state: true\n'], ['rule.md', 'hardRule', 'hardrule.size', '']]) test(`R12 ${id} warning branch carries bytes`, t => {
+for (const [file, capKey, id, extra] of [['MEMORY.md', 'router', 'router.size', ''], ['topic.md', 'topic', 'topic.size', ''], ['topic.md', 'state', 'state.size', 'state: true\n'], ['rule.md', 'hardRule', 'hardrule.size', '']]) test(`${id} warning branch carries bytes`, t => {
   const f = fixture(t), target = f.config.caps[capKey].warnBytes + 1;
   const base = file === 'MEMORY.md' ? '# Router\n' : f.topic(file.slice(0, -3), 'Useful', extra);
   f.put(file, base + 'x'.repeat(target - utf8Bytes(base)));
   assert.equal(finding(f.check(), id, 'WARN', file).value, target);
 });
-test('R12 index.pin room warning and description length warning carry values', t => {
+test('index.pin room warning and description length warning carry values', t => {
   const f = fixture(t), bytes = fs.statSync(path.join(f.memoryDir, 'INDEX-main.md')).size;
   f.config.pins['INDEX-main.md'] = bytes + 399; f.put('topic.md', f.topic('topic', 'x'.repeat(201)));
   const result = f.check(); assert.equal(finding(result, 'index.pin', 'WARN').value, bytes);
   assert.equal(finding(result, 'desc.length', 'WARN').value, 201);
 });
-test('R12 lessons.count ignores retired hard-won wording and INDEX claims', t => {
+test('lessons.count ignores retired hard-won wording and INDEX claims', t => {
   const f = fixture(t); f.put('lesson-001-x.md', f.topic('lesson-001-x'));
   f.put('MEMORY.md', '2 hard-won lessons'); f.put('INDEX-main.md', '3 lessons');
   const result = f.check(); assert.deepEqual(result.findings.filter(x => x.check === 'lessons.count'), []); // router and INDEX count claims are retired.
 });
-test('R12 Hard rules end at next level-two heading and wikilinks resolve names and filenames', t => {
+test('Hard rules end at next level-two heading and wikilinks resolve names and filenames', t => {
   const f = fixture(t);
   f.put('MEMORY.md', '## Hard rules\n[Rule](rule.md)\n## Topics\n[Topic](topic.md)');
   const files = memoryFiles(f.memoryDir);
@@ -2022,7 +2022,7 @@ test('R12 Hard rules end at next level-two heading and wikilinks resolve names a
   const items = f.check().findings.filter(x => x.check === 'wikilink.dead');
   assert.equal(items.length, 1); assert.match(items[0].message, /absent/);
 });
-test('R12 Hard rules also takes wikilink cards by name, file name, alias and heading, and the cards stop being topics', t => {
+test('Hard rules also takes wikilink cards by name, file name, alias and heading, and the cards stop being topics', t => {
   const f = fixture(t);
   f.put('named-file.md', f.topic('Named card')); f.put('aliased.md', f.topic('aliased')); f.put('headed.md', f.topic('headed'));
   f.put('MEMORY.md', '## Hard rules\n[[rule]]\n[[Named card]]\n[[aliased|the alias]]\n[[headed#Section]]\n## Topics\n[[topic]]');
@@ -2030,7 +2030,7 @@ test('R12 Hard rules also takes wikilink cards by name, file name, alias and hea
   for (const name of ['rule.md', 'named-file.md', 'aliased.md', 'headed.md']) { assert.equal(by(name).hardRule, true, name); assert.equal(by(name).topic, false, name); }
   assert.equal(by('topic.md').hardRule, false); assert.equal(by('topic.md').topic, true);
 });
-test('R12 measure triggers totals maximum and searchHitRate', t => {
+test('measure triggers totals maximum and searchHitRate', t => {
   const f = fixture(t); f.put('MEMORY.md', '## Hard rules\n[Rule](rule.md)\n[Topic](topic.md)');
   const probesFile = f.probes([{ id: 'yes', q: 'useful', expect: ['topic.md'] }, { id: 'no', q: 'zzzz', expect: ['missing'] }]);
   const result = measure({ ...f, probesFile });
@@ -2039,13 +2039,13 @@ test('R12 measure triggers totals maximum and searchHitRate', t => {
   assert.deepEqual(result.triggers.max, bytes.sort((a, b) => b.bytes - a.bytes)[0]);
   assert.equal(result.recall.totals.searchHitRate, 0.5);
 });
-test('R12 conserve accepted requires a nonempty reason', t => {
+test('conserve accepted requires a nonempty reason', t => {
   const f = fixture(t), baseline = snapshot(f);
   for (const reason of [undefined, '', ' ']) assert.throws(() => verify({ ...f, baseline, accepted: { accepted: [{ token: 'x', reason }] } }), /require token and reason/);
 });
-test('R12 session-start ok line has exact counts and engine text', t => {
+test('session-start ok line has exact counts and engine text', t => {
   const f = fixture(t);
-  f.putRepo('brain/03-knowledge/process/fct-example.md', stage3Node('fct-example'));
+  f.putRepo('brain/03-knowledge/process/fct-example.md', brainNodeText('fct-example'));
   assert.equal(f.cli('brain-index.mjs', ['--write']).status, 0);
   assert.equal(f.cli('roadmap-overview.mjs', ['--write']).status, 0);
   const configFile = f.putRepo('config.json', JSON.stringify(f.config));
@@ -2053,12 +2053,12 @@ test('R12 session-start ok line has exact counts and engine text', t => {
   assert.equal(result.status, 0); assert.equal(result.stdout.trim(), `memory gate: ok (1 allowed, 0 warn, engine ${f.config.engine_version})`);
 });
 
-test('R1 multiline flow lists close at the outer bracket and keep following fields', () => {
+test('multiline flow lists close at the outer bracket and keep following fields', () => {
   const result = parseFrontmatter('---\nitems: [one,\n [[pat-x]]\n]\nafter: retained\npartial: [unfinished\nnext: intact\n---');
   assert.deepEqual(result.data.items, ['one', [['pat-x']]]);
   assert.equal(result.data.after, 'retained'); assert.equal(result.data.partial, '[unfinished'); assert.equal(result.data.next, 'intact');
 });
-test('R5 Windows filename matching includes pins wiki paths allow globs and probe expectations', t => {
+test('Windows filename matching includes pins wiki paths allow globs and probe expectations', t => {
   const f = fixture(t), spelling = file => process.platform === 'win32' ? file.toUpperCase() : file;
   f.config.pins = { [spelling('INDEX-main.md')]: 2000 };
   f.put('topic.md', f.topic('topic', 'Useful', '', `[[${spelling('rule')}]]`));

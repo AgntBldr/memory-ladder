@@ -1,6 +1,6 @@
 // Kit 3.3.7, part A3: the release documentation says when an existing check widens. 3.3.6 widened hardrule.size (a card reached
 // through a [[wikilink]] under the router's ## Hard rules now counts as a hard rule) and its notes said "no new check", which
-// was read as "no new failure". Written red first at the 3.3.6 base; each test names its mutant (one small change that makes it fail).
+// was read as "no new failure". Each test names its mutant (one small change that makes it fail).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

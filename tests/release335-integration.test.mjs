@@ -1,5 +1,4 @@
 // Kit 3.3.5 E2.8: the kit upgrade is an exclusive maintenance step.
-// Each test was written red first, before these fixes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
