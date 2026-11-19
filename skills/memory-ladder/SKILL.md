@@ -2,7 +2,7 @@
 name: memory-ladder
 description: Use the v3 memory ladder for capture, recall, the gate, converting old memory, and installation in this project.
 metadata:
-  engine_version: "3.3.9"
+  engine_version: "3.3.10"
 ---
 
 # Memory ladder v3
@@ -53,6 +53,14 @@ Fill the TODO description and the why/how body before the gate. Routes may name
 several families as `--route a --route b` or `--route a,b`. Optional pin, hook (at most 200 characters), and supersedes
 fields live in metadata. Generated indexes need no manual count or split.
 Keep distinct lessons out of journals.
+
+When a lesson cannot be written in full now, save it at once as a draft:
+`node scripts/memory/memory-lesson.mjs draft "<what happened and the rule you would write, not a title>"`
+(at least 40 characters and 6 words; the same text is written once). It makes a numbered lesson file with a
+`draft:` line under metadata and the text under `**Draft:**`. Finish it by editing that file: fill Why and How to
+apply, correct the title, description, kind and route, and delete the `draft:` line. The gate warns once per
+draft (`lesson.draft`) until then; a draft without its text fails (`lesson.draft-text`). Every session start
+lists the drafts first.
 
 Do not duplicate repo records. Capture durable knowledge when learned.
 Keep an unresolved `[[wikilink]]` only as a marker for a lesson worth writing later;

@@ -1,14 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {randomUUID, createHash} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
-import {lessonCases, validateKindCase, args, locations, isDirect, toolDir, readRequired, listMd, pathKey, normalizeEol, parseFrontmatter, insideRepo, loadConfig, memoryFiles, writeText, cleanGitEnv} from './lib.mjs';
+import {lessonCases, validateKindCase, args, locations, isDirect, toolDir, readRequired, listMd, pathKey, normalizeEol, parseFrontmatter, insideRepo, loadConfig, memoryFiles, atomicWrite, matchEol, refuseSpecialRead, redact, cleanGitEnv} from './lib.mjs';
 import {withMemoryLock} from './memory-lock.mjs';
 import {writerClaim} from './memory-session.mjs';
 import {routerFamilies, lessonIdentity, lessonField, isGenerated, writeMemoryIndex, gateCheckIds, enforceSentence, failSentence, KINDS, REPEAT_ENTRY} from './memory-index.mjs';
 import {buildCorpus, search} from './memory-recall.mjs';
 import {validDate} from './memory-rotate.mjs';
 import {splitSections} from './memory-conserve.mjs';
-import {runCheck, counts, findingLine} from './memory-check.mjs';
+import {runCheck, counts, findingLine, draftParagraph, DRAFT_MIN_CHARS, DRAFT_MIN_WORDS} from './memory-check.mjs';
 
 const kindError = 'kind must be mistake, practice or observation; run: node scripts/memory/memory-lesson.mjs new --kind <kind> --route <family> "<title>"';
 function validateTakeaway(value) {
@@ -137,12 +138,39 @@ function emptyPrompt(body) {
   const parts = body.split(/^\s*\*\*(?:Why:|How to apply:)\*\*\s*$/m);
   return parts.slice(1).some(part => !part.trim());
 }
+// A lesson file is only ever seen whole. A file that exists is replaced by a temporary file and a rename, with the text
+// the plain write would have produced (line ends included), so a write that fails leaves the file as it was.
+function replaceText(file, text) {
+  refuseSpecialRead(file);
+  atomicWrite(file, matchEol(text, fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : text));
+}
+// A new file is written in full to a temporary name in the same folder and published by a hard link, which fails when the
+// name exists. The name appears with its whole content or not at all. There is no plain-write fallback: a file system that
+// refuses hard links stops the tool with the reason. `onPublished` runs as soon as the name exists (the batch lists it for
+// rollback there); the temporary file is removed after it. A temporary file that cannot be removed is reported, not thrown.
+function createWhole(file, text, {onPublished = () => {}, warn = message => console.error('memory-lesson: ' + message)} = {}) {
+  const temp = `${file}.${randomUUID()}.tmp`;
+  let linked = false;
+  try {
+    fs.writeFileSync(temp, text, {flag: 'wx'});
+    try { fs.linkSync(temp, file); }
+    catch (error) {
+      if (error.code === 'EEXIST') throw error;
+      throw Object.assign(new Error(`cannot publish ${path.basename(file)}: this file system refused a hard link (${error.code ?? error.message}); nothing was written`), {code: error.code, cause: error});
+    }
+    linked = true;
+    onPublished();
+  } finally {
+    try { fs.unlinkSync(temp); }
+    catch (error) { if (linked && error.code !== 'ENOENT') warn(`${path.basename(file)} is whole; the temporary file ${path.basename(temp)} could not be removed (${error.message}); delete it`); }
+  }
+}
 const generated = memoryDir => memoryFiles(memoryDir).filter(f => f.special === 'index' && isGenerated(f.text));
 function snapshotPages(memoryDir) { return new Map(generated(memoryDir).map(f => [f.file, fs.readFileSync(path.join(memoryDir, f.file))])); }
 function pageRestoreActions(memoryDir, snapshot) {
   return [
     ...generated(memoryDir).filter(f => !snapshot.has(f.file)).map(f => () => fs.unlinkSync(path.join(memoryDir, f.file))),
-    ...[...snapshot].map(([file, bytes]) => () => fs.writeFileSync(path.join(memoryDir, file), bytes)),
+    ...[...snapshot].map(([file, bytes]) => () => atomicWrite(path.join(memoryDir, file), bytes)),
   ];
 }
 function restorePages(memoryDir, snapshot) { restoreAll(pageRestoreActions(memoryDir, snapshot)); }
@@ -230,23 +258,28 @@ export function batchLessons({memoryDir, repo, file, route, today = todayDefault
     return {created: preview.map(f => f.file), similar: preview.map(f => f.similar), titles: creating.map(s => s.title), repeated, pages: 0, findings: [], warnings};
   }
   return withMemoryLock(memoryDir, lock => {
-    const rendered = render(), snapshot = snapshotPages(memoryDir), created = [], originals = new Map(), repeated = [];
+    const rendered = render(), snapshot = snapshotPages(memoryDir), created = [], originals = new Map(), repeated = [], expected = {created: [], repeated: []};
     if (errors.length) throw Error(errors.join('\n'));
     // Kit 3.3.5 E2.4: in session mode, claim every file this batch creates or edits before the first write.
     writerClaim({memoryDir, repo, config, lock}, [...rendered.map(f => f.file), ...repeating.map(s => s.target)], 'memory-lesson batch');
     const rollback = () => restoreAll([
       ...pageRestoreActions(memoryDir, snapshot),
       ...created.map(file => () => fs.unlinkSync(path.join(memoryDir, file))),
-      ...[...originals].map(([file, bytes]) => () => fs.writeFileSync(path.join(memoryDir, file), bytes)),
+      ...[...originals].map(([file, bytes]) => () => atomicWrite(path.join(memoryDir, file), bytes)),
     ]);
     let pages, findings, affected;
     try {
-      for (const f of rendered) { fs.writeFileSync(path.join(memoryDir, f.file), f.text, {flag: 'wx'}); created.push(f.file); afterWrite(created.length, f.file); }
+      for (const f of rendered) {
+        createWhole(path.join(memoryDir, f.file), f.text, {onPublished: () => created.push(f.file), warn: message => warnings.push(message)});
+        expected.created.push({file: f.file, sha256: createHash('sha256').update(f.text).digest('hex')});
+        afterWrite(created.length, f.file);
+      }
       for (const s of repeating) {
         const target = path.join(memoryDir, s.target);
         if (!originals.has(s.target)) originals.set(s.target, fs.readFileSync(target));
         const result = appendRepeat({memoryDir, repo, config, lock, id: s.target, today: s.date, note: `${s.cause}: ${s.description}`}, (f, text) => writeMetadata(memoryDir, f, text));
         repeated.push({file: result.file, repeats: result.repeats.length});
+        expected.repeated.push({file: result.file, entry: result.repeats.at(-1)});
         afterWrite(created.length + repeated.length, result.file);
       }
       pages = regenerate({memoryDir, config, lock}, snapshot);
@@ -256,9 +289,9 @@ export function batchLessons({memoryDir, repo, file, route, today = todayDefault
     if (findings.some(f => !f.allowed && f.severity === 'FAIL' && f.check !== 'lesson.enforce' && affected.has(f.file))) {
       try { rollback(); }
       catch (error) { throw new Error(`${findings.map(findingLine).join('\n')}; rollback failed: ${error.message}`, {cause: error}); }
-      return {created: [], similar: [], repeated: [], pages: 0, findings, warnings, rolledBack: true};
+      return {created: [], similar: [], repeated: [], pages: 0, findings, warnings, rolledBack: true, expected: {created: [], repeated: []}};
     }
-    return {created, similar: rendered.map(f => f.similar), titles: creating.map(s => s.title), repeated, pages, findings, warnings};
+    return {created, similar: rendered.map(f => f.similar), titles: creating.map(s => s.title), repeated, pages, findings, warnings, expected};
   }, {lock});
 }
 
@@ -309,7 +342,7 @@ function escalation(f, options) {
 }
 function writeMetadata(memoryDir, f, text) {
   const file = path.join(memoryDir, f.file), bytes = fs.readFileSync(file);
-  writeText(file, (bytes.toString('utf8').startsWith('\uFEFF') && !text.startsWith('\uFEFF') ? '\uFEFF' : '') + text);
+  replaceText(file, (bytes.toString('utf8').startsWith('\uFEFF') && !text.startsWith('\uFEFF') ? '\uFEFF' : '') + text);
 }
 function changeMetadata(options, action, after = result => result, {by = 'memory-lesson', files = []} = {}) {
   return withMemoryLock(options.memoryDir, lock => {
@@ -317,7 +350,7 @@ function changeMetadata(options, action, after = result => result, {by = 'memory
     // Kit 3.3.5 E2.4: claim inside this lock acquisition, before the first write (all known files first).
     const claim = names => { const fresh = names.filter(name => !claimed.has(name)); if (fresh.length && writerClaim({...options, lock}, fresh, by)) fresh.forEach(name => claimed.add(name)); };
     if (files.length) claim(files);
-    const save = (f, text) => { claim([f.file]); const bytes = fs.readFileSync(path.join(options.memoryDir, f.file)); originals.set(f.file, bytes); writeText(path.join(options.memoryDir, f.file), (bytes.toString('utf8').startsWith('\uFEFF') && !text.startsWith('\uFEFF') ? '\uFEFF' : '') + text); };
+    const save = (f, text) => { claim([f.file]); const bytes = fs.readFileSync(path.join(options.memoryDir, f.file)); originals.set(f.file, bytes); replaceText(path.join(options.memoryDir, f.file), (bytes.toString('utf8').startsWith('\uFEFF') && !text.startsWith('\uFEFF') ? '\uFEFF' : '') + text); };
     try {
       const result = action(save);
       if (originals.size) regenerate({...options, lock}, snapshot);
@@ -325,7 +358,7 @@ function changeMetadata(options, action, after = result => result, {by = 'memory
     } catch (error) {
       rollbackError(error, () => {
         const errors = [], attempt = action => { try { action(); } catch (error) { errors.push(error); } };
-        attempt(() => restoreAll([...originals].map(([file, bytes]) => () => fs.writeFileSync(path.join(options.memoryDir, file), bytes))));
+        attempt(() => restoreAll([...originals].map(([file, bytes]) => () => atomicWrite(path.join(options.memoryDir, file), bytes))));
         attempt(() => restorePages(options.memoryDir, snapshot));
         if (errors.length) { const [first, ...others] = errors; first.message += others.map(e => `; ${e.message}`).join(''); throw first; }
       });
@@ -425,8 +458,55 @@ export function newLesson({memoryDir, repo, config, title, route, kind, takeaway
     const file = path.join(memoryDir, name + '.md');
     // Kit 3.3.5 E2.4: the new lesson is claimed in the same lock acquisition, before it is written.
     writerClaim({memoryDir, repo, config, lock: held}, [name + '.md'], 'memory-lesson new');
-    fs.writeFileSync(file, text, {flag: 'wx'});
+    createWhole(file, text);
     return file;
+  }, {lock});
+}
+// A lesson saved for later. The text says what happened and the rule to write, not a title; it is written at once as a draft
+// lesson file (one extra `draft:` line under metadata, the text under **Draft:**, both prompts empty) that is finished by
+// editing the same file.
+export function checkDraftText(text) {
+  if (typeof text !== 'string') throw Error('draft text must be a string');
+  const trimmed = text.trim();
+  if (controls.test(trimmed)) throw Error('draft text must be one line without control characters');
+  if (trimmed.includes('**')) throw Error('draft text must not contain bold marks (**)');
+  if (redact(trimmed) !== trimmed) throw Error('draft text: secret refused');
+  if ([...trimmed].length < DRAFT_MIN_CHARS || trimmed.split(/\s+/).length < DRAFT_MIN_WORDS) throw Error(`draft text must say what happened and the rule you would write, not a title: at least ${DRAFT_MIN_CHARS} characters and ${DRAFT_MIN_WORDS} words`);
+  return trimmed;
+}
+// The file a draft would be, composed with no write: its name, its whole text, its title and description.
+export function composeDraft({memoryDir, text, today = todayDefault(), config = loadConfig()}) {
+  checkDate(today);
+  text = checkDraftText(text);
+  const families = routerFamilies(readRequired(path.join(memoryDir, 'MEMORY.md')), memoryDir), route = [...families.keys()][0];
+  if (route === undefined) throw Error('the router has no routing family to file a draft under; add a routing row to MEMORY.md');
+  const title = text.split(/\s+/).slice(0, 8).join(' ').replace(/\.+$/, ''), description = 'DRAFT, to finish: ' + [...text].slice(0, 110).join('');
+  const [number] = allocate(memoryDir, 1), name = `lesson-${number}-${slugFor(title)}`;
+  const values = {name, number, kind: 'observation', title, date: today, route: quote([route]), pin: 'false'};
+  let out = templateText().replace(/\{\{(\w+)\}\}/g, (_, key) => values[key]).replace(/^description: "TODO"$/m, () => `description: ${quote(description)}`);
+  out = spliceMetadata(out, 'draft', today).replace(/^\*\*Why:\*\*$/m, () => `**Draft:** ${text}\n\n**Why:**`);
+  if (Buffer.byteLength(out) > config.caps.topic.failBytes) throw Error('the draft exceeds the topic byte cap');
+  return {name, file: name + '.md', text: out, title, description, route};
+}
+// The draft lesson file whose **Draft:** paragraph is exactly this text, or null. A text already saved is never saved twice.
+export function findDraft(memoryDir, text) {
+  let names;
+  try { names = fs.readdirSync(memoryDir).filter(name => /^lesson-.+\.md$/.test(name)).sort(); } catch { return null; }
+  for (const name of names) {
+    try { if (draftParagraph(parseFrontmatter(fs.readFileSync(path.join(memoryDir, name), 'utf8')).body) === text) return name; } catch {}
+  }
+  return null;
+}
+export function draftLesson({memoryDir, repo, config = loadConfig(), text, today = todayDefault(), lock}) {
+  text = checkDraftText(text);
+  return withMemoryLock(memoryDir, held => {
+    const existing = findDraft(memoryDir, text);
+    if (existing) return {file: existing, created: false};
+    const draft = composeDraft({memoryDir, text, today, config});
+    // Kit 3.3.5 E2.4: the new file is claimed in the same lock acquisition, before it is written.
+    writerClaim({memoryDir, repo, config, lock: held}, [draft.file], 'memory-lesson draft');
+    createWhole(path.join(memoryDir, draft.file), draft.text);
+    return {file: draft.file, created: true};
   }, {lock});
 }
 export function classifyLessons({memoryDir, repo, file, write = false, today = todayDefault(), config = loadConfig(), lock}) {
@@ -550,6 +630,13 @@ export function main(argv = process.argv.slice(2)) {
       console.log(file);
       return 0;
     }
+    if (command === 'draft') {
+      const options = {...locations(opts, {env: cleanGitEnv()}), config: opts.config ? JSON.parse(readRequired(opts.config)) : loadConfig()};
+      const result = draftLesson({...options, text: opts._.join(' '), today: opts.today});
+      if (!result.created) console.error('draft: already written: ' + result.file);
+      console.log(path.join(options.memoryDir, result.file));
+      return 0;
+    }
     const options = {...locations(opts, {env: cleanGitEnv()}), today: opts.today, config: opts.config ? JSON.parse(readRequired(opts.config)) : loadConfig()};
     if (command === 'classify') {
       if (opts.score !== undefined) {
@@ -610,7 +697,7 @@ export function main(argv = process.argv.slice(2)) {
       if (result.message) console.log(result.message);
     } else if (command === 'enforce') {
       const result = setEnforced({...options, id: opts._.shift(), value: opts._.join(' ')}); console.log(`enforce: ${result.file}: ${result.enforced}`);
-    } else throw new Error('expected subcommand: new, batch, repeat, enforce, classify');
+    } else throw new Error('expected subcommand: new, batch, repeat, enforce, classify, draft');
     return 0;
   } catch (error) { console.error('memory-lesson: ' + error.message); return 1; }
 }

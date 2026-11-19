@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {StringDecoder} from 'node:string_decoder';
 import {gitResult, porcelainEntries, isDirect, loadConfig, memoryLocation, mainWorktree, readKitJSON, parseFrontmatter, redact, insideRepo, pathKey, validateConfigPaths, toolDir, repoRoot, cleanGitEnv} from './lib.mjs';
 import {LOCK_NAMES, PUSH_LOCK} from './memory-lock.mjs';
-import {readCurrent, parseBlock, readOverlay, capText, capOutput, matchPhrase, listNotes} from './session-core.mjs';
+import {readCurrent, parseBlock, readOverlay, capText, capOutput, matchPhrase, matchSlash, listNotes} from './session-core.mjs';
 
 export const FIRST_REPLY_TEMPLATE = `**<abs path>** - \`<branch>\` @ \`<sha>\` - kit <version>[ - flags: ...]
 - Git: <n> changed, <n> untracked; <n> ahead|no upstream
@@ -28,6 +28,8 @@ export const FIRST_REPLY_TEMPLATE = `**<abs path>** - \`<branch>\` @ \`<sha>\` -
 - <named-yes item> - yes or no?
 
 Waiting for your go.`;
+const SLASH_USAGE = 'dispatch: use /new-session, /handover or /handover quick';
+const handoverInstruction = match => `Read .claude/skills/handover/SKILL.md and follow it (${match.quick ? 'quick' : 'full'}).${match.text ? '\nNote: ' + match.text : ''}`;
 const BOARD_LINK = /^https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9-]{8,64}$/;
 const startNudge = 'new-session: the message is a start phrase. Invoke the Skill tool with skill "new-session" and args "sentence" before anything else; its only step runs the read-only start helper.';
 const safeText = file => { try { const raw = fs.readFileSync(file); return raw.includes(0) ? '' : raw.toString('utf8'); } catch { return ''; } };
@@ -130,16 +132,68 @@ function metaPart(f) {
   const token = `token: ${current.token ?? 'none'}`;
   return capText(`${repo} | ${branch}@${sha} | ${changed} changed, ${untracked} untracked | ${ahead === null ? 'no upstream' : ahead + ' ahead'} | kit ${hasKit ? config.engine_version : 'absent'}${f.flags ? ' | flags: ' + f.flags : ''}\ngate: ${gate} | memory: ${hasMemory ? memoryDir : 'memory dir not found: ' + (memoryDir ?? 'unresolved')} (${location.source})`, 439 - Buffer.byteLength(token)) + '\n' + token;
 }
+// A handover writes its note first and the block second, from the same content, so a tie goes to the block. A stamp with
+// seconds is compared with the note's time as it is written (a note time may carry fractions of a second); a stamp
+// without seconds (an older release, a hand-written block, a project's own skill) is compared to the minute.
+function stampLeads(stamp, noteTime) {
+  const at = stampTime(stamp), note = Date.parse(noteTime);
+  return at >= (stamp.time.length > 16 ? note : Math.floor(note / 60000) * 60000);
+}
 function leadNote({notes, current}) {
-  const newest = notes[0], currentLeads = current.stamp && (!newest || stampTime(current.stamp) > Date.parse(newest.time));
+  const newest = notes[0], currentLeads = current.stamp && (!newest || stampLeads(current.stamp, newest.time));
   return newest && !currentLeads ? newest : null;
+}
+// Why a hand-written state block is not used. The start uses current-state.md only when its CURRENT block names this
+// branch and, when a note exists for the branch, carries a valid stamp that is not older than the note. Nothing is said
+// when the block is empty or still the starter text, when it leads, or when a valid stamp is older than the note.
+const oneLine = text => String(text).replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]+/g, ' ').trim();
+// The two starter bodies the kit has shipped for current-state.md (templates/current-state.md): a block that is exactly one of
+// them, whatever the white space, holds no content. Anything added to a starter is content.
+const squash = text => String(text).replace(/\s+/g, ' ').trim();
+const STARTER_BODIES = [
+  'Installation complete. Record the current task and next action here; overwrite this block at each checkpoint.',
+  'Installation complete. Record the current task and next action here; overwrite this block at each checkpoint. Keep a line `**Branch:** <branch>` (a session start ignores a block that does not name its branch) and start the block with a stamp line such as `**2026-01-31 14:05:09 | @abcdefa | full. Ready to continue**` (a hand-over note newer than the stamp leads instead). A handover writes both lines.',
+];
+function stateNotice({current, branch, notes}) {
+  const body = squash(String(current.block ?? '').replace(/^[^\n]*\n?/, ''));
+  if (!body || STARTER_BODIES.includes(body)) return '';
+  const own = current.fields.Branch;
+  if (!own) return 'state block not used: it has no **Branch:** line; add "**Branch:** <branch>" to current-state.md (a handover writes it)';
+  if (own !== branch) return `state block not used: it is for ${[...oneLine(own)].slice(0, 60).join('')}`;
+  if (current.stamp || !notes.length) return '';
+  return `state block not used: it has no time stamp, so the hand-over note of ${notes[0].time.slice(11, 16)} leads; start the block with "**YYYY-MM-DD HH:MM:SS | @<sha> | full. <state>**" (a handover writes it)`;
 }
 function noNotePart({branch, notes, others = []}) {
   if (notes.length) return '';
   const lines = others.map(n => `${n.time.slice(11, 16)} ${capText(n.branch, 60)} ${capText([...n.question].slice(0, 60).join(''), 80)} handovers/${path.basename(n.file)}`);
   return `\nno hand-over note for ${branch}` + (lines.length ? '\nother branches (not picked):\n' + lines.join('\n') : '');
 }
-function leadPart({notes, current, headDate, failures, branch, others}) {
+// A draft lesson is a lesson saved for later; it is named first in the lead section, from the files as they are now, whatever branch
+// wrote it and whichever note or state block leads. One line of at most 240 bytes: the names that fit, then "+<k> more".
+function draftLine(memoryDir) {
+  let names;
+  try { names = fs.readdirSync(memoryDir).filter(name => /^lesson-.+\.md$/.test(name)).sort(); } catch { return ''; }
+  const drafts = [];
+  for (const name of names) {
+    let fd;
+    try {
+      fd = fs.openSync(path.join(memoryDir, name), 'r');
+      const head = Buffer.alloc(8192), count = fs.readSync(fd, head, 0, head.length, 0), data = parseFrontmatter(head.subarray(0, count).toString('utf8')).data;
+      if (Object.hasOwn(data.metadata ?? {}, 'draft') || Object.hasOwn(data, 'draft')) drafts.push(name);
+    } catch {} finally { if (fd !== undefined) try { fs.closeSync(fd); } catch {} }
+  }
+  if (!drafts.length) return '';
+  const label = `draft lessons to finish (${drafts.length}): `, bytes = text => Buffer.byteLength(text);
+  let shown = 0;
+  while (shown < drafts.length) {
+    const next = drafts.slice(0, shown + 1).join(', '), left = drafts.length - shown - 1;
+    if (bytes(label + next + (left ? ` +${left} more` : '')) > 240) break;
+    shown++;
+  }
+  if (!shown) return capText(label + drafts[0], 240 - bytes(` +${drafts.length - 1} more`)) + (drafts.length > 1 ? ` +${drafts.length - 1} more` : '');
+  return label + drafts.slice(0, shown).join(', ') + (shown < drafts.length ? ` +${drafts.length - shown} more` : '');
+}
+function leadPart({notes, current, headDate, failures, branch, others, stateNotice: notice = '', memoryDir, hasMemory, hasKit}) {
   const newest = notes[0], selected = leadNote({notes, current}), parsed = parseBlock(selected?.body ?? current.block), fields = parsed.fields;
   let lead;
   if (selected) lead = `last handover: ${selected.time} @${selected.sha} ${selected.branch} - ${field(fields, 'State') || 'state: none recorded'}\n${selected.file}`;
@@ -149,12 +203,15 @@ function leadPart({notes, current, headDate, failures, branch, others}) {
     const stale = current.block.startsWith('## CURRENT\n') && Number.isFinite(Date.parse(modified)) && Date.parse(headDate) - Date.parse(modified) > 86400000;
     lead = (stale ? `stale ${modified} vs HEAD ${headDate}` : 'undated') + '\n' + current.block;
   } else lead = 'state: none recorded';
+  // The reason a state block was not used comes first, so the lead's own cap can never cut it.
+  if (notice) lead = notice + '\n' + lead;
   lead += noNotePart({branch, notes, others});
   const question = field(fields, 'Open question'), waits = field(fields, 'Waits on the user', 'WAITS ON THE OWNER'), next = field(fields, 'Next action', 'RESUME HERE');
   if (question && question.toLowerCase() !== 'none') lead += '\nQ: ' + question;
   lead += '\nwaits on you: ' + (waits.split('|').length > 3 ? `see ${selected?.file ?? current.file} (Waits section)` : waits || 'none');
   for (const label of ['Next action', 'Lessons', 'Constraints', 'In flight', 'LIVE RISKS']) if (field(fields, label)) lead += `\n${label}: ${field(fields, label)}`;
-  return {text: capText((failures.length ? capText(failures.join('\n'), 400) + '\n' : '') + lead, 1600), next};
+  const drafts = hasKit && hasMemory ? draftLine(memoryDir) : '', rest = (failures.length ? capText(failures.join('\n'), 400) + '\n' : '') + lead;
+  return {text: drafts ? drafts + '\n' + capText(rest, 1600 - Buffer.byteLength(drafts) - 1) : capText(rest, 1600), next};
 }
 function signalsPart({repo, main, hasMemory, memoryDir, current, notes}) {
   const newest = notes[0];
@@ -274,6 +331,7 @@ function facts(opts, check, recallApi) {
   f.current = current.fields?.Branch === branch ? current : {...readCurrent(null), file: current.file, token: current.token};
   f.notes = hasKit && hasMemory ? listNotes(memoryDir, {sinceHours: config.caps?.handovers?.windowHours ?? 24, branch}) : [];
   f.others = hasKit && hasMemory && !f.notes.length ? listNotes(memoryDir, {sinceHours: config.caps?.handovers?.windowHours ?? 24, max: 2, excludeBranch: branch}) : [];
+  f.stateNotice = stateNotice({current, branch, notes: f.notes});
   const board = boardLink(main, overlay, overlayInfo.hasBoardKey, conflicts);
   const boardBlock = board ? boardPart(board, sinceText(f, config.caps?.handovers?.windowHours ?? 24)) : '';
   const lead = leadPart(f), pointers = hasKit && hasMemory ? recall(memoryDir, repo, config, opts.goal, recallApi) : [];
@@ -345,8 +403,15 @@ export async function main(argv = process.argv.slice(2)) {
         output = JSON.stringify({hookSpecificOutput: {hookEventName: 'UserPromptSubmit', additionalContext: nudge}});
       }
     } else if (command === 'dispatch') {
-      const match = matchPhrase(opts.message), repo = path.resolve(opts.repo || defaultRepo());
-      if (match.kind && owned(repo, match.kind === 'start' ? 'new-session' : 'handover')) output = match.kind === 'start' ? await start({...opts, goal: match.text, entry: 'sentence'}) : `Read .claude/skills/handover/SKILL.md and follow it (${match.quick ? 'quick' : 'full'}).${match.text ? '\nNote: ' + match.text : ''}`;
+      // Slash messages are answered here and nowhere else: detect (the prompt hook) keeps rejecting them, because
+      // Claude Code runs the skill itself.
+      const slash = matchSlash(opts.message), repo = path.resolve(opts.repo || defaultRepo());
+      if (slash.skill) {
+        if (owned(repo, slash.skill)) output = slash.usage ? SLASH_USAGE : slash.kind === 'start' ? await start({...opts, goal: slash.text, entry: 'slash'}) : handoverInstruction(slash);
+      } else {
+        const match = matchPhrase(opts.message);
+        if (match.kind && owned(repo, match.kind === 'start' ? 'new-session' : 'handover')) output = match.kind === 'start' ? await start({...opts, goal: match.text, entry: 'sentence'}) : handoverInstruction(match);
+      }
     } else if (command === 'start') output = await start(opts);
     else if (command === 'brief') output = await brief(opts);
     else if (command === 'open') output = open(opts);

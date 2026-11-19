@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {installedManifest, hash} from './manifest.mjs';
 import {readJSON} from '../engine/memory-setup.mjs';
-import {planText,proveText,shippedIndex,unitLine,inRepoVariant,bodyLines,parseLedger,reportEntry} from './instructions-block.mjs';
+import {planText,proveText,shippedIndex,unitLine,unitNote,inRepoVariant,bodyLines,parseLedger,reportEntry} from './instructions-block.mjs';
 const exists = file => fs.existsSync(file) && fs.statSync(file).isFile();
 // Kit 3.3.6 item 6: the kind check the update and the install make before they plan or read a named file:
 // true for a regular file, false when absent (or a folder). A stat error other than ENOENT or ENOTDIR, and a fifo, socket
@@ -235,7 +235,12 @@ export function standardBlockPlan(target,root,opts={},hooks={}) {
   }
   for(const {name,plan} of result.plans) {
     log(`INSTRUCTIONS ${name}: standard block ${plan.action??'add'}; first update: ${plan.firstUpdate?'yes':'no'}`);
-    for(const unit of plan.units) log(unitLine(unit));
+    for(const unit of plan.units) {
+      log(unitLine(unit));
+      // Display only: the line is still kept or dropped whole, as decided.
+      const note=unit.outcome==='unclear'?unitNote(unit,shipped):null;
+      if(note) log(note);
+    }
     if(plan.editLines) log(`WARN ${name} standard block differs from kit ${plan.comparedTo??version} text (${plan.editLines} lines); the update replaces it; move lines you need to "## Project rules" first`);
     for(const line of plan.repeats) log(`WARN ${name}:${line} repeats kit wording outside the standard block`);
   }

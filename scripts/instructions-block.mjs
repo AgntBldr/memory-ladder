@@ -121,13 +121,13 @@ export function shippedIndex(catalog, currentBodies) {
   const map = new Map();
   for (const body of currentBodies) for (const line of body.split(/\r?\n/)) {
     const key = trimEnd(line);
-    if (key) map.set(key, {label: 'current template', reason: 'current kit template', source: 'template'});
+    if (key) map.set(key, {label: 'current template', reason: 'current kit template', source: 'template', range: 'current template'});
   }
   for (const [line, tags] of Object.entries(catalog?.lines ?? {})) {
     const key = trimEnd(line);
     if (!key || !Array.isArray(tags) || !tags.length) continue;
     const first = tags[0], last = tags.at(-1);
-    map.set(key, {label: `kit ${first}..${last}`, reason: `shipped kit wording (${first}..${last} version)`, source: 'catalog'});
+    map.set(key, {label: `kit ${first}..${last}`, reason: `shipped kit wording (${first}..${last} version)`, source: 'catalog', range: `${first}..${last}`});
   }
   return map;
 }
@@ -167,6 +167,45 @@ export function unitLine(unit) {
   const s = unit.suggestion;
   const suffix = unit.conflict ? ' (ledger conflict)' : s ? ` (suggested ${s.outcome} by ${s.project}, ${s.date}: ${s.reason})` : '';
   return `UNCLEAR ${unit.id}${suffix}: ${text}`;
+}
+
+// The whole sentences of one line, each with its closing mark: a full stop, question mark or exclamation mark followed by a
+// space ends one, except inside a code span. What follows the last such mark counts only when it ends in one too, a
+// closing quote, bracket or code mark after it allowed: a heading or an unfinished fragment is not a sentence.
+export function sentences(line) {
+  const found = [];
+  let from = 0, code = false;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '`') code = !code;
+    else if (!code && '.?!'.includes(line[i]) && line[i + 1] === ' ') { found.push(line.slice(from, i + 1)); from = i + 2; }
+  }
+  if (from < line.length && /[.?!]["')\]`]*$/.test(line)) found.push(line.slice(from));
+  return found;
+}
+
+// A note for an unclear line that begins with whole sentences of a line the kit shipped, or null. It only describes:
+// it changes no classification, no id, no decision, no proof and no write. Only the first line of the unit is read.
+// The note names the most sentences any shipped line shares with the start of the unit, and every version range
+// whose line shares that many.
+const byRange = (a, b) => (a === 'current template') - (b === 'current template') || a.localeCompare(b, 'en', {numeric: true});
+export function unitNote(unit, shipped) {
+  const first = normalizeUnit(unit.raw).split('\n')[0];
+  let count = 0;
+  const ranges = [];
+  for (const [line, hit] of shipped) {
+    const parts = sentences(line);
+    let n = 0;
+    for (let i = 1; i <= parts.length; i++) {
+      const prefix = parts.slice(0, i).join(' ');
+      if (first === prefix || first.startsWith(prefix + ' ')) n = i; else break;
+    }
+    if (!n || n < count) continue;
+    if (n > count) { count = n; ranges.length = 0; }
+    const range = hit.range ?? hit.label;
+    if (!ranges.includes(range)) ranges.push(range);
+  }
+  if (!count) return null;
+  return `  note: ${unit.id} begins with ${count} sentence(s) of a kit line (${ranges.sort(byRange).join(', ')}); "keep" copies the whole unit, kit sentences included; edit ${RULES_HEADING} after the update`;
 }
 
 const withEol = (body, eol) => { const text = body.replace(/\r?\n/g, '\n'); return (text.endsWith('\n') ? text : text + '\n').replace(/\n/g, eol); };

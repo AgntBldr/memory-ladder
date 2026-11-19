@@ -262,7 +262,7 @@ test('A-T20 --memory-only --check prints only memory, hook and count lines',t=>{
   const result=upgrade(f,['--memory-only','--check']);
   assert.equal(result.status,1,result.stdout+result.stderr);
   const out=lines(result).filter(Boolean);
-  for(const line of out) assert.match(line,/^(?:MEMORY|HOOK|planned writes:) /);
+  for(const line of out) assert.match(line,/^(?:MEMORY|HOOK|UNDO SNAPSHOT|planned writes:) /);
   assert.ok(out.some(line=>line.startsWith('MEMORY WRITE INDEX-craft-sessions.md')));
   assert.ok(out.at(-1).startsWith('planned writes: 0 project, '));
   assert.deepEqual(everything(f),before);

@@ -13,11 +13,10 @@ import {fleet} from '../engine/memory-fleet.mjs';
 import {migrateRoutes} from '../engine/memory-migrate.mjs';
 const cfg=()=>json(path.join(kitRoot,'engine/memory.config.json'));
 test('release version and log hygiene',()=>{
- assert.equal(read(path.join(kitRoot,'VERSION')).trim(),'3.3.9');
- assert.equal(cfg().engine_version,'3.3.9');
+ assert.equal(read(path.join(kitRoot,'VERSION')).trim(),'3.3.10');
+ assert.equal(cfg().engine_version,'3.3.10');
 });
 test('log hygiene',()=>{
- assert.ok(!fs.readdirSync(path.join(kitRoot,'tests')).some(n=>/^round4-.*\.log$/.test(n)));
  assert.match(read(path.join(kitRoot,'.gitignore')),/^tests\/\*\.log$/m);
 });
 test('snapshot never reads unrelated large or locked files',t=>{

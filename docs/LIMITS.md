@@ -5,8 +5,7 @@ what each limit protects, how the gate enforces it, where old information goes, 
 defaults themselves are in the table in [How memory works](HOW-IT-WORKS.md#2-the-picture), and every check and config
 key is in the [engine reference](../engine/README.md).
 
-Config values are bytes. Sizes on this page are KiB (1,024 bytes). Figures quoted from past measurements are KB as they
-were recorded.
+Config values are bytes. Sizes on this page are KiB (1,024 bytes). Example figures given in KB are invented examples.
 
 ## The limits control what gets loaded, not what gets stored
 
@@ -233,7 +232,7 @@ one day ahead WARNs, later FAILs. Hand-written `date:` uses UTC. The guard clock
 `topic.line` WARNs above 2,000 characters outside fences and verbatim payload blocks. The line repair packs only at
 sentence ends; list items, indented lines and paragraphs without a sentence end remain report-only. Five to twelve
 lines is writing guidance, never a check. `lesson.unfilled-body` FAILs empty exact Why/How to apply prompt sections;
-free-form bodies with no such prompts remain valid. Session-start skips chars, chain and topic-line scans; run the full gate.
+free-form bodies with no such prompts remain valid. A draft lesson (a `draft:` line under metadata) is exempt from it: `lesson.draft` WARNs once per draft and never blocks a commit, and `lesson.draft-text` FAILs a draft whose date is invalid or whose `**Draft:**` paragraph is missing or under 40 characters. Session-start skips chars, chain and topic-line scans; run the full gate.
 
 ## 3.2.8 casebook limits
 

@@ -10,7 +10,7 @@ const report=Function('capText','bytes','singleLine','maybeGit','status','capped
   source.slice(source.indexOf('function backtickRun('),source.indexOf('// Dependencies permit'))+'return report;')(
   capText,Buffer.byteLength,s=>String(s).replace(/[\r\n]/g,' '),()=> '1234567',()=>openFiles,s=>s,s=>s,QUICK_SAFE,FULL_SAFE,NEXT);
 const long='x'.repeat(2000);
-function context(extra={}) {return {repo:long,branch:long,sha:'1234567',command:long,quick:false,time:'2026-11-03 12:00',digest:'dddddddddddd',seq:'000001',data:{question:long},lessons:long.slice(0,400),close:long,gate:{FAIL:9,WARN:9},gateFailures:[long,long],waiting:[long,long,long],config:{caps:{roadmapOverview:{path:'overview.md'},brainIndex:{path:'index.md',allPath:'all.md'}}},holder:'.',written:true,dirty:[],...extra};}
+function context(extra={}) {return {repo:long,branch:long,sha:'1234567',command:long,quick:false,time:'2026-11-03 12:00',digest:'dddddddddddd',seq:'000001',data:{question:long},lessons:long.slice(0,400),close:long,gate:{FAIL:9,WARN:9},gateFailures:[long,long],waiting:[long,long,long],config:{caps:{roadmapOverview:{path:'overview.md'},brainIndex:{path:'index.md',allPath:'all.md'}}},holder:'.',written:true,dirty:[],given:{lessons:true,roadmap:true},...extra};}
 for(const quick of [false,true]) for(const failed of [false,true]) for(const baseline of [false,true]) test(`report reserve quick=${quick} failed=${failed} baseline=${baseline}`,()=>{
   const ctx=context({quick,...(baseline?{}:{over:'dddddddddddd'})});
   const failures=failed?[long,long,long]:[];
@@ -32,7 +32,7 @@ test('parallel allowance includes bullet and fence and retains the base report',
 });
 test('open files are individually code formatted',()=>{
   const out=report(context({repo:'.',branch:'main',command:'git status',lessons:'none',close:'none',gateFailures:[],waiting:[],data:{question:'next?'}}),[],{text:'skipped',verdict:'roadmap current'},{pushed:true});
-  assert.ok(out.includes('(`src/one.mjs`, `docs/two.md`)'));
+  assert.ok(out.includes('; `src/one.mjs`, `docs/two.md`)'));
 });
 
 test('parallel fence contains handwritten backticks and strips trailing blank lines',()=>{
@@ -51,6 +51,6 @@ test('code spans preserve Windows paths and backtick runs exactly',()=>{
   const saved=openFiles;openFiles=[{file:'`odd``'}, {file:'C:\\work\\_file'}];
   try {
     const out=report(ctx,[],{text:'skipped',verdict:'current'},{pushed:true});
-    assert.ok(out.includes('(``` `odd`` ```, `C:\\work\\_file`)'));
+    assert.ok(out.includes('; ``` `odd`` ```, `C:\\work\\_file`)'));
   } finally {openFiles=saved;}
 });

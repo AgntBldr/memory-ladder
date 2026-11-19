@@ -22,7 +22,9 @@
     "v3.3.4",
     "v3.3.5",
     "v3.3.6",
-    "v3.3.7"
+    "v3.3.7",
+    "v3.3.8",
+    "v3.3.9"
   ],
   "lines": {
     "## Memory gate": [
@@ -47,7 +49,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "- At session start and every checkpoint run `node scripts/memory/memory-check.mjs`; fix or report every FAIL.": [
       "pre-3.2.0",
@@ -71,7 +75,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "- Claude Code uses SessionStart; other agents run the gate manually. Memory pre-commit runs `--hook --scope memory`.": [
       "pre-3.2.0",
@@ -95,7 +101,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "- Before opening indexes run `node scripts/memory/memory-recall.mjs \"<question>\"`; honor the router's activity triggers.": [
       "pre-3.2.0",
@@ -119,7 +127,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "- State is overwritten, facts are moved, history is git: one current block, one lesson per file, project facts in `brain/` with memory pointers.": [
       "pre-3.2.0",
@@ -143,7 +153,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "- Never raise a pin or allowlist ceiling to pass; move detail down a layer. Write the destination before shortening a pointer.": [
       "pre-3.2.0",
@@ -167,7 +179,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "- At checkpoints rotate an existing brain log, regenerate existing brain indexes and roadmap overview, then verify and complete the authorized memory checkpoint.": [
       "pre-3.2.0",
@@ -201,7 +215,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "- At checkpoints run `node scripts/memory/memory-checkpoint.mjs`: generate indexes, rotate history, refresh overviews, gate, then print staging paths and a suggested commit message. In in-repo memory, checkpoint never pushes and commits only with explicit `--commit` on the current branch; follow host branch rules. Use `--dry-run` to preview.": [
       "v3.2.5",
@@ -219,7 +235,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "- Capture with `node scripts/memory/memory-lesson.mjs new --kind <mistake|practice|observation> --route <family> \"<title>\"`; fill the TODO description and body.": [
       "v3.2.7",
@@ -235,7 +253,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "For several lessons use `node scripts/memory/memory-lesson.mjs batch <scratch>/lessons.md`; record recurrence with `node scripts/memory/memory-lesson.mjs repeat <id> \"<cause>: <note>\"`.": [
       "v3.2.7",
@@ -251,7 +271,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "Claude Code runs the command guard and the clock line from .claude/settings.json; other agents are guarded by the hard-rule cards, the git hooks and the gate.": [
       "v3.2.7",
@@ -267,7 +289,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "- If the private memory folder is absent, run `node scripts/memory/memory-init.mjs` from the project root.": [
       "v3.2.11",
@@ -279,7 +303,9 @@
       "v3.3.4",
       "v3.3.5",
       "v3.3.6",
-      "v3.3.7"
+      "v3.3.7",
+      "v3.3.8",
+      "v3.3.9"
     ],
     "- Session phrases: when a message is only \"We are starting a new session - read this and let me know when we can start\" or \"handover\" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message \"<the message>\"` and follow its output; never inside a subagent or `codex exec` brief. Offer /handover at a stage end or on wrap-up.": [
       "v3.3.0",
@@ -303,6 +329,14 @@
       "v3.3.5",
       "v3.3.6",
       "v3.3.7"
+    ],
+    "- Session phrases: when a message is only \"We are starting a new session - read this and let me know when we can start\" or \"handover\" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message \"<the message>\"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it; do not offer it unprompted.": [
+      "v3.3.8",
+      "v3.3.9"
+    ],
+    "- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it.": [
+      "v3.3.8",
+      "v3.3.9"
     ]
   },
   "bodies": {
@@ -430,6 +464,70 @@
         "- At checkpoints run `node scripts/memory/memory-checkpoint.mjs`: generate indexes, rotate history, refresh overviews, gate, then print staging paths and a suggested commit message. In in-repo memory, checkpoint never pushes and commits only with explicit `--commit` on the current branch; follow host branch rules. Use `--dry-run` to preview.",
         "- Session phrases: when a message is only \"We are starting a new session - read this and let me know when we can start\" or \"handover\" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message \"<the message>\"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it (operator, 2026-11-10); do not offer it unprompted.",
         "- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it (operator, 2026-11-10).",
+        "For several lessons use `node scripts/memory/memory-lesson.mjs batch <scratch>/lessons.md`; record recurrence with `node scripts/memory/memory-lesson.mjs repeat <id> \"<cause>: <note>\"`.",
+        "Claude Code runs the command guard and the clock line from .claude/settings.json; other agents are guarded by the hard-rule cards, the git hooks and the gate."
+      ]
+    ],
+    "v3.3.8": [
+      [
+        "## Memory gate",
+        "- If the private memory folder is absent, run `node scripts/memory/memory-init.mjs` from the project root.",
+        "- At session start and every checkpoint run `node scripts/memory/memory-check.mjs`; fix or report every FAIL.",
+        "- Claude Code uses SessionStart; other agents run the gate manually. Memory pre-commit runs `--hook --scope memory`.",
+        "- Before opening indexes run `node scripts/memory/memory-recall.mjs \"<question>\"`; honor the router's activity triggers.",
+        "- State is overwritten, facts are moved, history is git: one current block, one lesson per file, project facts in `brain/` with memory pointers.",
+        "- Never raise a pin or allowlist ceiling to pass; move detail down a layer. Write the destination before shortening a pointer.",
+        "- Capture with `node scripts/memory/memory-lesson.mjs new --kind <mistake|practice|observation> --route <family> \"<title>\"`; fill the TODO description and body.",
+        "- At checkpoints run `node scripts/memory/memory-checkpoint.mjs`: generate indexes, rotate history, refresh overviews, gate, commit and push. Use `--no-push` or `--dry-run` when needed.",
+        "- Session phrases: when a message is only \"We are starting a new session - read this and let me know when we can start\" or \"handover\" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message \"<the message>\"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it; do not offer it unprompted.",
+        "- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it.",
+        "For several lessons use `node scripts/memory/memory-lesson.mjs batch <scratch>/lessons.md`; record recurrence with `node scripts/memory/memory-lesson.mjs repeat <id> \"<cause>: <note>\"`.",
+        "Claude Code runs the command guard and the clock line from .claude/settings.json; other agents are guarded by the hard-rule cards, the git hooks and the gate."
+      ],
+      [
+        "## Memory gate",
+        "- If the private memory folder is absent, run `node scripts/memory/memory-init.mjs` from the project root.",
+        "- At session start and every checkpoint run `node scripts/memory/memory-check.mjs`; fix or report every FAIL.",
+        "- Claude Code uses SessionStart; other agents run the gate manually. Memory pre-commit runs `--hook --scope memory`.",
+        "- Before opening indexes run `node scripts/memory/memory-recall.mjs \"<question>\"`; honor the router's activity triggers.",
+        "- State is overwritten, facts are moved, history is git: one current block, one lesson per file, project facts in `brain/` with memory pointers.",
+        "- Never raise a pin or allowlist ceiling to pass; move detail down a layer. Write the destination before shortening a pointer.",
+        "- Capture with `node scripts/memory/memory-lesson.mjs new --kind <mistake|practice|observation> --route <family> \"<title>\"`; fill the TODO description and body.",
+        "- At checkpoints run `node scripts/memory/memory-checkpoint.mjs`: generate indexes, rotate history, refresh overviews, gate, then print staging paths and a suggested commit message. In in-repo memory, checkpoint never pushes and commits only with explicit `--commit` on the current branch; follow host branch rules. Use `--dry-run` to preview.",
+        "- Session phrases: when a message is only \"We are starting a new session - read this and let me know when we can start\" or \"handover\" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message \"<the message>\"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it; do not offer it unprompted.",
+        "- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it.",
+        "For several lessons use `node scripts/memory/memory-lesson.mjs batch <scratch>/lessons.md`; record recurrence with `node scripts/memory/memory-lesson.mjs repeat <id> \"<cause>: <note>\"`.",
+        "Claude Code runs the command guard and the clock line from .claude/settings.json; other agents are guarded by the hard-rule cards, the git hooks and the gate."
+      ]
+    ],
+    "v3.3.9": [
+      [
+        "## Memory gate",
+        "- If the private memory folder is absent, run `node scripts/memory/memory-init.mjs` from the project root.",
+        "- At session start and every checkpoint run `node scripts/memory/memory-check.mjs`; fix or report every FAIL.",
+        "- Claude Code uses SessionStart; other agents run the gate manually. Memory pre-commit runs `--hook --scope memory`.",
+        "- Before opening indexes run `node scripts/memory/memory-recall.mjs \"<question>\"`; honor the router's activity triggers.",
+        "- State is overwritten, facts are moved, history is git: one current block, one lesson per file, project facts in `brain/` with memory pointers.",
+        "- Never raise a pin or allowlist ceiling to pass; move detail down a layer. Write the destination before shortening a pointer.",
+        "- Capture with `node scripts/memory/memory-lesson.mjs new --kind <mistake|practice|observation> --route <family> \"<title>\"`; fill the TODO description and body.",
+        "- At checkpoints run `node scripts/memory/memory-checkpoint.mjs`: generate indexes, rotate history, refresh overviews, gate, commit and push. Use `--no-push` or `--dry-run` when needed.",
+        "- Session phrases: when a message is only \"We are starting a new session - read this and let me know when we can start\" or \"handover\" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message \"<the message>\"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it; do not offer it unprompted.",
+        "- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it.",
+        "For several lessons use `node scripts/memory/memory-lesson.mjs batch <scratch>/lessons.md`; record recurrence with `node scripts/memory/memory-lesson.mjs repeat <id> \"<cause>: <note>\"`.",
+        "Claude Code runs the command guard and the clock line from .claude/settings.json; other agents are guarded by the hard-rule cards, the git hooks and the gate."
+      ],
+      [
+        "## Memory gate",
+        "- If the private memory folder is absent, run `node scripts/memory/memory-init.mjs` from the project root.",
+        "- At session start and every checkpoint run `node scripts/memory/memory-check.mjs`; fix or report every FAIL.",
+        "- Claude Code uses SessionStart; other agents run the gate manually. Memory pre-commit runs `--hook --scope memory`.",
+        "- Before opening indexes run `node scripts/memory/memory-recall.mjs \"<question>\"`; honor the router's activity triggers.",
+        "- State is overwritten, facts are moved, history is git: one current block, one lesson per file, project facts in `brain/` with memory pointers.",
+        "- Never raise a pin or allowlist ceiling to pass; move detail down a layer. Write the destination before shortening a pointer.",
+        "- Capture with `node scripts/memory/memory-lesson.mjs new --kind <mistake|practice|observation> --route <family> \"<title>\"`; fill the TODO description and body.",
+        "- At checkpoints run `node scripts/memory/memory-checkpoint.mjs`: generate indexes, rotate history, refresh overviews, gate, then print staging paths and a suggested commit message. In in-repo memory, checkpoint never pushes and commits only with explicit `--commit` on the current branch; follow host branch rules. Use `--dry-run` to preview.",
+        "- Session phrases: when a message is only \"We are starting a new session - read this and let me know when we can start\" or \"handover\" (or /new-session, /handover), run `node scripts/memory/new-session.mjs dispatch --message \"<the message>\"` and follow its output; never inside a subagent or `codex exec` brief. Run /handover only when the operator asks for it; do not offer it unprompted.",
+        "- Reports: never a wall of text. Group facts under short bold headings, one fact per bullet, a blank line between groups. Link every file you name (a path relative to the project root) and every board or page by its full URL. End finished work by saying whether it is safe to compact; say yes only when memory and the work are committed and pushed and the memory gate has no FAIL. /handover is not required for it.",
         "For several lessons use `node scripts/memory/memory-lesson.mjs batch <scratch>/lessons.md`; record recurrence with `node scripts/memory/memory-lesson.mjs repeat <id> \"<cause>: <note>\"`.",
         "Claude Code runs the command guard and the clock line from .claude/settings.json; other agents are guarded by the hard-rule cards, the git hooks and the gate."
       ]

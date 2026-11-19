@@ -867,7 +867,7 @@ test('E-T10 non-interactive /handover with stdin closed: note, checkpoint, publi
   const input = w.put(path.join(w.root, 'input.json'), JSON.stringify({state: 'ready to continue', next: ['review the result']}));
   const r = spawnSync(process.execPath, [engine('handover.mjs'), 'run', '--repo', w.S1.repo, '--memory-dir', w.memoryDir, '--in', input, '--quick', '--no-rotate'], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: process.env});
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /SAFE TO COMPACT \(quick\)/);
+  assert.match(r.stdout, /STATE SAVED [(]quick[)]/);
   const notes = fs.readdirSync(path.join(w.memoryDir, 'handovers'));
   assert.equal(notes.length, 1);
   assert.equal(w.git(w.memoryDir, 'status', '--porcelain', '--', 'handovers', 'current-state.md'), '');
@@ -1047,7 +1047,7 @@ test('/handover in session mode with in-repo memory verifies the saved SHA on th
   w.git(s.repo, 'commit', '-q', '-am', 'overlay'); w.git(s.repo, 'push', '-q', '-u', 'origin', 'b1');
   const input = w.put(path.join(w.root, 'input.json'), JSON.stringify({state: 'ready to continue', next: ['review the result']}));
   const r = spawnSync(process.execPath, [engine('handover.mjs'), 'run', '--repo', s.repo, '--in', input, '--quick'], {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: process.env});
-  assert.equal(r.status, 0, r.stdout + r.stderr); assert.match(r.stdout, /SAFE TO COMPACT \(quick\)/);
+  assert.equal(r.status, 0, r.stdout + r.stderr); assert.match(r.stdout, /STATE SAVED [(]quick[)]/);
   assert.equal(w.git(w.root, '--git-dir', w.bare, 'rev-parse', 'refs/heads/b1'), w.git(s.repo, 'rev-parse', 'HEAD'));
 });
 test('an all-sessions /handover verifies its saved SHA, not a later unpublished HEAD', async t => {
@@ -1058,7 +1058,7 @@ test('an all-sessions /handover verifies its saved SHA, not a later unpublished 
   const result = runHandover({repo: w.S1.repo, memoryDir: w.memoryDir, input, quick: true}, {output: text => { output += text; }, beforeVerify() {
     w.write('other-session.md', topic('other-session')); w.git(w.memoryDir, 'add', 'other-session.md'); w.git(w.memoryDir, 'commit', '-q', '--no-verify', '-m', 'another session, not pushed');
   }});
-  assert.equal(result.code, 0, output); assert.match(output, /SAFE TO COMPACT/);
+  assert.equal(result.code, 0, output); assert.match(output, /STATE SAVED/);
 });
 
 test('E-T2c the real gate and hook agree at a CRLF byte boundary', t => {

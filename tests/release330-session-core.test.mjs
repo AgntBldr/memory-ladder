@@ -12,8 +12,8 @@ const phrase = 'We are starting a new session - read this and let me know when w
 const note = (dir, seq, time, body = '**Open question:** same\n**State:** ready\n') => put(path.join(dir, 'handovers', `${String(seq).padStart(6, '0')}-2026-01-01-1200.md`), `---\ntime: ${time}\nbranch: topic\nsha: abcdefa\nmode: full\n---\n${body}`);
 
 test('frozen exports and arities', () => {
-  assert.deepEqual(Object.keys(core).sort(), ['capOutput', 'capText', 'listNotes', 'matchPhrase', 'parseBlock', 'readCurrent', 'readOverlay', 'stateToken'].sort());
-  for (const [name, arity] of Object.entries({stateToken: 1, readCurrent: 1, parseBlock: 1, readOverlay: 1, capText: 2, capOutput: 2, matchPhrase: 1, listNotes: 2})) assert.equal(core[name].length, arity, name);
+  assert.deepEqual(Object.keys(core).sort(), ['capOutput', 'capText', 'listNotes', 'matchPhrase', 'matchSlash', 'parseBlock', 'readCurrent', 'readOverlay', 'stateToken'].sort());
+  for (const [name, arity] of Object.entries({stateToken: 1, readCurrent: 1, parseBlock: 1, readOverlay: 1, capText: 2, capOutput: 2, matchPhrase: 1, matchSlash: 1, listNotes: 2})) assert.equal(core[name].length, arity, name);
 });
 test('token covers raw dirty bytes including legacy empty and NUL', t => {
   const dir = fixture(t), file = path.join(dir, 'current-state.md');

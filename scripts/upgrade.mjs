@@ -24,7 +24,9 @@ import {sessionSettings,skillPlan,standardBlockPlan,instructionsReportLines,dist
 // deliberately not listed here: listing it would let that update finish with a failing gate. See "Checks a release widens"
 // in docs/UPGRADE.md. 3.3.7 adds none and widens none. 3.3.8 adds none and widens none of the gate's checks. 3.3.9 adds none
 // and widens config.caps (a malformed caps.checkpoint.checks is now a FAIL); config.caps is deliberately not listed here either,
-// so an update of a project whose configuration already holds such a value restores itself.
+// so an update of a project whose configuration already holds such a value restores itself. 3.3.10 adds lesson.draft (a WARN)
+// and lesson.draft-text (a FAIL) and widens none; lesson.draft-text is deliberately not listed here: it fires only on a lesson
+// file that has a draft: line, which no earlier release writes, so an update meets none.
 export const NEW_CHECKS = ['config.path'];
 const newFailKey=f=>JSON.stringify([f.check,f.file]);
 // The gate's "git status" refreshes a repository's index when it may; during an update that would be a write
@@ -384,6 +386,16 @@ function predictProject(target,updates) {
   }
   return changes.sort((a,b)=>a.file<b.file?-1:a.file>b.file?1:0);
 }
+// What the preview says when a refusal stopped the plan before any write was worked out: one short phrase. The same
+// words stand for a memory step that could not be planned: the run refuses, so no count of its writes is true.
+const MEMORY_NOT_PLANNED='memory steps could not be planned';
+const INSTRUCTION_REFUSALS={unclear:'unclear lines in the old memory section',damaged:'damaged standard block markers',input:'unreadable decisions or ledger file',decisions:'decisions file names an unknown line',proof:'instructions proof failed',encoding:'instruction file is not UTF-8'};
+function notComputedReason(plan,instructionPlan) {
+  if(plan.refusals.length) return oneLine(plan.refusals[0]).split(/[:;]/)[0];
+  if(plan.instructionRefusal) return INSTRUCTION_REFUSALS[instructionPlan.refusalKind]??'instruction file refused';
+  if(newer(plan.receipt.version,plan.version)) return 'downgrade refused';
+  return 'memory-only needs project files at the kit version';
+}
 function planUnprinted(opts, root, hooks={}) {
   const target=path.resolve(opts.target),engine=path.join(target,'scripts/memory');
   const receipt=readJSON(checked(path.join(engine,'KIT.json'))),oldManifest=readJSON(checked(path.join(engine,'MANIFEST.json')));
@@ -451,7 +463,7 @@ function planUnprinted(opts, root, hooks={}) {
   plan.live={dir:live.dir,source:live.source,hook:liveHook};
   if(plan.memoryOnly&&!plan.same) plan.memoryOnlyRefusal=`upgrade: --memory-only needs project files at kit ${version}; found kit ${receipt.version}${engineChanged?', engine files differ':''}; run the full upgrade`;
   // A refused run writes nothing, so its plan stays empty and never touches a temporary folder.
-  if(refusals.length||instructionRefusal||newer(receipt.version,version)||plan.memoryOnlyRefusal) return finishPlan(plan);
+  if(refusals.length||instructionRefusal||newer(receipt.version,version)||plan.memoryOnlyRefusal) { plan.notComputed=notComputedReason(plan,instructionPlan); return finishPlan(plan); }
   const projectConfig=()=>readJSON(checked(path.join(engine,'memory.config.json')));
   let memoryConfig;
   if(!plan.noop&&!plan.memoryOnly) {
@@ -492,11 +504,11 @@ function planUnprinted(opts, root, hooks={}) {
     plan.projectChanges=predictProject(target,updates);
     memoryConfig=updates.has('scripts/memory/memory.config.json')?JSON.parse(JSON.stringify(mergedConfig)):projectConfig();
   } else memoryConfig=projectConfig();
-  if(plan.memoryMissing) return finishPlan(plan);
+  if(plan.memoryMissing) { plan.notComputed='memory folder not found'; return finishPlan(plan); }
   if(plan.noop&&!plan.memoryOnly) {
     // Kit 3.3.6 item 12a: a refusal the replay would give stops this run (exit 1) instead of suggesting the replay.
     const refusal=replayRefusal(memory.dir,memoryConfig);
-    if(refusal) plan.memoryError=refusal;
+    if(refusal) { plan.memoryError=refusal; plan.notComputed=MEMORY_NOT_PLANNED; }
     else plan.pending=memoryPending(memory.dir,memoryConfig,version);
     if(plan.pending||plan.memoryError) return finishPlan(plan);
   }
@@ -508,7 +520,7 @@ function planUnprinted(opts, root, hooks={}) {
     const result=plan.migration?simulateMemory(memory.dir,memoryConfig,target,path.join(engine,'recall-probes.json')):predictMemory(memory.dir,memoryConfig,{index:full});
     plan.memoryChanges=[...result.changes].map(([file,bytes])=>({file,bytes})).sort((a,b)=>a.file<b.file?-1:a.file>b.file?1:0);
     plan.memoryLog=result.log;
-  } catch(error) { if(error instanceof ScratchRefusal) throw error; plan.memoryError=oneLine(error.message); }
+  } catch(error) { if(error instanceof ScratchRefusal) throw error; plan.memoryError=oneLine(error.message); plan.notComputed=MEMORY_NOT_PLANNED; }
   plan.hook=plan.worktreeError?{location:null,reason:plan.worktreeError}:planHook(target,memory.dir,memoryConfig.engine_version,plan.worktree,runLocation);
   // Statement 22: every run that writes keeps a durable backup; only a run that changes nothing has none.
   plan.backup=full||plan.memoryChanges.length>0||Boolean(plan.hook.change);
@@ -653,7 +665,32 @@ class PlanDifference extends Error {
 }
 
 // ---- Preview ----
-function printPreview(plan,opts) {
+const MB=1024*1024,GB=1024*MB;
+// The undo snapshot a real run would take before its first write, said in one line from the same listing the run uses
+// (the first listing), by size alone: nothing is copied and no folder is made. `hooks.freeBytes` stands in for the free
+// space of the temporary folder in tests. A figure that cannot be worked out is said so and never printed as zero.
+function snapshotLine(plan,check,hooks) {
+  if(plan.notComputed) return {line:`UNDO SNAPSHOT not computed (${plan.notComputed})`};
+  if(!plan.backup) return {};
+  let files=0,bytes=0;
+  try {
+    for(const [,{path:file,scope}] of firstListing(plan,check).initial) {
+      if(scope==='external'||scopeEntry(file).kind!=='file') continue;
+      files++;bytes+=fs.lstatSync(file).size;
+    }
+  // A listing that fails here fails the real run too (it refuses before its first write), so the preview exits non-zero.
+  } catch(error) { return {failed:true,line:`UNDO SNAPSHOT not computed (${error instanceof ListError?listReason(error):oneLine(error.message)})`}; }
+  const base=fs.realpathSync.native(os.tmpdir());
+  let free=null;
+  try {
+    const given=typeof hooks.freeBytes==='function'?hooks.freeBytes(base):hooks.freeBytes;
+    if(given!==undefined) free=given;
+    else { const stat=fs.statfsSync(base); free=stat.bavail*stat.bsize; }
+  } catch {}
+  const short=free!==null&&bytes>free;
+  return {short,line:`UNDO SNAPSHOT ${files} files, ${(bytes/MB).toFixed(1)} MB to ${slash(base)} (${free===null?'free space unknown':(free/GB).toFixed(1)+' GB free'})${short?' - NOT ENOUGH SPACE':''}`};
+}
+function printPreview(plan,opts,hooks={}) {
   const check=safety(plan,opts),mark=destination=>check.reasons.has(destination)?` (refused in a real run: ${check.reasons.get(destination)})`:'';
   const lines=[],refused=[];
   // Kit 3.3.6 item 12b (rule R7): the preview names the real run's refusals that need no lock and no scope inventory:
@@ -682,12 +719,14 @@ function printPreview(plan,opts) {
   if(hook) lines.push(hook.line+mark(hook));
   else if(plan.hook.reason) lines.push('HOOK not refreshed: '+plan.hook.reason);
   else if(plan.hook.hook) lines.push(`HOOK ${slash(plan.hook.hook)}: unchanged`);
-  const [p,m,h]=counts(plan);
-  lines.push(`planned writes: ${p} project, ${m} memory, ${h} hook`);
+  const [p,m,h]=counts(plan),snapshot=snapshotLine(plan,check,hooks);
+  if(snapshot.line) lines.push(snapshot.line);
+  // A plan that was never worked out has no counts: zeros would read as "nothing to do".
+  lines.push(plan.notComputed?`planned writes: not computed (${plan.notComputed})`:`planned writes: ${p} project, ${m} memory, ${h} hook`);
   if(plan.memoryOnly) {
     for(const line of refused) console.error(line);
-    for(const line of lines.filter(line=>/^(?:MEMORY|HOOK|planned writes:) /.test(line))) console.log(line);
-    return refused.length||m||h||check.reasons.size?1:0;
+    for(const line of lines.filter(line=>/^(?:MEMORY|HOOK|UNDO SNAPSHOT|planned writes:) /.test(line))) console.log(line);
+    return refused.length||m||h||check.reasons.size||snapshot.short||snapshot.failed?1:0;
   }
   for(const line of plan.log) console.log(line);
   for(const message of plan.refusals) console.log(message);
@@ -696,7 +735,7 @@ function printPreview(plan,opts) {
   for(const line of refused) console.log(line);
   for(const line of lines) console.log(line);
   console.log('kit '+plan.receipt.version+' -> '+plan.version);
-  return plan.checkExit||p||m||h||refused.length||check.reasons.size ? 1 : 0;
+  return plan.checkExit||p||m||h||refused.length||check.reasons.size||snapshot.short||snapshot.failed ? 1 : 0;
 }
 const replayLine=plan=>`upgrade: replay the memory steps with: node "${path.join(plan.root,'scripts/upgrade.mjs')}" --target "${plan.target}" --memory-only --live-memory (rehearse with --memory-dir <copy>)`;
 
@@ -1522,7 +1561,7 @@ function restoreRun(opts,hooks) {
 export function upgrade(opts, root=kitRoot, hooks={}) {
   if(opts['dry-run']) opts={...opts,check:true};
   if(opts.restore) return restoreRun(opts,hooks);
-  if(opts.check) return printPreview(makePlan(opts,root,false,hooks),opts);
+  if(opts.check) return printPreview(makePlan(opts,root,false,hooks),opts,hooks);
   return applyUpgrade(opts,root,hooks);
 }
 if(isDirect(import.meta.url)) {

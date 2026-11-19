@@ -21,7 +21,9 @@ export function parseBlock(text) {
   for (const match of String(text ?? '').matchAll(/^\*\*([^*\r\n]+):\*\*[ \t]*(.*)$/gm)) {
     if (!Object.hasOwn(Object.prototype, match[1])) fields[match[1]] = match[2].trim();
   }
-  const match = /^\*\*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) \| @([a-f0-9]{7}) \| (full|quick)\. (.*?)\*\*[ \t]*\r?$/m.exec(String(text ?? ''));
+  // The stamp time is written with seconds (HH:MM:SS) and read with or without them, so stamps written by earlier
+  // releases, by hand or by a project's own skill still parse; `time` keeps what was written.
+  const match = /^\*\*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?) \| @([a-f0-9]{7}) \| (full|quick)\. (.*?)\*\*[ \t]*\r?$/m.exec(String(text ?? ''));
   const valid = match && !Number.isNaN(Date.parse(match[1].replace(' ', 'T'))) && new Date(match[1].replace(' ', 'T')).getDate() === Number(match[1].slice(8, 10));
   return {stamp: valid ? {time: match[1], sha: match[2], mode: match[3]} : null, state: valid ? match[4] : '', fields};
 }
@@ -92,6 +94,25 @@ export function matchPhrase(message) {
   const extra = lines.length === 2 ? /^(goal|note):[ \t]*(.*)$/i.exec(lines[1]) : null;
   if (lines.length === 2 && (!extra || extra[1].toLowerCase() !== (start ? 'goal' : 'note'))) return none;
   return {kind: start ? 'start' : 'handover', quick: phrase === 'quick handover', text: [...(extra?.[2] ?? '')].slice(0, 200).join('')};
+}
+// The slash forms are for `dispatch` only. The prompt hook keeps rejecting every slash message through matchPhrase,
+// because Claude Code runs the skill itself and a nudge would run it twice. A message that starts with /new-session or
+// /handover but is not one of the three exact forms gets the usage line (`usage: true`); any other message gets nothing.
+export function matchSlash(message) {
+  const none = {kind: null, quick: false, text: '', usage: false, skill: null};
+  if (typeof message !== 'string') return none;
+  const trimmed = message.trim(), lower = trimmed.toLowerCase();
+  const skill = lower.startsWith('/new-session') ? 'new-session' : lower.startsWith('/handover') ? 'handover' : null;
+  if (!skill) return none;
+  const usage = {...none, usage: true, skill};
+  const lines = trimmed.split(/\r?\n/);
+  if (lines.length > 2) return usage;
+  const command = lines[0].trim().toLowerCase().replace(/[ \t]+/g, ' ');
+  const start = command === '/new-session', full = command === '/handover', quick = command === '/handover quick';
+  if (!start && !full && !quick) return usage;
+  const extra = lines.length === 2 ? /^(goal|note):[ \t]*(.*)$/i.exec(lines[1]) : null;
+  if (lines.length === 2 && (!extra || extra[1].toLowerCase() !== (start ? 'goal' : 'note'))) return usage;
+  return {kind: start ? 'start' : 'handover', quick, text: [...(extra?.[2] ?? '')].slice(0, 200).join(''), usage: false, skill};
 }
 export function listNotes(memoryDir, opts) {
   try {

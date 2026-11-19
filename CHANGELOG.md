@@ -1,5 +1,68 @@
 # Changelog
 
+## 3.3.10
+
+**A handover now says whether it is safe to compact by one definition, and proves it from the files it wrote: memory is updated, learning is added, and the roadmap holds the current state. A full handover needs a new input, `roadmap`; without it the verdict is NOT SAFE. A lesson can be saved at once as a draft and finished later. 3.3.10 adds two gate checks, `lesson.draft` and `lesson.draft-text`, which cannot fire before a project's first draft lesson, and widens none.**
+
+- Upgrade from 3.3.9 with `node scripts/upgrade.mjs --target <PROJECT> --check`, then, from the project's main checkout, `node scripts/upgrade.mjs --target <PROJECT> --live-memory`. Run the installed gate afterwards.
+- A project's own skill or script that builds a handover input must now pass `roadmap`, and one that looks for the words "NOT SAFE" to detect a failed handover must use the exit status instead; both changes are described below. `git grep -n "handover.mjs"` in the project finds such files. Update them after the update.
+
+Safe to compact
+
+- Safe to compact has one definition, the same in a handover's last line, in the handover skill and in the Reports line of the standard block: memory is updated, learning is added (lessons written, saved as a draft to finish later, or stated as none), and the roadmap holds the current state (the run updated it, or names the line that already holds it). A commit or a push is not one of the three. The standard block changes one line, the Reports line, to say so. A project rule in `## Project rules` that contradicts it stays and is the project's to reconcile.
+- A full handover needs a new input, `roadmap: "updated (<words>)"`, with words copied from the roadmap line the run added. When nothing needed adding, the input says `roadmap: "nothing new (<words>)"`, with words copied from the line that already holds the state. The words must be on one line of the roadmap when the handover ends, and a quote under 20 characters must be the whole line. A handover input without `roadmap` is NOT SAFE, and so is saying nothing about the roadmap.
+- A handover writes no new kind of file. The note gains one field, `Roadmap`, that records the statement.
+- The report can end with two lines: `NOT FINISHED - ...` and the verdict. A commit the gate stopped, a failed push, a failed close check and a stale brain log no longer turn the verdict to NOT SAFE. They still give a non-zero exit status and must be fixed before the session ends, with the command the next-step line names, not with a second handover. A full handover no longer fails on an uncommitted roadmap or log when memory is outside the project. The `close:` line of the session overlay template now says the same: a missing step refuses the save, a failed one ends NOT FINISHED.
+- A handover that is refused before it writes anything now ends `SAVE REFUSED - ...` instead of `NOT SAFE TO COMPACT - ...`. The exit status is non-zero as before. A project script that looks for the words "NOT SAFE" to detect a failed handover must use the exit status.
+- A handover now proves from disk what it was asked to save: the note, the state block, what the lesson batch wrote or the draft it saved, and the roadmap line it quoted. Anything missing or different at the end gives NOT SAFE, whatever happened to the commit. A lesson that a retry names in `none (already written: <files>)` is checked for being on disk and for its form, not for its words (see Known limits).
+- A lesson file that is empty, unfilled, or a draft without its text gives NOT SAFE on every full handover, and on every quick handover given lessons, until someone acts on the file, unless the project's gate allows that finding or another session has claimed the file. Each of these is already a gate FAIL (or a new check on a draft), so no handover that is SAFE today becomes NOT SAFE by it.
+- A quick handover says SAFE only when it was given both the lessons and the roadmap statement; otherwise it says `STATE SAVED (quick)` and names what it did not check. Given a statement that does not hold, it now says NOT SAFE and exits non-zero.
+- Roadmap rotation is unchanged.
+
+Lessons
+
+- A lesson can be saved now and finished later: `lessons: "later (<what happened and the rule you would write>)"` in a handover input, or at any moment `node scripts/memory/memory-lesson.mjs draft "<text>"`. The text is at least 40 characters and 6 words. Either writes a draft lesson file at once, with a `draft:` line under its metadata and the text under `**Draft:**`. Saving the same text again makes no second file while a lesson file still holds that text under `**Draft:**`; once that paragraph is deleted, the same text makes a new draft.
+- Every session start lists the drafts first, a SAFE handover counts them in its last line while any remain (`draft lessons to finish: <n>`), and the gate gives one WARN (`lesson.draft`) per draft. A draft is finished by editing its file: fill Why and How to apply, correct the title, description, kind and route, and delete the `draft:` line. The gate warns until then.
+- The lesson tool now replaces an existing lesson file by an atomic rename, and gives a new lesson its name only when its content is complete, so a failed write never leaves part of a lesson. A failed lesson batch now prints how to run it again. The batch and the retry after a failed handover otherwise work as in 3.3.9 (`none (already written: <files>)`). A recurrence can be recorded twice after a failed batch (see Known limits).
+
+Session start
+
+- When the start does not use a hand-written `current-state.md` block that has content, it now says so in one line: `state block not used: it has no **Branch:** line; add "**Branch:** <branch>" to current-state.md (a handover writes it)`, or `state block not used: it is for <branch>`, or, when the block is for this branch, has no valid time stamp and a hand-over note exists, `state block not used: it has no time stamp, so the hand-over note of <HH:MM> leads; start the block with "**YYYY-MM-DD HH:MM:SS | @<sha> | full. <state>**" (a handover writes it)`. The starter `current-state.md` template names both lines; it is copied on a fresh install only, and an update does not rewrite an existing file.
+- `new-session.mjs dispatch` now answers the exact messages `/new-session`, `/handover` and `/handover quick`, which the standard block tells an agent to run it for. Any other message that starts with `/new-session` or `/handover` gets the usage line `dispatch: use /new-session, /handover or /handover quick`. The prompt hook is unchanged: it still ignores every slash message, because Claude Code runs the skill itself.
+- `current-state.md` stamps gain seconds at the next handover: `**YYYY-MM-DD HH:MM:SS | @<sha> | full. <state>**`. A stamp without seconds is still read, and nothing rewrites an old stamp. A project skill that writes the stamp itself keeps working with minute stamps; whether it moves to seconds is each project's own follow-up. A stamp with seconds leads when its time is equal to or later than the newest note's time, and a stamp without seconds leads when its minute is equal to or later than the note's minute.
+
+The update
+
+- When an old instruction line that the update cannot classify begins with whole sentences of a line the kit shipped, the preview prints one note under its UNCLEAR line: `note: <id> begins with <n> sentence(s) of a kit line (<versions>); "keep" copies the whole unit, kit sentences included; edit ## Project rules after the update`. The line is still kept or dropped whole, as decided.
+- The preview (`--check` and `--dry-run`) prints the undo snapshot's size before its summary: `UNDO SNAPSHOT <n> files, <size> MB to <folder> (<free> GB free)`, worked out from a listing alone, with nothing copied. When the size is more than the free space the line ends `- NOT ENOUGH SPACE` and the preview exits non-zero. When the update refused before it worked out a plan, the summary reads `planned writes: not computed (<reason>)` instead of zeros, and the snapshot line says `not computed` too.
+
+Documentation
+
+- The README, the glossary, the engine reference and docs/HOW-IT-WORKS.md describe the handover, draft lesson and session start changes above. In docs/LIMITS.md the sentence about where its KB figures came from now reads "Example figures given in KB are invented examples."
+
+Gate checks
+
+- New checks: `lesson.draft` (WARN, one per draft lesson) and `lesson.draft-text` (FAIL: a draft whose date is not a date, or whose `**Draft:**` text is missing or under 40 characters). Neither can fire before a project's first draft lesson. No check for an empty lesson file is added: an empty lesson file already fails the existing checks. A lesson file with a `draft:` line is not reported by `lesson.unfilled-body`, because its empty prompts are the point of a draft.
+- Widened checks: none. A memory with no draft lesson gets the same findings as under 3.3.9: the gate's source differs from 3.3.9's only in the code for a lesson file that has a `draft:` line.
+
+Maintainers
+
+- The kit's own export refuses a repository name made only of dots (the names `.` and `..`), which is a path step and not a repository. Its wording check now also reads code, not only titles and prose: a review-round label written as one word is refused in a string, a regular expression or a comment, and so is a path with a segment that starts with one. Both run only in the kit's own export; installed projects are unaffected.
+- The kit's own export runs up to 6 public test files at once (was 4) on a machine with 7 or more processors; the fixed time limit of its test gate is unchanged.
+
+Known limits
+
+- The finish lines a handover prints and the push hint the checkpoint prints when a push fails name `git -C <folder> push`. That command runs in your own shell, not under the kit's clean git environment: run it where no git redirect variable (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_NAMESPACE`, injected configuration) is set, and never inside a git hook. The checkpoint's hint (3.3.9 and earlier) is also unquoted. A later release is meant to give both one quoted, clean-environment push entry point.
+- The kit's own export can run its public test gate close to the gate's fixed time limit when the machine is busy. The limit is not raised: a run that reaches it fails, and the export is run again when the machine is quieter. Installed projects are unaffected.
+- `lessons: none (...)` is taken on the agent's word, and so is the choice of words in a roadmap statement. The handover proves that the quoted words are on a line of the roadmap. It cannot prove that the line is complete or says the right thing, and a filler line that is quoted passes. Words that are also on an older line are found there.
+- The verdict is a statement about the disk at the moment the run ends, for what the run was given. A file changed from outside the handover after that moment can undo saved knowledge without a NOT SAFE being printed. A file changed from outside between two attempts is seen only if the damage shows in its form (empty, unfilled, a draft without its text): a lesson cut short but well formed, or a recurrence entry reverted, and then named in `already written`, is believed.
+- After a failed rollback, or a retry of a batch whose recurrence was already written, the same recurrence entry can stand twice in a lesson. No knowledge is lost, but it counts twice toward the repeat thresholds until one line is deleted by hand.
+- A new lesson is published with a hard link. On a file system that refuses hard links the lesson tool stops with that reason and writes nothing.
+- A draft's text is checked for length only, and finishing a draft is checked by form (both prompts filled, no `draft:` line), not by what the lesson says. A draft gets the kind `observation` and the first family of the routing table until whoever finishes it corrects them. `lesson.draft` is one WARN per draft, so a project that keeps the gate at zero warnings sees it until the draft is finished.
+- A quoted roadmap line that the run's own rotation moves to the history file gives NOT SAFE: quote a line of a newer block, or save again.
+- A hand-written state block still does not lead without a Branch line, or against a note when it has no stamp; the start now says so. Only the three exact slash forms are answered by `dispatch`. A stamp without seconds (an old one, a hand-written one, or one from a project's own skill) ties by minute, so a note written later in the same minute loses to it.
+- An old instruction line that a project edited is still one whole unit. Keeping it repeats its kit sentences in `## Project rules` until someone edits that section by hand; the preview's note says so. The snapshot size in the preview is a sum taken at preview time, and the snapshot the real run takes can differ if files change in between.
+
 ## 3.3.9
 
 **A project can list its own check commands in `caps.checkpoint.checks`, and every memory save then runs them after the save and its push: a failing check makes a finished save end with status 1 and keeps every saved change. 3.3.9 adds no gate check and widens one: `config.caps` now fails a malformed `caps.checkpoint.checks`.**

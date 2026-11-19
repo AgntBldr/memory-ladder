@@ -12,7 +12,7 @@ import {NEW_CHECKS} from '../scripts/upgrade.mjs';
 
 const doc = rel => fs.readFileSync(path.join(kitRoot, rel), 'utf8');
 
-test('CHANGELOG has a 3.3.9 entry above the 3.3.8 entry: the upgrade line from 3.3.8, the project checks, "New checks: none.", the widened config.caps check and the ledger row', () => { // mutant: move the 3.3.9 heading below "## 3.3.8", drop the "- New checks: none." line, change the last ledger id, or write "byte for byte" into the entry again
+test('CHANGELOG has a 3.3.9 entry above the 3.3.8 entry: the upgrade line from 3.3.8, the project checks, "New checks: none.", the widened config.caps check and the ledger row', () => { // mutant: move the 3.3.9 heading below "## 3.3.8", drop the "- New checks: none." line, change the id of the 3.3.9 ledger row, or write "byte for byte" into the entry again
   const log = doc('CHANGELOG.md'), at9 = log.indexOf('\n## 3.3.9\n'), at8 = log.indexOf('\n## 3.3.8\n');
   assert.ok(at9 > 0 && at9 < at8, '3.3.9 is above 3.3.8');
   const entry = log.slice(at9, at8);
@@ -25,9 +25,10 @@ test('CHANGELOG has a 3.3.9 entry above the 3.3.8 entry: the upgrade line from 3
   ]) assert.ok(entry.includes(part), part);
   assert.ok(!/byte[ -]for[ -]byte/.test(entry), 'the update rewrites the configuration file, so the entry promises values and order, not bytes');
   const rows = JSON.parse(doc('engine/upgrades.json'));
-  assert.equal(rows.at(-1).id, 'kit-3-3-9');
-  assert.ok(rows.at(-1).reason.startsWith('Upgrade from 3.3.8: preview with --check first'), 'the ledger row names the update from 3.3.8');
-  assert.ok(rows.at(-1).reason.includes('config.caps'), 'the ledger row names the widened check');
+  const row = rows.find(candidate => candidate.id === 'kit-3-3-9');
+  assert.ok(row, 'the ledger keeps the 3.3.9 row');
+  assert.ok(row.reason.startsWith('Upgrade from 3.3.8: preview with --check first'), 'the ledger row names the update from 3.3.8');
+  assert.ok(row.reason.includes('config.caps'), 'the ledger row names the widened check');
 });
 
 test('UPGRADE.md lists the 3.3.9 widening of config.caps under "Checks a release widens", with the rollback it causes and the three states that do not fail', () => { // mutant: delete the 3.3.9 row or the paragraph after the table, or write "byte for byte" into it again

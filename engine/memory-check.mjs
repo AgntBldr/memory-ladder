@@ -120,6 +120,19 @@ export function gitState(dir, files, caps, now, add, hook, inRepo = false, {name
   }
 }
 
+// A draft lesson keeps what was saved under **Draft:** until it is finished. The text must be at least this long to count as text;
+// the lesson tool applies the same floor (and a word floor) when it writes one.
+export const DRAFT_MIN_CHARS = 40;
+export const DRAFT_MIN_WORDS = 6;
+// The text of the **Draft:** paragraph of a lesson body, or null when there is none: the rest of its first line and any
+// following lines up to a blank line or the next bold label.
+export function draftParagraph(body) {
+  const lines = String(body).split(/\r?\n/), at = lines.findIndex(line => /^\*\*Draft:\*\*/.test(line));
+  if (at < 0) return null;
+  const parts = [lines[at].replace(/^\*\*Draft:\*\*[ \t]*/, '').trim()];
+  for (let i = at + 1; i < lines.length && lines[i].trim() && !/^\*\*[^*]+:\*\*/.test(lines[i]); i++) parts.push(lines[i].trim());
+  return parts.join(' ').trim();
+}
 // An allow entry can only go stale for a check this run actually evaluated: memory scope skips the
 // repo layer (repo checks and anything under brain/ or docs/), and --hook skips the remote/ahead/dirty checks.
 function notEvaluated(entry, scope, hook, noGit = false, inRepo = false, quick = false) {
@@ -477,7 +490,14 @@ export function runCheck({ memoryDir, repo, scope = 'all', config = loadConfig()
       if (kind !== undefined && !KINDS.includes(kind)) add('FAIL', 'lesson.kind', f.file, null, `kind "${String(kind)}" is not mistake, practice or observation`);
       const body = f.body.replace(/^\s*\S[^\n]*(?:\n|$)/, ''), lines = body.split(/\r?\n/), prompts = [];
       for (let i = 0; i < lines.length; i++) if (/^\*\*(?:Why|How to apply):\*\*$/.test(lines[i].trim())) prompts.push(i);
-      if (prompts.some((at, i) => !lines.slice(at + 1, prompts[i + 1] ?? lines.length).join('\n').trim())) add('FAIL', 'lesson.unfilled-body', f.file, null, 'fill the empty **Why:** / **How to apply:** section');
+      // A draft lesson (a `draft:` line under metadata) is a lesson saved for later: its empty prompts are the point of it, so it is
+      // counted by one warning each, and it fails only when it has lost its date or its text.
+      const draft = lessonField(f.data, 'draft');
+      if (draft !== undefined) {
+        add('WARN', 'lesson.draft', f.file, null, `draft since ${typeof draft === 'string' ? draft : 'an unknown date'}: fill Why and How to apply, then delete the draft line`);
+        if (typeof draft !== 'string' || !validDate(draft)) add('FAIL', 'lesson.draft-text', f.file, null, 'the draft line must carry the date the draft was saved (YYYY-MM-DD)');
+        else if ((draftParagraph(f.body) ?? '').length < DRAFT_MIN_CHARS) add('FAIL', 'lesson.draft-text', f.file, null, `the **Draft:** paragraph is missing or under ${DRAFT_MIN_CHARS} characters: a draft without its text is damaged; write the lesson in the file and delete the draft line`);
+      } else if (prompts.some((at, i) => !lines.slice(at + 1, prompts[i + 1] ?? lines.length).join('\n').trim())) add('FAIL', 'lesson.unfilled-body', f.file, null, 'fill the empty **Why:** / **How to apply:** section');
       if (generated && !routes(f.data).length) add('FAIL', 'route.missing', f.file, null, 'lesson has no route');
       if (fmGet(f.data, 'description') === 'TODO') add('FAIL', 'lesson.unfilled', f.file, null, 'fill the TODO description');
     }

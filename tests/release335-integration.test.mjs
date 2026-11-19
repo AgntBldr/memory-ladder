@@ -348,7 +348,7 @@ test('I30 E2.8 (e) the handover CLI saves this project\'s note on this branch wi
   const input = put(path.join(f.root, 'input.json'), J({state: 'Ready to continue', question: 'Which next?', next: ['Review results'], waits: 'none', risks: 'none'}));
   const result = writer(f, 'handover.mjs', ['run', '--repo', f.target, '--in', input, '--quick'], env);
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.match(result.stdout, /^SAFE TO COMPACT/m);
+  assert.match(result.stdout, /^STATE SAVED [(]quick[)]/m);
   assert.ok(result.stdout.includes(`${branch} @ ${f.git(f.target, 'rev-parse', 'HEAD').slice(0, 7)}`), result.stdout);
   const notes = fs.readdirSync(path.join(f.memory, 'handovers'));
   assert.equal(notes.length, 1, notes.join(' '));
@@ -379,7 +379,7 @@ test('I32 E2.8 (e) the handover CLI\'s gate sees this memory\'s unpushed commits
   const input = put(path.join(f.root, 'input.json'), J({state: 'Ready to continue', question: 'Which next?', next: ['Review results'], waits: 'none', risks: 'none'}));
   const result = writer(f, 'handover.mjs', ['run', '--repo', f.target, '--in', input, '--quick'], env);
   assert.equal(result.status, 1, result.stdout + result.stderr);
-  assert.match(result.stdout, /^NOT SAFE TO COMPACT/m);
+  assert.match(result.stdout, /^NOT FINISHED - memory NOT committed/m);
   assert.match(result.stdout, /repo\.ahead/);
   assert.equal(f.git(f.memory, 'rev-parse', 'HEAD'), head, 'a failing gate commits nothing');
   assert.equal(f.git(bare, 'rev-parse', memoryBranch), pushed, 'and pushes nothing');

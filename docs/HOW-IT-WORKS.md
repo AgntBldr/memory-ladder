@@ -45,7 +45,7 @@ Install seeds a sessions route; add families and brain cards as needed. See [the
 
 [Interactive diagram](diagrams/README.md) · [Archify source](diagrams/session-sequence.json)
 
-Use `/new-session` for a read-only start and `/handover` to save lessons, CURRENT and a note in memory's `handovers/` folder. See [session commands](../README.md#starting-and-handing-over-a-session).
+Use `/new-session` for a read-only start and `/handover` to save lessons, CURRENT and a note in memory's `handovers/` folder. Its last line says whether it is safe to compact, by one definition: memory is updated, learning is added and the roadmap holds the current state. See [session commands](../README.md#starting-and-handing-over-a-session).
 
 1. Run the gate; read the router's applicable hard rules and current state.
 2. Ask recall before opening an index. Open the activity index required by the router, then the relevant lesson.
@@ -55,14 +55,14 @@ Use `/new-session` for a read-only start and `/handover` to save lessons, CURREN
 
 That order comes from [memory-checkpoint.mjs](../engine/memory-checkpoint.mjs). `--no-push` still commits; `--dry-run` does neither. A failed push leaves the commit and exits 2. Checkpoint flags: see the [glossary](GLOSSARY.md#sessions-and-claims-335).
 
-These synthetic excerpts use engine 3.3.9 and `~/memory`; timings vary. `--no-git` skips Git health and committed-age checks.
+These synthetic excerpts use engine 3.3.10 and `~/memory`; timings vary. `--no-git` skips Git health and committed-age checks.
 
 Install output (excerpt; paths abbreviated):
 
 ```text
 memory: ~/memory (--memory-dir)
 WARN repo.remote . memory repo has no remote
-memory-check 3.3.9 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 159 ms
+memory-check 3.3.10 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 159 ms
 memory gate hook installed; checks before saving a Git commit: ~/memory/.git/hooks/pre-commit
 Self-test: node --test scripts/memory/memory.selftest.mjs
 ```
@@ -76,7 +76,7 @@ node scripts/memory/memory-check.mjs --no-git --memory-dir ~/memory
 ```text
 memory: ~/memory (--memory-dir)
 WARN repo.git-skipped . git health and committed-age checks skipped (--no-git)
-memory-check 3.3.9 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 29 ms
+memory-check 3.3.10 [all]: 0 FAIL, 1 WARN, 0 allowed, 4 files, 0 inbox notes, 1 KB, 29 ms
 ```
 
 Startup of the same fixture:
@@ -86,7 +86,7 @@ node scripts/memory/memory-check.mjs --no-git --session-start --memory-dir ~/mem
 ```
 
 ```text
-memory gate: ok (0 allowed, 1 warn, engine 3.3.9)
+memory gate: ok (0 allowed, 1 warn, engine 3.3.10)
 ```
 
 The warning reports the skipped Git checks. “ok” means no unallowed FAIL, not zero warnings.
@@ -200,6 +200,7 @@ The [gate implementation](../engine/memory-check.mjs) reads content, links, caps
 | `chars.*` | Preview `memory-chars.mjs repair`, allow deliberate examples, then `--write`; fix residues by hand. |
 | `lesson.enforce`, `lesson.enforced`, `lesson.repeats` | Record repeats and a valid decision; see the repeat flow below. |
 | `lesson.unfilled-body` | Fill an empty exact prompt section. |
+| `lesson.draft`, `lesson.draft-text` | Finish the draft lesson: fill Why and How to apply and delete the `draft:` line; a draft without its text is damaged. |
 | `lesson.kind`, `lesson.kind-missing`, `lesson.trigger` | Classify lessons and add a cue before repeating the mistake. |
 | `date.future`, `enforce.rules`, `config.caps` | Repair dates, rules or invalid configuration. |
 | `split.chain`, `topic.line` | Repair back links and long paragraphs; hand-review reported numbering/order/list problems. |
@@ -225,7 +226,7 @@ Running the normal gate with `--no-git` in the demo after replacing the first le
 memory: ~/memory (--memory-dir)
 FAIL desc.length lesson-001-quote-shell-arguments.md description is 401 chars (max 400)
 WARN repo.git-skipped . git health and committed-age checks skipped (--no-git)
-memory-check 3.3.9 [all]: 1 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 3 KB, 42 ms
+memory-check 3.3.10 [all]: 1 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 3 KB, 42 ms
 ```
 
 The normal command exited 1; the same failure under `--session-start` exited 0. Restoring its concise description and regenerating produced:
@@ -233,7 +234,7 @@ The normal command exited 1; the same failure under `--session-start` exited 0. 
 ```text
 memory: ~/memory (--memory-dir)
 WARN repo.git-skipped . git health and committed-age checks skipped (--no-git)
-memory-check 3.3.9 [all]: 0 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 2 KB, 47 ms
+memory-check 3.3.10 [all]: 0 FAIL, 1 WARN, 0 allowed, 10 files, 0 inbox notes, 2 KB, 47 ms
 ```
 
 The cap failure is clean again. The intentional skipped-Git warning remains, and the shelf example adds a second warning.

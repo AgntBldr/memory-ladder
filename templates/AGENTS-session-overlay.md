@@ -5,7 +5,7 @@ main-only: yes|no
 check: <read-only command>
 rules: <optional path to a project instructions file>
 after-go: <project skills, in order>
-close: <up to 3 skills or commands, semicolon-separated in order, run these before /handover's run, reports each ok|failed, missing/failed is NOT SAFE>
+close: <up to 3 skills or commands, semicolon-separated in order, run these before /handover's run, reports each ok|failed: missing refuses the save, failed ends NOT FINISHED>
 push: <memory|project|none; /handover defaults to memory; project only in-repo>
 log: <path>, <n> lines
 board: <optional board link https://claude.ai/artifact/<id>, or a read-only command that prints open decisions>

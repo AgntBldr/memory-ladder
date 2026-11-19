@@ -698,9 +698,15 @@ are not copied.
 
 **date.future** - Date, modified date part, repeat and enforcement dates warn one UTC day ahead and fail later. Where: engine/memory-check.mjs. See also: lesson.repeats.
 
+**draft lesson** - A lesson saved at once for later: a numbered `lesson-*.md` file made from the template, with a `draft: "<date>"` line under metadata, the saved text under `**Draft:**`, kind observation, the first routing family and empty Why and How to apply prompts. Written by `node scripts/memory/memory-lesson.mjs draft "<text>"` (what happened and the rule you would write, not a title: at least 40 characters and 6 words); the same text is written once. Finish it by editing the file: fill both prompts, correct the title, description, kind and route, and delete the `draft:` line. The gate warns once per draft and every session start lists them. Where: memory `lesson-*.md`. See also: lesson.draft, lesson.draft-text.
+
 **enforce.rules** - Validate merged kit and host rules and lesson references; messages use repo-relative rules-file paths. Warn when a lesson names a rules hook but no merged rule names the lesson. Missing kit rules WARN only when .claude/settings.json has a memory-guard hook. Where: engine/memory-check.mjs. See also: caps.guard.
 
 **forgetting.repeats** - Total recorded repeat entries in measurement; repeatsPerMonth groups valid entries by date month and repeatsByCause by cause. Malformed entries contribute only to the total. Where: engine/memory-measure.mjs. See also: forgetting proxy.
+
+**lesson.draft** - WARN, one per draft lesson file: `draft since <date>: fill Why and How to apply, then delete the draft line`. It never stops a commit. Where: memory `lesson-*.md`. See also: draft lesson, lesson.draft-text.
+
+**lesson.draft-text** - FAIL when a draft lesson's `draft:` date is not a date, or its `**Draft:**` paragraph is missing or under 40 characters: a draft without its text is damaged, so write the lesson in the file and delete the draft line. Where: memory `lesson-*.md`. See also: draft lesson, lesson.draft.
 
 **lesson.enforce** - Warn at two repeats and fail at four without a decision; after a decision warn at one strictly later repeat and fail at four. A present but invalid decision counts as no decision: all repeats use the two/four thresholds, alongside lesson.enforced. Where: engine/memory-check.mjs. See also: lesson.enforced.
 
@@ -787,7 +793,7 @@ are not copied.
 
 **caps.handovers** - Loose-note and archive settings: `caps.handovers.warnBytes` is 3,072, `caps.handovers.failBytes` is 6,144, `caps.handovers.archiveWarnBytes` is 102,400, `caps.handovers.keepNotes` is 20 and `caps.handovers.windowHours` is 24. Where: `memory.config.json`. See also: handover.size, handover.archive-size.
 
-**handover** - Validate a JSON session input with check, or run lessons, write a numbered note before CURRENT under lock, publish and verify the committed note and pushed HEAD. Where: `engine/handover.mjs`. See also: session core, CURRENT block.
+**handover** - Validate a JSON session input with check, or run lessons, write a numbered note before CURRENT under lock, checkpoint, then read the three conditions of safe to compact back from the files. The last line is `SAFE TO COMPACT`, `NOT SAFE TO COMPACT` with its causes, `SAVE REFUSED` when nothing was written, or `STATE SAVED (quick)` for a quick save that was given nothing to judge; an uncommitted or unpushed save is named on a `NOT FINISHED` line above it. Where: `engine/handover.mjs`. See also: safe to compact, session core, CURRENT block.
 
 **handover.archive-size** - WARN above the archive byte limit, never FAIL from size alone; archives remain secret-scanned containers without note frontmatter or topic rules. Where: `handovers/archive-YYYY-MM.md`; `caps.handovers.archiveWarnBytes`. See also: secret, caps.handovers.
 
@@ -802,6 +808,8 @@ are not copied.
 **handover.stray** - WARN for a Markdown entry that is neither a numbered loose note nor a monthly archive; inspect its intended role. Where: `handovers/`. See also: handover.frontmatter.
 
 **new-session** - Read-only detect, dispatch, start, brief and open commands; phrase entry checks installed skill ownership, while start summarizes the newest notes and waits for go. Where: `engine/new-session.mjs`. See also: session core, CURRENT block.
+
+**safe to compact** - The one definition behind a handover's last line, the handover skill and the standard Reports line: it is safe only when all three hold: memory is updated, learning is added (lessons written, or saved as a draft to finish later, or you state there is none), and the roadmap holds the current state (you updated it, or you name the line that already holds it). Saying nothing about the roadmap is not enough. A commit or a /handover is not required for it. Memory left uncommitted or unpushed, the gate as a whole, the brain log and a failed close step are reported on a `NOT FINISHED` line and never change the verdict; a refused save prints `SAVE REFUSED`, which is not a verdict. Where: the last line of a `handover.mjs` report; the Reports line of the AGENTS.md standard block. See also: handover, draft lesson.
 
 **session core** - Shared CURRENT and overlay parsing, raw-byte state tokens, phrase matching, note listing and bounded output; note order follows sequence numbers, and listing never writes. Where: `engine/session-core.mjs`. See also: new-session, caps.handovers.
 

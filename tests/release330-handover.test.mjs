@@ -15,9 +15,11 @@ import {batchLessons} from '../engine/memory-lesson.mjs';
 import {runCheck} from '../engine/memory-check.mjs';
 import {writeMemoryIndex} from '../engine/memory-index.mjs';
 
-const QUICK_SAFE = 'SAFE TO COMPACT (quick) - state written; learning, roadmap and log not checked; committed and pushed, gate green';
-const FULL_SAFE = learning => `SAFE TO COMPACT - state written; ${learning}; roadmap current, log not checked (no brain); committed and pushed, gate green`;
+// A quick save given neither lessons nor a roadmap statement is a saved state, not a verdict.
+const QUICK_SAVED = 'STATE SAVED (quick) - memory saved; not checked: learning and roadmap. This is not a safe-to-compact verdict: pass both, or run /handover.';
+const FULL_SAFE = learning => `SAFE TO COMPACT - memory saved; ${learning}; roadmap already holds it ("Nothing pending.")`;
 const NEXT = 'Next: new conversation, then `/new-session`.';
+const NEXT_QUICK = 'Next: before compacting, run /handover (full) or pass both lessons and roadmap.';
 function stripSpan(text) {
   const match = /^(`+)(.*)\1$/.exec(text.split('\n')[0]);
   assert.ok(match, text);
@@ -26,6 +28,10 @@ function stripSpan(text) {
 const helper = path.join(kitRoot, 'engine/handover.mjs');
 const initial = '---\nname: current-state\ndescription: Current work.\nmetadata:\n  type: project\n  state: true\n---\n\n## CURRENT\nold state\n';
 const input = {state: 'Ready to continue', question: 'Which next?', next: ['Review results'], waits: 'none', risks: 'none'};
+// A full handover states the roadmap line the fixture holds; a quick one is not asked to.
+const roadmapStatement = 'nothing new (Nothing pending.)';
+// Words that are on no line of the roadmap: a save that gives them has a cause, so a failure that follows prints the re-run line.
+const unheld = {roadmap: 'updated (A line that no roadmap holds at all, so this save is not safe.)'};
 const none = 'none (no new learning this session)';
 function setup(t, {inRepo = false, remote = true, overlay = '', full = false} = {}) {
   const now = new Date(), date = now.toISOString().slice(0, 10);
@@ -54,7 +60,7 @@ function setup(t, {inRepo = false, remote = true, overlay = '', full = false} = 
     bare = path.join(f.root, 'backup.git'); f.git(f.root, 'init', '--bare', bare);
     f.git(holder, 'remote', 'add', 'origin', bare); f.git(holder, 'push', '-u', 'origin', 'main');
   }
-  const inputPath = put(path.join(f.root, 'input.json'), JSON.stringify({...input, ...(full ? {lessons: none} : {})}));
+  const inputPath = put(path.join(f.root, 'input.json'), JSON.stringify({...input, ...(full ? {lessons: none, roadmap: roadmapStatement} : {})}));
   const options = {repo, memoryDir, input: inputPath, quick: !full};
   const run = (opts = {}, deps = {}) => {
     let output = '';
@@ -62,13 +68,13 @@ function setup(t, {inRepo = false, remote = true, overlay = '', full = false} = 
     return {...result, output};
   };
   const cli = (extra = [], command = 'run') => f.exec(process.execPath, [helper, command, '--repo', repo, '--memory-dir', memoryDir, '--in', inputPath, ...(!full ? ['--quick'] : []), ...extra]);
-  const saveInput = data => put(inputPath, JSON.stringify(data));
+  const saveInput = data => put(inputPath, JSON.stringify(full && data.roadmap === undefined ? {...data, roadmap: roadmapStatement} : data));
   const commit = (dir = repo) => { f.git(dir, 'add', '.'); f.git(dir, 'commit', '-m', 'fixture change'); };
   const batch = (count = 1) => put(path.join(f.root, 'batch.md'), Array.from({length: count}, (_, i) => `## Capture ${i + 1}\nkind: practice\nroute: craft-sessions\ndescription: Check resulting bytes before declaring completion ${i + 1}.\n\n**Why:**\nPartial writes can lose a session.\n\n**How to apply:**\nVerify the committed bytes and publication.\n`).join('\n'));
   return {...f, date, repo, memoryDir, holder, bare, config, inputPath, options, run, cli, saveInput, commit, batch};
 }
 const snapshot = f => ({repo: tree(f.repo), memory: tree(f.memoryDir)});
-const success = r => { assert.equal(r.code, 0, r.output); assert.match(r.output, /^SAFE TO COMPACT/m); return r; };
+const success = r => { assert.equal(r.code, 0, r.output); assert.match(r.output, /^(?:SAFE TO COMPACT|STATE SAVED)/m); return r; };
 const refused = (f, opts, pattern, deps) => {
   const before = snapshot(f), r = f.run(opts, deps);
   assert.equal(r.code, 1, r.output); assert.match(r.output, pattern); assert.doesNotMatch(r.output, /^SAFE TO COMPACT/m);
@@ -113,7 +119,7 @@ test('input refusals explain shape with one-line example', t => {
   const f = setup(t);
   for (const key of ['state', 'question', 'lessons', 'waits', 'risks', 'constraints', 'next', 'closed']) {
     f.saveInput({...input, [key]: 7});
-    const r = f.run(); assert.equal(r.code, 1); assert.match(r.output, key === 'closed' ? /closed: omit it \(the overlay has no close: steps\)/ : key === 'lessons' ? /omit lessons/ : /e\.g\./);
+    const r = f.run(); assert.equal(r.code, 1); assert.match(r.output, key === 'closed' ? /closed: omit it \(the overlay has no close: steps\)/ : /e\.g\./);
   }
   put(f.inputPath, '{broken'); assert.match(f.run().output, /JSON object.*e\.g\./);
 });
@@ -125,8 +131,8 @@ test('missing memory and detached HEAD precede invalid input', t => {
 for (const quick of [false, true]) test('lessons example is usable: quick=' + quick, t => {
   const f = setup(t, {full: !quick});
   f.saveInput({...input, lessons: 7});
-  const r = refused(f, {check: true}, quick ? /omit lessons/ : /e\.g\. "none \(no new learning this session\)"/);
-  f.saveInput({...input, ...(!quick ? {lessons: /e\.g\. "([^"]+)"/.exec(r.output)[1]} : {})});
+  const r = refused(f, {check: true}, /e\.g\. "none \(no new learning this session\)"/);
+  f.saveInput({...input, lessons: /e\.g\. "([^"]+)"/.exec(r.output)[1]});
   assert.equal(f.run({check: true}).code, 0);
 });
 
@@ -140,7 +146,7 @@ for (const quick of [false, true]) test('converted closed respects its original 
 
 for (const quick of [false, true]) test('whole-input cap retains converted closed bytes: quick=' + quick, t => {
   const f = setup(t, {full: !quick, overlay: 'close: lint\n'}), base = {...input, ...(!quick ? {lessons: none} : {})};
-  const raw = JSON.stringify({...base, closed: 'lint:ok' + ' '.repeat(313)}), cap = quick ? 1024 : 1792;
+  const raw = JSON.stringify({...base, closed: 'lint:ok' + ' '.repeat(313)}), cap = quick ? 1184 : 1952;
   put(f.inputPath, raw + ' '.repeat(cap - Buffer.byteLength(raw)));
   assert.equal(f.run({check: true}).code, 0, 'exact whole-input cap');
   put(f.inputPath, raw + ' '.repeat(cap - Buffer.byteLength(raw) + 1));
@@ -157,7 +163,7 @@ for (const quick of [false, true]) test('dropped closed respects field and whole
     f.saveInput({...base, closed});
     refused(f, {check: true}, /closed exceeds 320 B/);
   }
-  const raw = JSON.stringify({...base, closed: '\u00e9'.repeat(160)}), cap = quick ? 1024 : 1792;
+  const raw = JSON.stringify({...base, closed: '\u00e9'.repeat(160)}), cap = quick ? 1184 : 1952;
   put(f.inputPath, raw + ' '.repeat(cap - Buffer.byteLength(raw)));
   assert.equal(f.run({check: true}).code, 0, 'exact whole-input cap');
   put(f.inputPath, raw + ' '.repeat(cap - Buffer.byteLength(raw) + 1));
@@ -184,23 +190,30 @@ test('handover rename lists both dirty paths', t => {
   const f = setup(t);
   f.git(f.repo, 'mv', 'docs/ROADMAP.md', 'docs/renamed.md');
   const result = success(f.run());
-  assert.match(result.output, /open: 2 uncommitted files.*`docs\/renamed.md`, `docs\/ROADMAP.md`/);
+  assert.match(result.output, /open: 2 uncommitted project files.*`docs\/renamed.md`, `docs\/ROADMAP.md`/);
   assert.match(read(result.noteFile), /uncommitted 2 \(docs\/renamed.md, docs\/ROADMAP.md\)/);
 });
 
 test('verdict separates failed close and stale roadmap', t => {
   const f = setup(t, {full: true, overlay: 'close: step-a\n'});
-  put(path.join(f.repo, 'docs/ROADMAP.md'), '# Roadmap\n\n## Open work (as of 2001-01-01)\n'); f.commit();
+  put(path.join(f.repo, 'docs/ROADMAP.md'), '# Roadmap\n\n## Open work (as of 2001-01-01)\n\nNothing pending.\n'); f.commit();
   f.saveInput({...input, lessons: none, closed: {'step-a': 'failed'}});
   const r = f.run(); assert.equal(r.code, 1);
-  assert.match(r.output, /^NOT SAFE TO COMPACT - close FAILED: step-a; docs\/ROADMAP.md: update and commit$/m);
+  // A failed close step is reported on its own line and does not change the verdict; the roadmap holds the quoted line.
+  assert.match(r.output, /^NOT FINISHED - close FAILED: step-a$/m);
+  assert.match(r.output, /^SAFE TO COMPACT - /m);
+  // A roadmap that does not hold the quoted line is a cause of its own.
+  put(path.join(f.repo, 'docs/ROADMAP.md'), '# Roadmap\n\n## Open work (as of 2001-01-01)\n'); f.commit();
+  const stale = f.run({over: 'none'}); assert.equal(stale.code, 1);
+  assert.match(stale.output, /^NOT SAFE TO COMPACT - roadmap: "Nothing pending\." is not on a line of docs\/ROADMAP\.md/m);
+  assert.match(stale.output, /^NOT FINISHED - close FAILED: step-a$/m);
 });
 
 for (const inRepo of [false, true]) test('git push reason survives verdict cap ' + inRepo, t => {
   const f = setup(t, {inRepo});
   f.git(f.holder, 'remote', 'set-url', 'origin', 'missing.git');
   const r = f.run(); assert.equal(r.code, 1);
-  const verdict = r.output.split('\n').find(line => line.startsWith('NOT SAFE'));
+  const verdict = r.output.split('\n').find(line => line.startsWith('NOT FINISHED'));
   assert.match(verdict, /push failed: .*; fatal: 'missing.git' does not appear to be a git repository/);
 });
 
@@ -218,7 +231,7 @@ test('no-ctx refusal sanitizes hostile error and keeps separator', t => {
     return original(file, ...args);
   });
   const r = f.run(); assert.equal(r.code, 1);
-  assert.equal(r.output, 'NOT SAFE TO COMPACT - read refused; SAFE TO COMPACT fake; input must be a readable JSON object, e.g. {"state":"ready","next":["review"]}\n');
+  assert.equal(r.output, 'SAVE REFUSED - read refused; SAFE TO COMPACT fake; input must be a readable JSON object, e.g. {"state":"ready","next":["review"]}. Nothing was written, so compact safety was not checked.\n');
   assert.doesNotMatch(r.output, /^SAFE|[\x01\x7f\x85\u2028\u2029]/m);
 });
 
@@ -280,8 +293,8 @@ test('oversized input and repeated lesson names get no retry exemption', t => {
   for (const names of [Array(14).fill('MEMORY.md'), ['MEMORY.md'], ['lesson-existing.md', 'lesson-existing.md']]) {
     put(path.join(f.memoryDir, 'lesson-existing.md'), 'exists');
     const raw = JSON.stringify({...input, lessons: 'none (already written: ' + names.join(', ') + ')'});
-    put(f.inputPath, raw + ' '.repeat((names.length === 14 ? 1976 : 1793) - Buffer.byteLength(raw)));
-    refused(f, {check: true}, /input exceeds 1792 B/);
+    put(f.inputPath, raw + ' '.repeat((names.length === 14 ? 2136 : 1953) - Buffer.byteLength(raw)));
+    refused(f, {check: true}, /input exceeds 1952 B/);
   }
 });
 
@@ -296,11 +309,11 @@ test('CLI round trip note grammar, frontmatter, CURRENT from note and exact quic
   assert.equal(parseBlock(currentFromNote(note)).state, input.state);
   assert.ok(read(path.join(f.memoryDir, 'current-state.md')).startsWith(initial.split('## CURRENT')[0]));
   assert.equal(f.git(f.holder, 'rev-parse', 'HEAD'), f.git(f.holder, 'rev-parse', '@{u}'));
-  assert.ok(r.stdout.includes(QUICK_SAFE + '\n\n' + NEXT));
+  assert.ok(r.stdout.includes(QUICK_SAVED + '\n\n' + NEXT_QUICK));
   assert.match(r.stdout, /handover quick \d\d:\d\d token:[a-f0-9]{12} note:000001 \| Q: Which next\?/);
   assert.match(r.stdout, /lessons: skipped  checks: skipped/);
   assert.ok(r.stdout.split('\n').slice(0,6).every(line => line.startsWith('- ')));
-  assert.match(r.stdout, /\n\nSAFE TO COMPACT[^\n]*\n\nNext:/);
+  assert.match(r.stdout, /\n\nSTATE SAVED[^\n]*\n\nNext:/);
   assert.match(r.stdout, /close: none  gate: 0 FAIL, \d+ WARN/);
   assert.ok(Buffer.byteLength(r.stdout) <= 1536); assert.ok(r.stdout.trim().split('\n').length <= 12);
 });
@@ -330,7 +343,7 @@ test('caps, secret, verdict injection and missing memory refuse without writes',
     f.saveInput(data); refused(f, {}, pattern);
   }
   f.saveInput(input); refused(f, {memoryDir: path.join(f.root, 'absent')}, /run node scripts\/memory\/memory-init.mjs/);
-  f.saveInput({...input, next: ['x'.repeat(479)], question: 'y'.repeat(320), waits: 'z'.repeat(240)}); refused(f, {}, /input exceeds 1024/);
+  f.saveInput({...input, next: ['x'.repeat(479)], question: 'y'.repeat(320), waits: 'z'.repeat(240), risks: 'r'.repeat(240), constraints: 'c'.repeat(240)}); refused(f, {}, /input exceeds 1184/);
   f.saveInput(input);
   put(path.join(f.repo, 'AGENTS.md'), read(path.join(f.repo, 'AGENTS.md')) + 'scratch: ' + 'x'.repeat(3000) + '\n');
   refused(f, {}, /note candidate exceeds 3072/);
@@ -434,12 +447,15 @@ for (const change of ['CURRENT', 'note', 'unpushed', 'later commit']) test('verd
     if (change === 'CURRENT') put(ctx.currentFile, 'hand-edited unrelated CURRENT\n');
     if (change === 'later commit') { put(path.join(f.memoryDir, 'unrelated.txt'), 'waiting commit\n'); f.commit(f.memoryDir); }
   }});
-  if (change === 'CURRENT' || change === 'later commit') success(r);
+  // A state block that is not this run's is a cause now (the verdict reads the files); a later commit of another session is not.
+  if (change === 'later commit') success(r);
+  else if (change === 'CURRENT') { assert.equal(r.code, 1); assert.match(r.output, /NOT SAFE TO COMPACT - memory not saved: current-state\.md does not hold this run's state/); }
   else { assert.equal(r.code, 1); assert.match(r.output, change === 'note' ? /own note not byte-identical/ : /HEAD not pushed/); }
 });
 
 test('failed gate retry token, replace retains seq, rejects committed/foreign/unknown before batch', t => {
-  const f = setup(t), fail = f.run({}, {checkpoint() { throw Error('injected gate FAIL'); }});
+  const f = setup(t); f.saveInput({...input, ...unheld});
+  const fail = f.run({}, {checkpoint() { throw Error('injected gate FAIL'); }});
   assert.equal(fail.code, 1); assert.match(fail.output, /--replace 000001/); assert.match(fail.output, /full output:/);
   f.saveInput({...input, state: 'Repaired body'});
   const retry = success(f.run({replace: '000001', over: fail.token}));
@@ -467,7 +483,7 @@ for (const count of [1, 2, 3]) test('valid lesson batch ' + count + ' before not
   }}));
   assert.equal(r.created.length, count);
   for (const file of r.created) { assert.ok(read(r.noteFile).includes(file)); assert.ok(f.git(f.holder, 'show', 'HEAD:' + file)); }
-  assert.ok(r.output.includes(FULL_SAFE('learning added with the WHY')));
+  assert.ok(r.output.includes(FULL_SAFE(`learning added (${count} lessons)`)));
 });
 
 test('repeat-of existing schema is reused and published', t => {
@@ -573,7 +589,9 @@ test('in-repo dirty memory, staged index and outgoing commit refuse unchanged', 
 test('in-repo failed commit leaves staged index, recovery then succeeds', t => {
   const f = setup(t, {inRepo: true});
   put(path.join(f.repo, '.git/hooks/pre-commit'), '#!/bin/sh\nexit 1\n'); fs.chmodSync(path.join(f.repo, '.git/hooks/pre-commit'), 0o755);
+  f.saveInput({...input, ...unheld});
   const failed = f.run(); assert.equal(failed.code, 1); assert.match(failed.output, /--replace/);
+  f.saveInput(input);
   fullRefused(f, {}, /staged index/); fs.unlinkSync(path.join(f.repo, '.git/hooks/pre-commit'));
   f.git(f.repo, 'commit', '-m', 'manual recovery'); f.git(f.repo, 'push'); success(f.run());
 });
@@ -582,9 +600,11 @@ test('in-repo completed rotation after gate failure needs manual source commit',
   const f = setup(t, {inRepo: true});
   put(path.join(f.repo, 'docs/ROADMAP.md'), `## Open work (as of ${f.date})\n` + Array.from({length: 8}, (_, i) => `**2026-01-${String(i + 1).padStart(2, '0')}** Work\nDetails.\n`).join(''));
   f.commit(); f.git(f.repo, 'push');
+  f.saveInput({...input, ...unheld});
   const fail = f.run({}, {afterCurrent() { put(path.join(f.memoryDir, 'handovers/stray.md'), 'sk-' + 'a'.repeat(40)); }});
   assert.equal(fail.code, 1); assert.match(fail.output, /gate.*FAIL|secret/);
   fs.unlinkSync(path.join(f.memoryDir, 'handovers/stray.md'));
+  f.saveInput(input);
   fullRefused(f, {}, /ROADMAP.md/); f.commit(); f.git(f.repo, 'push'); success(f.run());
 });
 
@@ -592,15 +612,17 @@ test('separate completed rotation after gate failure retries without dirty-sourc
   const f = setup(t);
   put(path.join(f.repo, 'docs/ROADMAP.md'), `## Open work (as of ${f.date})\n` + Array.from({length: 8}, (_, i) => `**2026-01-${String(i + 1).padStart(2, '0')}** Work\nDetails.\n`).join(''));
   f.commit();
+  f.saveInput({...input, ...unheld});
   const fail = f.run({}, {afterCurrent() { put(path.join(f.memoryDir, 'handovers/stray.md'), 'sk-' + 'a'.repeat(40)); }});
   assert.equal(fail.code, 1); fs.unlinkSync(path.join(f.memoryDir, 'handovers/stray.md'));
+  f.saveInput(input);
   success(f.run({replace: fail.seq, over: fail.token}));
 });
 
 for (const push of ['none', 'memory', 'wrong-branch']) test('in-repo publication policy ' + push, t => {
   const f = setup(t, {inRepo: true, overlay: push === 'wrong-branch' ? 'branch: other\n' : 'push: ' + push + '\n'});
   const before = f.git(f.repo, 'rev-parse', 'HEAD'), r = f.run();
-  assert.equal(r.code, 1); assert.match(r.output, /NOT SAFE TO COMPACT/);
+  assert.equal(r.code, 1); assert.match(r.output, /^NOT FINISHED - memory NOT committed/m);
   assert.equal(f.git(f.repo, 'rev-parse', 'HEAD'), before); assert.match(r.output, /to run: git add --/);
 });
 
@@ -618,29 +640,33 @@ test('overlay paths participate in dirty preflight', t => {
 
 test('full exact verdict, no brain and budget', t => {
   const f = setup(t, {full: true}), r = success(f.run());
-  assert.ok(r.output.includes(FULL_SAFE('learning: ' + none))); assert.match(r.output, /checks: roadmap current, log no brain/);
+  assert.ok(r.output.includes(FULL_SAFE('no learning stated (no new learning this session)'))); assert.match(r.output, /checks: roadmap current, log no brain/);
   assert.ok(Buffer.byteLength(r.output) <= 1536); assert.ok(r.output.trim().split('\n').length <= 12);
 });
 
-for (const condition of ['yesterday', 'dirty', 'absent', 'undated', 'old log', 'dirty log']) test('read-only full checks ' + condition, t => {
+// The roadmap and the log are read, never written, by the run's own checks. Only the quoted roadmap line decides the verdict; the log is reported.
+for (const condition of ['old heading', 'uncommitted edit', 'absent', 'no dated heading', 'quote not on a line', 'old log', 'uncommitted log']) test('read-only full checks ' + condition, t => {
   const f = setup(t, {full: true}); const roadmap = path.join(f.repo, 'docs/ROADMAP.md'), log = path.join(f.repo, 'brain/00-system/log.md');
-  if (condition === 'yesterday') put(roadmap, '## Open work (as of 2000-01-01)\n');
-  if (condition === 'dirty') put(roadmap, read(roadmap) + 'hand edit\n');
+  if (condition === 'old heading') put(roadmap, '## Open work (as of 2000-01-01)\n\nNothing pending.\n');
+  if (condition === 'uncommitted edit') put(roadmap, read(roadmap) + 'hand edit\n');
   if (condition === 'absent') fs.unlinkSync(roadmap);
-  if (condition === 'undated') put(roadmap, '# Different format\n');
+  if (condition === 'no dated heading') put(roadmap, '# Different format\n\nNothing pending.\n');
+  if (condition === 'quote not on a line') put(roadmap, '## Open work (as of 2000-01-01)\n');
   if (condition.includes('log')) put(log, '## [2000-01-01] old\n');
-  if (!condition.startsWith('dirty')) f.commit();
+  if (!condition.startsWith('uncommitted')) f.commit();
   const before = fs.existsSync(roadmap) ? read(roadmap) : null;
   const r = f.run();
-  if (condition === 'undated') { success(r); assert.match(r.output, /skipped \(no dated heading\)/); }
-  else { assert.equal(r.code, 1, r.output); assert.match(r.output, /update and commit/); }
+  if (condition === 'absent') { assert.equal(r.code, 1, r.output); assert.match(r.output, /^NOT SAFE TO COMPACT - roadmap: no file at docs\/ROADMAP\.md/m); }
+  else if (condition === 'quote not on a line') { assert.equal(r.code, 1, r.output); assert.match(r.output, /^NOT SAFE TO COMPACT - roadmap: "Nothing pending\." is not on a line of docs\/ROADMAP\.md/m); }
+  else if (condition.includes('log')) { assert.equal(r.code, 1, r.output); assert.match(r.output, /^NOT FINISHED - log not updated today \(brain\/00-system\/log\.md\)$/m); assert.match(r.output, /^SAFE TO COMPACT - /m); }
+  else { success(r); assert.match(r.output, /^SAFE TO COMPACT - /m); }
   assert.equal(fs.existsSync(roadmap) ? read(roadmap) : null, before);
 });
 
 test('quick skips stale checks; missing and unknown close entries refuse before lessons', t => {
   const f = setup(t); put(path.join(f.repo, 'docs/ROADMAP.md'), '## Open work (as of 2000-01-01)\n'); success(f.run());
   refused(f, {quick: false}, /full needs/);
-  refused(f, {lessons: f.batch()}, /quick forbids lessons/);
+  refused(f, {lessons: f.batch()}, /quick forbids --lessons/);
   put(path.join(f.repo, 'AGENTS.md'), read(path.join(f.repo, 'AGENTS.md')) + 'close: review; verify\n');
   fullRefused(f, {}, /closed missing close step: review/);
   f.saveInput({...input, closed: {review: 'ok', verify: 'ok', unknown: 'ok'}});
@@ -658,7 +684,8 @@ for (const inRepo of [false, true]) test(`check writes nothing including git met
 });
 
 test('every output is capped, diagnostics redact secrets and failure never says SAFE', t => {
-  const f = setup(t), r = f.run({}, {checkpoint() { throw Error('failure '.repeat(3000) + 'sk-' + 'a'.repeat(40)); }});
+  const f = setup(t); f.saveInput({...input, ...unheld});
+  const r = f.run({}, {checkpoint() { throw Error('failure '.repeat(3000) + 'sk-' + 'a'.repeat(40)); }});
   assert.equal(r.code, 1); assert.ok(Buffer.byteLength(r.output) <= 4000); assert.doesNotMatch(r.output, /sk-a{40}|^SAFE TO COMPACT/m);
   assert.match(r.output, /full output:/); assert.match(r.output, /--replace 000001/);
 });
@@ -707,7 +734,7 @@ for (const reason of ['CURRENT growth', 'lock timeout', 'seq growth', 'note grow
   else assert.doesNotMatch(r.output.split('re-run: ')[1], /--replace/);
   f.saveInput({...input, lessons: 'none (already written: ' + r.created.join(', ') + ')'});
   const command = stripSpan(r.output.split('re-run: ')[1]);
-  const args = [...command.matchAll(/"([^"]*)"|(\S+)/g)].map(m => m[1] ?? m[2]);
+  const args = [...command.matchAll(/'([^']*)'|(\S+)/g)].map(m => m[1] ?? m[2]);
   const rerun = ok(f.exec(process.execPath, args.slice(1)));
   assert.match(rerun.stdout, /^SAFE TO COMPACT/m);
   assert.deepEqual(fs.readdirSync(f.memoryDir).filter(n => /^lesson-/.test(n)), r.created);
@@ -721,17 +748,18 @@ test('seq exhaustion and dry-run note size refuse before batch', t => {
   fullRefused(f, {}, /note candidate exceeds 3072/);
 });
 
-for (const skip of [false, true]) test('failed close publishes note and tells how to retry: ' + skip, t => {
+// A failed close step is reported on its own line above a verdict that is decided by the three conditions: the note and the lessons are published.
+for (const skip of [false, true]) test('failed close publishes note and reports it as not finished: ' + skip, t => {
   const f = setup(t, {full: true, overlay: 'close: review; verify\n'});
   f.saveInput({...input, lessons: none, closed: {review: 'ok', verify: skip ? 'ok' : 'failed'}});
   const r = f.run({lessons: f.batch(), ...(skip ? {skipClose: 'review unavailable'} : {})});
   assert.equal(r.code, 1, r.output);
   assert.ok(r.output.includes(skip ? 'close: FAILED: review; verify (skipped: review unavailable)' : 'close: FAILED: verify'));
-  assert.match(r.output, /^NOT SAFE TO COMPACT - close FAILED:/m);
-  assert.match(r.output, /After doing the close step\(s\), set each step to ok in closed, remove --skip-close, then re-run\./);
+  assert.match(r.output, skip ? /^NOT FINISHED - close FAILED: review; close FAILED: verify$/m : /^NOT FINISHED - close FAILED: verify$/m);
+  assert.match(r.output, /^SAFE TO COMPACT - memory saved; learning added \(1 lessons\); /m);
+  assert.doesNotMatch(r.output, /re-run:|--replace/);
   assert.equal(f.git(f.holder, 'show', 'HEAD:' + path.relative(f.holder, r.noteFile).replaceAll('\\', '/')) + '\n', read(r.noteFile));
   assert.equal(f.git(f.holder, 'rev-parse', 'HEAD'), f.git(f.holder, 'rev-parse', '@{u}'));
-  assert.doesNotMatch(r.output, /--replace/);
   f.saveInput({...input, lessons: 'none (already written: ' + r.created.map(file => '`' + file + '`').join(', ') + ')', closed: {review: 'ok', verify: 'ok'}});
   success(f.run({over: r.token}));
 });
@@ -750,7 +778,7 @@ for (const row of [
   assert.equal(normal.code, 1); assert.match(normal.output, row.error);
   const r = f.exec(process.execPath, [helper, 'run', '--repo', f.repo, '--memory-dir', path.join(f.root, 'absent'), '--in', f.inputPath, '--lessons', lessons]);
   assert.equal(r.status, 1); assert.equal(r.stderr, '');
-  assert.match(r.stdout, /^NOT SAFE TO COMPACT - memory folder missing/);
+  assert.match(r.stdout, /^SAVE REFUSED - memory folder missing/);
   assert.match(r.stdout, row.error); assert.doesNotMatch(r.stdout, /## CURRENT|^SAFE TO COMPACT/m);
   assert.deepEqual(tree(f.root, {git: true}), before);
 });
@@ -759,7 +787,7 @@ test('missing memory accepts a valid three-section batch without writes', t => {
   const f = setup(t, {full: true, remote: false}), lessons = f.batch(3);
   const before = tree(f.root, {git: true});
   const r = f.run({memoryDir: path.join(f.root, 'absent'), lessons});
-  assert.equal(r.code, 1); assert.match(r.output, /^NOT SAFE TO COMPACT - memory folder missing[^\n]*\n## CURRENT\n/);
+  assert.equal(r.code, 1); assert.match(r.output, /^SAVE REFUSED - memory folder missing[^\n]*\n## CURRENT\n/);
   assert.deepEqual(tree(f.root, {git: true}), before);
 });
 
@@ -768,11 +796,11 @@ for (const quick of [false, true]) test('missing memory committed header time mo
   put(path.join(f.repo, 'AGENTS.md'), read(path.join(f.repo, 'AGENTS.md')) + '\n');
   put(path.join(f.repo, 'pending.txt'), 'pending\n');
   const sha = f.git(f.repo, 'rev-parse', 'HEAD').slice(0, 7), before = tree(f.root, {git: true});
-  for (const [now, stamp] of [[new Date(2024, 1, 3, 4, 5), '2024-02-03 04:05'], [new Date(2027, 10, 12, 13, 14), '2027-11-12 13:14']]) {
+  for (const [now, stamp] of [[new Date(2024, 1, 3, 4, 5), '2024-02-03 04:05:00'], [new Date(2027, 10, 12, 13, 14, 15), '2027-11-12 13:14:15']]) {
     const r = f.run({memoryDir: path.join(f.root, 'absent'), now});
-    assert.equal(r.code, 1); assert.match(r.output, /^NOT SAFE TO COMPACT - memory folder missing/);
+    assert.equal(r.code, 1); assert.match(r.output, /^SAVE REFUSED - memory folder missing/);
     const header = r.output.split('\n')[2];
-    assert.match(header, /^\*\*\d{4}-\d{2}-\d{2} \d{2}:\d{2} \| @[a-f0-9]{7} \| (full|quick)\./);
+    assert.match(header, /^\*\*\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \| @[a-f0-9]{7} \| (full|quick)\./);
     assert.equal(header, `**${stamp} | @${sha} | ${quick ? 'quick' : 'full'}. Ready to continue**`);
     assert.match(r.output, /\*\*In flight:\*\* uncommitted 2 \(AGENTS\.md, pending\.txt\);/);
     assert.deepEqual(tree(f.root, {git: true}), before);
@@ -807,8 +835,8 @@ test('missing memory precedes input validation without writes', t => {
   const f = setup(t, {full: true}), missing = path.join(f.root, 'absent');
   const before = tree(f.root, {git: true});
   const r = f.run({memoryDir: missing}); assert.equal(r.code, 1);
-  assert.match(r.output, /NOT SAFE TO COMPACT/); assert.match(r.output, /run node scripts\/memory\/memory-init.mjs/);
-  assert.match(r.output, /^NOT SAFE TO COMPACT - memory folder missing[^\n]*\n## CURRENT\n/);
+  assert.match(r.output, /SAVE REFUSED/); assert.match(r.output, /run node scripts\/memory\/memory-init.mjs/);
+  assert.match(r.output, /^SAVE REFUSED - memory folder missing[^\n]*\n## CURRENT\n/);
   assert.match(r.output, /Ready to continue/);
   assert.match(r.output, /Open question:\*\* Which next\?/);
   assert.match(r.output, /Next action:\*\* 1\. Review results/);
@@ -820,7 +848,7 @@ test('missing memory precedes input validation without writes', t => {
 
 for (const row of [
   {name: 'full without lessons and without --lessons', quick: false, data: input, error: /full needs --lessons or lessons: none/},
-  {name: 'quick with lessons', quick: true, data: {...input, lessons: none}, error: /quick forbids lessons; omit lessons/},
+  {name: 'quick with a short lessons reason', quick: true, data: {...input, lessons: 'none (short)'}, error: /lessons must be none \(<reason/},
   {name: 'four next steps', quick: true, data: {...input, next: ['one', 'two', 'three', 'four']}, error: /next requires 1-3 single-line strings/},
   {name: 'four close steps', quick: true, overlay: 'close: one; two; three; four\n', data: {...input, closed: {one: 'ok', two: 'ok', three: 'ok', four: 'ok'}}, error: /close supports at most 3 steps/},
 ]) test('missing memory refuses ' + row.name, t => {
@@ -829,7 +857,7 @@ for (const row of [
   const before = tree(f.root, {git: true});
   const r = f.exec(process.execPath, [helper, 'run', '--repo', f.repo, '--memory-dir', missing, '--in', f.inputPath, ...(row.quick ? ['--quick'] : [])]);
   assert.equal(r.status, 1); assert.equal(r.stderr, '');
-  assert.match(r.stdout, /^NOT SAFE TO COMPACT - memory folder missing; run node scripts\/memory\/memory-init.mjs;/);
+  assert.match(r.stdout, /^SAVE REFUSED - memory folder missing; run node scripts\/memory\/memory-init.mjs;/);
   assert.match(r.stdout, row.error); assert.doesNotMatch(r.stdout, /## CURRENT|^SAFE TO COMPACT/m);
   assert.deepEqual(tree(f.root, {git: true}), before);
 });
@@ -844,7 +872,7 @@ for (const quick of [false, true]) for (const noGit of [false, true]) test(`miss
     put(file, JSON.stringify({...input, ...(!quick ? {lessons: none} : {}), ...(!valid ? {next: []} : {})}));
     const before = tree(f.root, {git: true}), r = cli();
     assert.equal(r.status, 1); assert.equal(r.stderr, '');
-    assert.match(r.stdout, /^NOT SAFE TO COMPACT - memory folder missing; run node scripts\/memory\/memory-init.mjs/);
+    assert.match(r.stdout, /^SAVE REFUSED - memory folder missing; run node scripts\/memory\/memory-init.mjs/);
     assert.doesNotMatch(r.stdout, /Command failed|fatal:|^SAFE TO COMPACT/m);
     if (valid) {
       assert.match(r.stdout, /\n## CURRENT\n/); assert.match(r.stdout, /@no commit/);
@@ -865,10 +893,10 @@ test('--over none supports absent CURRENT and BOM is stripped once', t => {
   assert.equal((read(file).match(/^---$/gm) || []).length, 2);
 });
 
-test('full input 1792 B cap and JSON escaped secret candidate refuse', t => {
+test('full input 1952 B cap and JSON escaped secret candidate refuse', t => {
   const f = setup(t, {full: true});
-  put(f.inputPath, JSON.stringify({...input, lessons: none}) + ' '.repeat(1792));
-  fullRefused(f, {}, /input exceeds 1792 B/);
+  put(f.inputPath, JSON.stringify({...input, lessons: none}) + ' '.repeat(1952));
+  fullRefused(f, {}, /input exceeds 1952 B/);
   const secret = 'sk-' + 'a'.repeat(40);
   put(f.inputPath, JSON.stringify({...input, question: secret, lessons: none}).replace(secret, [...secret].map(c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join('')));
   fullRefused(f, {}, /note candidate: secret refused/);
@@ -893,31 +921,32 @@ test('main-only linked worktree refuses full batch', t => {
   fullRefused(f, {repo: linked}, /main-only overlay requires the main worktree/);
 });
 
-test('push none without remote remains NOT SAFE', t => {
+test('push none without remote is reported as not finished', t => {
   const f = setup(t, {full: true, remote: false, overlay: 'push: none\n'}), r = f.run();
-  assert.equal(r.code, 1); assert.match(r.output, /^NOT SAFE TO COMPACT - HEAD not pushed \(push: none\)/m);
+  assert.equal(r.code, 1); assert.match(r.output, /^NOT FINISHED - memory committed, NOT pushed \(HEAD not pushed \(push: none\)\)/m); assert.match(r.output, /^SAFE TO COMPACT - /m);
 });
 
 for (const full of [false, true]) test('literal no-remote verdict: ' + full, t => {
   const f = setup(t, {full, remote: false}), r = success(f.run());
-  const verdict = full ? 'SAFE TO COMPACT - state written; learning: none (no new learning this session); roadmap current, log not checked (no brain); committed locally (no remote), gate green' : 'SAFE TO COMPACT (quick) - state written; learning, roadmap and log not checked; committed locally (no remote), gate green';
-  assert.ok(r.output.includes(verdict + '\n\nNext: new conversation, then `/new-session`.'));
+  const verdict = full ? FULL_SAFE('no learning stated (no new learning this session)') : QUICK_SAVED;
+  assert.ok(r.output.includes(verdict + '\n\n' + (full ? NEXT : NEXT_QUICK)));
+  assert.match(r.output, /memory [0-9a-f]{7} local only, no remote/);
 });
 
-for (const variant of ['both current', 'roadmap skipped', 'log skipped', 'both skipped']) test('literal date-check verdict: ' + variant, t => {
+// The brain log is reported, never judged: a dated heading for today, none, or no brain at all.
+for (const variant of ['log current', 'log without a dated heading', 'no brain']) test('literal log-check verdict: ' + variant, t => {
   const f = setup(t, {full: true});
-  put(path.join(f.repo, 'docs/ROADMAP.md'), variant === 'roadmap skipped' || variant === 'both skipped' ? '# Roadmap\n' : `## Open work (as of ${f.date})\n`);
-  put(path.join(f.repo, 'brain/00-system/log.md'), variant === 'log skipped' || variant === 'both skipped' ? '# Log\n' : `## [${f.date}] done\n`); f.commit();
-  const clauses = {'both current': 'roadmap and log current', 'roadmap skipped': 'roadmap not checked (no dated heading), log current', 'log skipped': 'roadmap current, log not checked (no dated heading)', 'both skipped': 'roadmap and log not checked (no dated heading)'};
+  if (variant !== 'no brain') { put(path.join(f.repo, 'brain/00-system/log.md'), variant === 'log current' ? `## [${f.date}] done\n` : '# Log\n'); f.commit(); }
   const r = success(f.run());
-  assert.ok(r.output.includes('SAFE TO COMPACT - state written; learning: none (no new learning this session); ' + clauses[variant] + '; committed and pushed, gate green'));
+  assert.ok(r.output.includes(FULL_SAFE('no learning stated (no new learning this session)') + '\n\n' + NEXT));
+  assert.match(r.output, new RegExp('checks: roadmap current, ' + {'log current': 'log current', 'log without a dated heading': 'log skipped \\(no dated heading\\)', 'no brain': 'log no brain'}[variant]));
 });
 
 test('repeats-only literal learning verdict', t => {
   const f = setup(t, {full: true}), first = success(f.run({lessons: f.batch()}));
   const batch = put(path.join(f.root, 'repeat.md'), `## Again\nrepeat-of: ${first.created[0]}\ncause: slip\ndescription: The same omission recurred.\n`);
   const r = success(f.run({lessons: batch}));
-  assert.ok(r.output.includes('SAFE TO COMPACT - state written; learning: repeats recorded; roadmap current, log not checked (no brain); committed and pushed, gate green'));
+  assert.ok(r.output.includes('SAFE TO COMPACT - memory saved; repeats recorded; roadmap already holds it ("Nothing pending.")'));
 });
 
 test('report saturates exact 1536 B cap with literal tail', t => {
@@ -925,16 +954,18 @@ test('report saturates exact 1536 B cap with literal tail', t => {
   for (let i = 0; i < 6; i++) put(path.join(f.repo, String(i) + 'd'.repeat(190)), 'dirty\n');
   const r = success(f.run({}, {beforeVerify(ctx) {
     ctx.branch = 'b'.repeat(60); ctx.command = 'ran: ' + 'c'.repeat(210); ctx.data.question = 'q'.repeat(80);
-    ctx.close = 's'.repeat(100); ctx.lessons = 'none (' + 'l'.repeat(230) + ')'; ctx.waiting = ['a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40)];
+    ctx.close = 's'.repeat(100); ctx.lessons = 'none (' + 'l'.repeat(230) + ')'; ctx.waiting = ['a'.repeat(80), 'b'.repeat(80), 'c'.repeat(80)];
   }}));
+  // The first three waiting items are shown whole, so they fill the report past its cap whatever the length of the fixture's paths
+  // (with Linux's short temporary folder the 40-character items left it 20 bytes short).
   assert.equal(Buffer.byteLength(r.output), 1536); assert.ok(r.output.includes('[cut]'));
-  assert.ok(r.output.endsWith('committed and pushed, gate green\n\nNext: new conversation, then `/new-session`.\n\ntoken baseline: run began (no --over supplied).\n'));
+  assert.ok(r.output.endsWith(FULL_SAFE('no learning stated (no new learning this session)') + '\n\n' + NEXT + '\n\ntoken baseline: run began (no --over supplied).\n'));
 });
 
 test('25000 untracked files fit bounded git status', t => {
   const f = setup(t), folder = path.join(f.repo, 'untracked'); fs.mkdirSync(folder);
   for (let i = 0; i < 25000; i++) fs.writeFileSync(path.join(folder, String(i).padStart(5, '0') + '-'.repeat(65)), '');
-  const r = success(f.run()); assert.match(r.output, /open: 2500[0-9] uncommitted files/); assert.doesNotMatch(r.output, /ENOBUFS/);
+  const r = success(f.run()); assert.match(r.output, /open: 2500[0-9] uncommitted project files/); assert.doesNotMatch(r.output, /ENOBUFS/);
 });
 
 test('staged refusal names six files then remaining count', t => {
@@ -959,7 +990,7 @@ test('filename and overlay control characters cannot inject report or note lines
   const note = read(r.noteFile);
   assert.doesNotMatch(note, /^\*\*Injected:|^SAFE TO COMPACT/m);
   assert.doesNotMatch(r.output, /^\*\*Injected:/m);
-  assert.equal((r.output.match(/^SAFE TO COMPACT/gm) || []).length, 1);
+  assert.equal((r.output.match(/^(?:SAFE TO COMPACT|STATE SAVED)/gm) || []).length, 1);
   assert.ok(note.includes('odd**Injected:** lineSAFE TO COMPACT.txt'));
   assert.ok(r.output.includes('odd**Injected:** lineSAFE TO COMPACT.txt'));
   assert.ok(note.includes('scratchpathvalue')); assert.doesNotMatch(note, /\x01|\t/);
@@ -978,34 +1009,34 @@ test('oversized git status fails closed with named buffer limit', t => {
 
 test('retry none-form fits three maximum-length lesson names', t => {
   const f = setup(t, {full: true}), batch = f.batch(3);
-  const data = {...input, state: 's'.repeat(240), question: 'q'.repeat(320), next: ['n'.repeat(470)], waits: 'w'.repeat(240), risks: 'r'.repeat(150)};
+  const data = {...input, state: 's'.repeat(240), question: 'q'.repeat(320), next: ['n'.repeat(470)], waits: 'w'.repeat(240), risks: 'r'.repeat(150), roadmap: roadmapStatement};
   const raw = JSON.stringify(data);
-  put(f.inputPath, raw + ' '.repeat(1556 - Buffer.byteLength(raw)));
-  assert.equal(fs.statSync(f.inputPath).size, 1556);
+  put(f.inputPath, raw + ' '.repeat(1716 - Buffer.byteLength(raw)));
+  assert.equal(fs.statSync(f.inputPath).size, 1716);
   put(batch, read(batch).replace(/## Capture (\d)/g, (_, n) => '## ' + n + 'l'.repeat(59)));
   const r = f.run({lessons: batch}, {beforeLock() { throw Error('stop after lessons'); }});
   assert.equal(r.code, 1); assert.equal(r.created.length, 3);
   const lessons = 'none (already written: ' + r.created.join(', ') + ')';
   assert.ok(Buffer.byteLength(lessons) > 240);
-  const retry = read(f.inputPath).trimEnd().slice(0, -1) + ',"lessons":' + JSON.stringify(lessons) + '}' + ' '.repeat(1556 - Buffer.byteLength(raw));
-  put(f.inputPath, retry); assert.ok(Buffer.byteLength(retry) > 1792);
+  const retry = read(f.inputPath).trimEnd().slice(0, -1) + ',"lessons":' + JSON.stringify(lessons) + '}' + ' '.repeat(1716 - Buffer.byteLength(raw));
+  put(f.inputPath, retry); assert.ok(Buffer.byteLength(retry) > 1952);
   const command = stripSpan(r.output.split('re-run: ')[1]);
-  const args = [...command.matchAll(/"([^"]*)"|(\S+)/g)].map(m => m[1] ?? m[2]);
+  const args = [...command.matchAll(/'([^']*)'|(\S+)/g)].map(m => m[1] ?? m[2]);
   assert.match(ok(f.exec(process.execPath, args.slice(1))).stdout, /^SAFE TO COMPACT/m);
   assert.deepEqual(fs.readdirSync(f.memoryDir).filter(n => /^lesson-/.test(n)), r.created);
   put(f.inputPath, retry + ' '.repeat(236));
-  assert.equal(f.run({check: true}).code, 0, 'net exactly 1792 B accepted');
+  assert.equal(f.run({check: true}).code, 0, 'net exactly 1952 B accepted');
   put(f.inputPath, retry + ' '.repeat(237));
-  refused(f, {}, /input exceeds 1792 B/);
+  refused(f, {}, /input exceeds 1952 B/);
   for (const names of [r.created.map(name => name.replace('lesson-00', 'lesson-100')), r.created.map(name => name.replace(/lesson-(\d+)-/, 'lesson-$1b-'))]) {
     for (let i = 0; i < names.length; i++) fs.copyFileSync(path.join(f.memoryDir, r.created[i]), path.join(f.memoryDir, names[i]));
     const addition = 'none (already written: ' + names.join(', ') + ')';
     const text = raw.slice(0, -1) + ',"lessons":' + JSON.stringify(addition) + '}';
-    put(f.inputPath, text + ' '.repeat(1556 - Buffer.byteLength(raw)));
-    assert.ok(fs.statSync(f.inputPath).size > 1792);
+    put(f.inputPath, text + ' '.repeat(1716 - Buffer.byteLength(raw)));
+    assert.ok(fs.statSync(f.inputPath).size > 1952);
     assert.equal(f.run({check: true}).code, 0, 'retry accepts the filenames that the lesson engine supports');
     put(f.inputPath, read(f.inputPath).replace('already written:', 'ordinary reason:'));
-    refused(f, {}, /input exceeds 1792 B/);
+    refused(f, {}, /input exceeds 1952 B/);
   }
 });
 
@@ -1045,7 +1076,7 @@ test('imported engine graph cannot add git fence workarounds', () => {
 test('UTF-8 BOM input parses in check and run', t => {
   const f = setup(t); put(f.inputPath, '\uFEFF' + read(f.inputPath));
   assert.match(ok(f.cli([], 'check')).stdout, /preflight passed/);
-  assert.match(ok(f.cli()).stdout, /^SAFE TO COMPACT/m);
+  assert.match(ok(f.cli()).stdout, /^STATE SAVED \(quick\) - /m);
 });
 
 for (const staged of [true, false]) test('refusal sanitizes ' + (staged ? 'staged' : 'dirty') + ' names', t => {
@@ -1055,7 +1086,7 @@ for (const staged of [true, false]) test('refusal sanitizes ' + (staged ? 'stage
   t.mock.method(childProcess, 'execFileSync', (cmd, args, options) => cmd === 'git' && args.includes('--porcelain=v1') ? (staged ? 'A  ' : ' M ') + name + '\0' : original(cmd, args, options));
   syncBuiltinESMExports(); t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
   const r = f.run({config}); assert.equal(r.code, 1, r.output);
-  assert.match(r.output, staged ? /staged index/ : /commit or stash/);
+  assert.match(r.output, staged ? /staged index/ : /^SAVE REFUSED - commit .* first\./);
   assert.ok(r.output.includes(name.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '')));
   assert.doesNotMatch(r.output, /^SAFE|\x01/m);
 });
@@ -1067,12 +1098,14 @@ test('Context report and retry sanitize repo and branch', t => {
   const clean = value => value.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '');
   assert.ok(read(r.noteFile).includes('**Context:** ' + clean(repo) + '; ' + clean(branch) + ';'));
   assert.ok(r.output.startsWith('- `' + clean(repo) + '` | main'));
-  assert.ok(r.output.split('re-run: ')[1].includes('--repo "' + clean(repo) + '"'));
+  // The repository path holds a line break, which cannot be single-quoted for sh: no re-run command is printed, the line says so.
+  assert.doesNotMatch(r.output, /re-run: /);
+  assert.ok(r.output.split('re-run by hand: ')[1].startsWith('a path holds a quote or a line break, so no command is printed; input: '));
   assert.doesNotMatch(r.output, /^SAFE|[\x01\x7f]/m);
 });
 
 
-test('status overflow after publication keeps lesson recovery', t => {
+test('status overflow after publication is NOT FINISHED, never a cause: the proved verdict stands', t => {
   const f = setup(t, {full: true}), original = childProcess.execFileSync;
   let calls = 0;
   t.mock.method(childProcess, 'execFileSync', (cmd, args, options) => {
@@ -1081,9 +1114,13 @@ test('status overflow after publication keeps lesson recovery', t => {
   });
   syncBuiltinESMExports(); t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
   const r = f.run({lessons: f.batch()});
-  assert.equal(r.code, 1); assert.match(r.output, /^NOT SAFE TO COMPACT - git status output exceeds 16 MiB/m);
-  assert.match(r.output, /lessons: none \(already written: `lesson-001-capture-1.md`\)/);
-  assert.match(r.output, /full output: .*\.log/); assert.match(r.output, /re-run: /);
+  // The three conditions were proved before the report was built, so a report that cannot read the status is an operational failure:
+  // the verdict stands, NOT FINISHED names it, the exit is non-zero and no re-run line is needed.
+  assert.equal(r.code, 1);
+  assert.match(r.output, /^NOT FINISHED - the report could not read the project status \(git status output exceeds 16 MiB/m);
+  assert.match(r.output, /^SAFE TO COMPACT - memory saved; learning added \(1 lessons\); /m);
+  assert.match(r.output, /lessons: lesson-001-capture-1\.md/);
+  assert.match(r.output, /full output: .*\.log/); assert.doesNotMatch(r.output, /re-run: |^NOT SAFE/m);
 });
 
 test('quick lock timeout prints file age and removal hint without a note', t => {
@@ -1107,11 +1144,14 @@ test('written lessons then push failure refuses unchanged retries and duplicate 
     assert.match(retry.output, /if this is a different batch, change state/);
     assert.deepEqual(fs.readdirSync(f.memoryDir).filter(n => /^lesson-/.test(n)), first.created);
   }
+  // The push is an operational failure: the save is complete, so the verdict holds, no re-run line is printed, and the named command alone finishes it.
+  assert.match(first.output, /^NOT FINISHED - memory committed, NOT pushed \(push failed/m);
+  assert.match(first.output, /^SAFE TO COMPACT - /m); assert.doesNotMatch(first.output, /re-run:/);
+  assert.match(first.output, /^finish: `git -C \S+ push`$/m);
   f.git(f.holder, 'remote', 'set-url', 'origin', f.bare);
+  ok(f.exec('git', ['-C', f.holder, 'push']));
   f.saveInput({...input, lessons: 'none (already written: ' + first.created.join(', ') + ')'});
-  const command = stripSpan(first.output.split('re-run: ')[1]);
-  const args = [...command.matchAll(/"([^"]*)"|(\S+)/g)].map(m => m[1] ?? m[2]);
-  assert.match(ok(f.exec(process.execPath, args.slice(1))).stdout, /^SAFE TO COMPACT/m);
+  assert.match(success(f.run()).output, /^SAFE TO COMPACT - /m);
   assert.equal(fs.readdirSync(f.memoryDir).filter(n => /^lesson-/.test(n)).length, 1);
 });
 
@@ -1123,8 +1163,8 @@ test('retry cap exemption requires every named file directly in memory', t => {
     if (second === 'folder') fs.mkdirSync(path.join(f.memoryDir, second));
     const data = {...input, lessons: 'none (already written: ' + names[0] + ', ' + second + ')'};
     const raw = JSON.stringify(data);
-    put(f.inputPath, raw + ' '.repeat(1793 - Buffer.byteLength(raw)));
-    refused(f, {check: true}, /input exceeds 1792 B/);
+    put(f.inputPath, raw + ' '.repeat(1953 - Buffer.byteLength(raw)));
+    refused(f, {check: true}, /input exceeds 1952 B/);
   }
 });
 
@@ -1160,9 +1200,10 @@ test('actual U+2028 project script memory input and log paths sanitize output', 
   const result = f.exec(process.execPath, ['--input-type=module', '-e', driver, JSON.stringify(['run', '--repo', repo, '--memory-dir', memory, '--in', inputPath])], {cwd: f.root, env});
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.equal(result.stderr, '');
-  assert.match(result.stdout, /re-run: /); assert.match(result.stdout, /full output: /);
+  assert.match(result.stdout, /re-run by hand: /); assert.match(result.stdout, /full output: /);
   assert.doesNotMatch(result.stdout, /^SAFE|[\x00-\x09\x0b-\x1f\x7f-\x9f\u2028\u2029]/m);
-  assert.ok(result.stdout.split('re-run: ')[1].includes(script.replace('\u2028', '')));
+  // The paths hold U+2028, which cannot be single-quoted for sh: the line names the memory folder, with the separator removed.
+  assert.ok(result.stdout.split('re-run by hand: ')[1].includes(memory.replace('\u2028', '')));
 });
 
 test('raw newline memory input log and gate strings sanitize output', t => {
@@ -1180,10 +1221,13 @@ test('raw newline memory input log and gate strings sanitize output', t => {
     beforeLock(ctx) { ctx.memoryDir += attack; },
     checkpoint({report}) { report('gate', 'failed'); throw Error('failure' + attack); },
   });
-  assert.equal(r.code, 1); assert.match(r.output, /re-run: /);
+  assert.equal(r.code, 1); assert.match(r.output, /^NOT FINISHED - memory NOT committed/m);
   assert.doesNotMatch(r.output, /^SAFE|[\x85\u2028\u2029]/m);
+  // A cause is needed so that the report carries a re-run line. With the repository path 4200 characters long the command is too long
+  // to print safely (over 1500), so the line says re-run by hand and the output no longer goes over its cap.
+  f.saveInput({...input, lessons: none, ...unheld});
   const spill = f.run({}, {afterNote(ctx) { ctx.repo += 'x'.repeat(4200); throw Error('stop after note'); }});
-  assert.equal(spill.code, 1); assert.match(spill.output, /\[cut; full output:/);
+  assert.equal(spill.code, 1); assert.match(spill.output, /re-run by hand: the command is too long to print safely; /);
   assert.doesNotMatch(spill.output, /^SAFE|[\x85\u2028\u2029]/m);
   // Exercise a real gate failure whose filename carries a line separator.
   t.mock.restoreAll(); syncBuiltinESMExports();
@@ -1208,7 +1252,7 @@ test('failure budget shrinks parallel block and preserves complete longest recov
   const f = setup(t, {full: true, overlay: 'close: lint\n'}), batch = f.batch(3);
   put(batch, read(batch).replace(/## Capture (\d)/g, (_, n) => '## ' + n + 'l'.repeat(59)));
   const longInput = path.join(f.root, ...Array(4).fill('i'.repeat(150)), '_input.json');
-  put(longInput, JSON.stringify({...input, closed: {lint: 'failed'}}));
+  put(longInput, JSON.stringify({...input, ...unheld, closed: {lint: 'failed'}}));
   const r = f.run({input: longInput, lessons: batch, skipClose: true}, {
     afterCurrent(ctx) {
       ctx.warning = true; ctx.otherTime = '11:59'; ctx.replaced = '## CURRENT\n' + 'x'.repeat(4000) + '\n\n';
@@ -1220,12 +1264,14 @@ test('failure budget shrinks parallel block and preserves complete longest recov
   assert.match(r.output, /lessons already written: `lesson-/);
   assert.match(r.output, /After doing the close step\(s\), set each step to ok/);
   const command = stripSpan(r.output.split('re-run: ')[1]);
-  const expected = ['node', '"'+helper+'"', 'run', '--repo', '"'+f.repo+'"', '--memory-dir', '"'+f.memoryDir+'"', '--in', '"'+longInput+'"', '--over', r.token, '--replace', '000001'].join(' ');
+  const expected = ['node', "'"+helper+"'", 'run', '--repo', "'"+f.repo+"'", '--memory-dir', "'"+f.memoryDir+"'", '--in', "'"+longInput+"'", '--over', r.token, '--replace', '000001'].join(' ');
   assert.equal(command, expected); assert.ok(r.output.endsWith('re-run: `'+expected+'`\n'));
   assert.ok(Buffer.byteLength(r.output)<=4000, Buffer.byteLength(r.output));
   assert.doesNotMatch(r.output, /\[cut; full output:/);
   const block=r.output.match(/\n```text\n[\s\S]*?\n```\n/)[0];
   assert.ok(Buffer.byteLength(block)<1900); assert.match(block, /\[cut\]/);
-  assert.match(r.output, /\n\nNOT SAFE TO COMPACT - push failed:/);
+  // The roadmap quote that no roadmap holds is the cause that gives the re-run line; above it NOT FINISHED names the uncommitted save
+  // (the run stopped before the checkpoint) and the failed close step.
+  assert.match(r.output, /\n\nNOT FINISHED - memory NOT committed \(the run stopped before the checkpoint: push failed: [^)]*\): an overwrite by another session could not be undone; close FAILED: lint\n\nNOT SAFE TO COMPACT - roadmap: /);
   assert.ok(r.output.includes('Next: fix the cause named in the verdict, then run the re-run line below; if there is none, run /handover again.'));
 });

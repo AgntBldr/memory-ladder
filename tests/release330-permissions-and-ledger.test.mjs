@@ -78,7 +78,7 @@ test('skills expose shapes verbatim report and an unnumbered start template', ()
   assert.equal(FIRST_REPLY_TEMPLATE.split('\n')[0], '**<abs path>** - `<branch>` @ `<sha>` - kit <version>[ - flags: ...]');
   assert.doesNotMatch(FIRST_REPLY_TEMPLATE, /^\d+ /m);
   assert.ok(skill.includes(FIRST_REPLY_TEMPLATE));
-  assert.match(skill, /one bullet per item.*omit empty groups and lines saying none \(not Goal\)/);
+  assert.match(skill, /bullet per item;.*omit empty groups, none lines \(not Goal\)/);
   assert.match(skill, /`Waiting for your go\.`/);
 });
 test('public host setup and release remedies', () => {

@@ -27,16 +27,17 @@ for (const command of ['classify --write', 'repeat']) test(`${command} restores 
   const f = setup(t), lessons = ['001', '002', '003'].map(id => f.lesson(id));
   writeMemoryIndex(f);
   put(path.join(f.memory, 'INDEX-craft-all.md'), '# Hand page\n');
-  const before = tree(f.memory), mod = await api(), original = fs.writeFileSync;
+  const before = tree(f.memory), mod = await api(), original = fs.renameSync, originalBytes = fs.readFileSync(lessons[0]);
   const file = f.batch(JSON.stringify({version: 1, kinds: Object.fromEntries(lessons.map(p => [path.basename(p), 'practice']))}));
   let fired = false;
   try {
-    fs.writeFileSync = (target, ...args) => {
-      if (!fired && target === lessons[0] && Buffer.isBuffer(args[0])) { fired = true; throw Error('first original restore injected'); }
-      return original(target, ...args);
+    // An existing lesson is replaced by a temporary file and a rename: the restore is the rename that puts the original bytes back.
+    fs.renameSync = (from, target) => {
+      if (!fired && target === lessons[0] && fs.readFileSync(from).equals(originalBytes)) { fired = true; throw Error('first original restore injected'); }
+      return original(from, target);
     };
     assert.throws(() => command === 'repeat' ? mod.recordRepeat({...f, id: '1', note: 'slip: again'}) : mod.classifyLessons({...f, file, write: true}), {message: 'run the route migration first; refusing to overwrite INDEX-craft-all.md'});
-  } finally { fs.writeFileSync = original; }
+  } finally { fs.renameSync = original; }
   assert.equal(fired, true);
   assert.deepEqual(tree(f.memory), before);
 });
@@ -45,18 +46,19 @@ test('restores both regenerated pages after first page restore fails once', asyn
   const f = setup(t); f.lesson(); writeMemoryIndex(f);
   const before = tree(f.memory), pages = Object.keys(before).filter(n => n.startsWith('INDEX-'));
   assert.equal(pages.length, 2);
-  const {batchLessons} = await api(), original = fs.writeFileSync;
+  const {batchLessons} = await api(), original = fs.renameSync;
   let armed = false, fired = false;
   try {
-    fs.writeFileSync = (target, ...args) => {
+    // A generated page is restored by a rename onto its name.
+    fs.renameSync = (from, target) => {
       if (armed && !fired && pages.includes(path.basename(target))) { fired = true; throw Error('first page restore injected'); }
-      return original(target, ...args);
+      return original(from, target);
     };
     assert.throws(() => batchLessons({...f, file: f.batch(section('Created') + repeatSection()), check() {
       for (const page of pages) assert.notEqual(tree(f.memory)[page], before[page]);
       armed = true; throw Error('check injected');
     }}), {message: 'check injected'});
-  } finally { fs.writeFileSync = original; }
+  } finally { fs.renameSync = original; }
   assert.equal(fired, true);
   assert.deepEqual(tree(f.memory), before);
 });
@@ -341,11 +343,13 @@ test('rollback reports original error before restoration error', async t => {
     fs.writeFileSync = (file, ...args) => { if (String(file).includes('INDEX-craft')) throw Error('restore failed'); return original(file, ...args); };
     assert.throws(() => batchLessons({...f, file: f.batch(section('First')), afterWrite() { throw Error('original failed'); }}), /original failed[\s\S]*restore failed/);
   } finally { fs.writeFileSync = original; }
-  const file = f.lesson();
+  const file = f.lesson(), originalRename = fs.renameSync;
   try {
-    fs.writeFileSync = (name, ...args) => { if (String(name) === file) throw Error('lesson write failed'); if (String(name).includes('INDEX-craft')) throw Error('restore failed'); return original(name, ...args); };
+    // The write of an existing lesson is the rename onto its name; the page restore still fails at its temporary file.
+    fs.renameSync = (from, name) => { if (String(name) === file) throw Error('lesson write failed'); return originalRename(from, name); };
+    fs.writeFileSync = (name, ...args) => { if (String(name).includes('INDEX-craft')) throw Error('restore failed'); return original(name, ...args); };
     assert.throws(() => recordRepeat({...f, id: path.basename(file), note: 'slip: new'}), /lesson write failed[\s\S]*rollback failed/);
-  } finally { fs.writeFileSync = original; }
+  } finally { fs.writeFileSync = original; fs.renameSync = originalRename; }
 });
 
 
@@ -559,11 +563,11 @@ test('classify validates all entries, dry runs, writes kinds and preserves BOM',
 
 test('rollback attempts originals and creations after page restore fails', async t => {
   const f = setup(t), old = f.lesson(), before = tree(f.memory), {batchLessons} = await api();
-  const original = fs.writeFileSync; let restoring = false;
+  const original = fs.renameSync; let restoring = false;
   try {
-    fs.writeFileSync = (file, ...args) => { if (restoring && path.basename(String(file)) === 'INDEX-craft.md') throw Error('page restore injected'); return original(file, ...args); };
+    fs.renameSync = (from, file) => { if (restoring && path.basename(String(file)) === 'INDEX-craft.md') throw Error('page restore injected'); return original(from, file); };
     assert.throws(() => batchLessons({...f, file: f.batch(section('Created') + repeatSection()), afterWrite(n) { if (n === 2) { restoring = true; throw Error('transaction injected'); } }}), /transaction injected; rollback failed: page restore injected/);
-  } finally { fs.writeFileSync = original; }
+  } finally { fs.renameSync = original; }
   assert.deepEqual(tree(f.memory), before);
 });
 
@@ -643,13 +647,14 @@ for (const step of ['original write', 'created unlink']) test(`batch retries one
   const f = setup(t), old = f.lesson(), {batchLessons} = await api();
   writeMemoryIndex(f);
   const before = tree(f.memory), file = f.batch(section('Created') + repeatSection());
-  const method = step === 'original write' ? 'writeFileSync' : 'unlinkSync', original = fs[method];
+  // An existing lesson is restored by the rename onto its name, so the injected failure watches the target of the rename.
+  const method = step === 'original write' ? 'renameSync' : 'unlinkSync', original = fs[method];
   const target = step === 'original write' ? old : path.join(f.memory, 'lesson-002-created.md');
   const failure = Error('check injected'); let armed = false, attempts = 0, caught;
   try {
-    fs[method] = (name, ...args) => {
-      if (armed && name === target && ++attempts === 1) throw Error(`${step} injected`);
-      return original(name, ...args);
+    fs[method] = (...args) => {
+      if (armed && args.at(-1) === target && ++attempts === 1) throw Error(`${step} injected`);
+      return original(...args);
     };
     try { batchLessons({...f, file, check() {
       assert.notDeepEqual(tree(f.memory), before);
@@ -665,20 +670,21 @@ for (const step of ['original write', 'created unlink']) test(`batch retries one
 test('rollback reports persistent steps once with both attempts and omits recovered steps', async t => {
   const f = setup(t), old = f.lesson(), {batchLessons} = await api();
   writeMemoryIndex(f);
-  const file = f.batch(section('Created') + repeatSection()), original = fs.writeFileSync;
+  const file = f.batch(section('Created') + repeatSection()), original = fs.renameSync;
   const failure = Error('check injected'); let armed = false, pageAttempts = 0, lessonAttempts = 0;
   try {
-    fs.writeFileSync = (name, ...args) => {
+    // Pages and the lesson are restored by renames onto their names.
+    fs.renameSync = (from, name) => {
       if (armed && path.basename(name) === 'INDEX-craft.md') throw Error(`page restore attempt ${++pageAttempts}`);
       if (armed && name === old && ++lessonAttempts === 1) throw Error('original restore recovered');
-      return original(name, ...args);
+      return original(from, name);
     };
     assert.throws(() => batchLessons({...f, file, check() { armed = true; throw failure; }}), error => {
       assert.equal(error.message, 'check injected; rollback failed: page restore attempt 1 (retry failed: page restore attempt 2)');
       assert.equal(error.cause, failure);
       return true;
     });
-  } finally { fs.writeFileSync = original; }
+  } finally { fs.renameSync = original; }
   assert.equal(pageAttempts, 2);
   assert.equal(lessonAttempts, 2);
   assert.equal(data(old).metadata.repeats, undefined);

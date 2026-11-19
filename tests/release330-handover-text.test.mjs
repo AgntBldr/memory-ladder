@@ -48,10 +48,11 @@ test('negatives never trigger handover and subagent hook payloads stay silent', 
   for (const extra of [{agent_id: ''}, {agent_type: null}, {agent_id: 'worker'}]) assert.equal(f.detect({prompt: 'handover', ...extra}), '');
 });
 
-test('slash commands invoke the skill directly, frozen hook and dispatch stay silent', t => {
+test('slash commands invoke the skill directly, the frozen hook stays silent and dispatch answers the exact forms', t => {
   const f = routed(t);
   for (const message of ['/handover', '/handover quick', '/handover\nNote: Resume', '/handover quick\nNote: Resume']) {
-    assert.equal(f.detect({prompt: message}), ''); assert.equal(f.dispatch(message), '');
+    assert.equal(f.detect({prompt: message}), '');
+    assert.equal(f.dispatch(message), `Read .claude/skills/handover/SKILL.md and follow it (${message.startsWith('/handover quick') ? 'quick' : 'full'}).${message.includes('Note:') ? '\nNote: Resume' : ''}`);
   }
   assert.match(skill, /description: \/handover, \/handover quick/);
   assert.match(skill, /Put Note: text in state within its cap/);
@@ -64,7 +65,7 @@ test('foreign skill hash gets neither nudge nor dispatch', t => {
 });
 
 test('text caps contract and forbidden delegation', () => {
-  assert.ok(bytes(skill) <= 1280, `SKILL.md ${bytes(skill)} B`);
+  assert.ok(bytes(skill) <= 1984, `SKILL.md ${bytes(skill)} B`);
   assert.doesNotMatch(skill, /\$ARGUMENTS|\b(?:(?:sub[ -]?)?agents?|Task|Sonnet|Opus|Haiku|GPT(?:-\d[^\s]*)?|Gemini|Claude|Codex)\b|codex exec|claude -p/i);
   assert.match(skill, new RegExp('engine_version: "' + currentVersion.replaceAll('.', '\\.') + '"'));
   const description = skill.split('\n').find(line => line.startsWith('description:'));
@@ -73,7 +74,8 @@ test('text caps contract and forbidden delegation', () => {
   for (const text of ['Run only when asked; never offered unprompted.', 'Omit constraints for default.', 'close: steps first', 'ok/failed in closed', 'recall twice', '<=3 lessons outside memory', 'Write temp JSON outside the project', '--quick', '--lessons <batch>', '--over <last token> (start line or last handover report)', 'printed report verbatim + <=1 line', 'never type SAFE yourself', 'fix verdict cause; re-run (none: /handover); never re-pass --lessons once written', 'full 2 (5 with lessons), quick 2']) assert.ok(skill.includes(text), text);
   const overlay = read(path.join(kitRoot, 'templates/AGENTS-session-overlay.md'));
   assert.ok(bytes(overlay) <= 1536);
-  assert.match(overlay, /close: .*run these before \/handover's run, reports each ok\|failed, missing\/failed is NOT SAFE/);
+  assert.match(overlay, /close: .*run these before \/handover's run, reports each ok\|failed: missing refuses the save, failed ends NOT FINISHED>/);
+  assert.doesNotMatch(overlay, /NOT SAFE/);
   assert.match(overlay, /push: .*defaults to memory; project only in-repo/);
 });
 
@@ -124,16 +126,17 @@ function interaction(f, {quick = false, lessons = false, over = stateToken(f.mem
     batchFile = path.join(f.root, 'lessons.md');
     record('write-batch', {file: batchFile, content: batch}, () => { put(batchFile, batch); return {}; });
   }
-  const data = {state: 'Ready for review', question: 'Which stage next?', next: ['Review results'], waits: 'none', risks: 'none', ...(!quick && !lessons ? {lessons: 'none (no new learning this session)'} : {})};
+  // A safe handover states its learning (a batch, or none) and quotes the roadmap line the fixture holds; a quick one states both too.
+  const data = {state: 'Ready for review', question: 'Which stage next?', next: ['Review results'], waits: 'none', risks: 'none', roadmap: 'nothing new (Review next stage.)', ...(quick || !lessons ? {lessons: 'none (no new learning this session)'} : {})};
   if (worst) Object.assign(data, {state: 's'.repeat(240), question: 'q'.repeat(quick ? 240 : 320), next: ['n'.repeat(quick ? 300 : 470)], waits: 'w'.repeat(quick ? 100 : 240), risks: 'r'.repeat(quick ? 30 : 200)});
-  const raw = JSON.stringify(data), input = worst ? raw + ' '.repeat((quick ? 1024 : 1792) - bytes(raw)) : raw, inputFile = path.join(f.root, 'input.json');
+  const raw = JSON.stringify(data), input = worst ? raw + ' '.repeat((quick ? 1184 : 1952) - bytes(raw)) : raw, inputFile = path.join(f.root, 'input.json');
   record('write-input', {file: inputFile, content: input}, () => { put(inputFile, input); return {}; });
   const args = ['run', '--in', inputFile, '--over', over ?? 'none', ...(quick ? ['--quick'] : []), ...(lessons ? ['--lessons', batchFile] : [])];
   const result = record('run', args, () => f.cli('handover.mjs', args));
   assert.equal(calls.length, lessons ? 5 : 2, 'extra interaction call');
   assert.deepEqual(calls.map(c => c.kind), lessons ? ['recall', 'recall', 'write-batch', 'write-input', 'run'] : ['write-input', 'run']);
   assert.match(result.stdout, /^SAFE TO COMPACT/m); assert.doesNotMatch(result.stdout, /NOT SAFE|re-run:/);
-  assert.match(result.stdout, quick ? /learning, roadmap and log not checked/ : /roadmap current/);
+  assert.match(result.stdout, /roadmap already holds it/);
   let warning = '';
   if (parallel) {
     const bullet = result.stdout.match(/^- warning: another session handed over at .*; both notes kept\n/m)?.[0];
@@ -147,19 +150,19 @@ function interaction(f, {quick = false, lessons = false, over = stateToken(f.mem
     stdoutStderr: output, envelopes: calls.reduce((n, c) => n + c.envelope, 0), reply: quick ? 512 : 1024, callAllowance: quick ? 384 : 768};
   assert.ok(bytes(result.stdout) - bytes(warning) <= (quick ? 1024 : 1536));
   if (worst) {
-    assert.equal(parts.input, quick ? 1024 : 1792);
+    assert.equal(parts.input, quick ? 1184 : 1952);
     if (lessons) {
       assert.equal(parts.batch, 2700);
       for (const call of calls.filter(c => c.kind === 'recall')) assert.ok(call.stdout >= 740 && call.stdout <= 790, 'recall near 768 B: ' + call.stdout);
     }
   }
   const total = Object.values(parts).reduce((a, b) => a + b, 0);
-  assert.ok(total <= (quick ? 5120 : 12288), JSON.stringify({total, parts}));
+  assert.ok(total <= (quick ? 5376 : 12288), JSON.stringify({total, parts}));
   const notes = listNotes(f.memory);
   assert.equal(f.git(f.memory, 'rev-parse', 'HEAD'), f.git(f.memory, 'rev-parse', '@{u}'));
   assert.equal(f.git(f.memory, 'show', 'HEAD:' + path.relative(f.memory, notes[0].file).replaceAll('\\', '/')), read(notes[0].file).trimEnd());
   if (lessons) { assert.equal(fs.readdirSync(f.memory).filter(n => /^lesson-/.test(n)).length, 1); assert.match(read(notes[0].file), /lesson-001-verify-publication.md/); }
-  return {total, parts, calls, warning: bytes(warning), budget: quick ? 5120 : 12288, planned: quick ? 4464 : 11388};
+  return {total, parts, calls, warning: bytes(warning), budget: quick ? 5376 : 12288, planned: quick ? 5307 : 12231};
 }
 
 for (const mode of ['full-none', 'full-lessons', 'quick', 'parallel']) test('executed ' + mode + ' counts every byte and call', t => {

@@ -95,7 +95,7 @@ for(const command of ['install','upgrade']) test(`${command}: an old custom Repo
   for(const flag of ['--check','--dry-run']) {
     const before=tree(f.root,{git:true,previous:true}),result=run([flag]);
     assert.ok([0,1].includes(result.status),result.stderr);
-    assert.match(result.stdout,/^UNCLEAR [0-9a-f]{12}: - Reports: old$/m);assert.match(result.stdout,/^REPLACE [0-9a-f]{12} \(current template\): - Session phrases/m);
+    assert.match(result.stdout,/^UNCLEAR [0-9a-f]{12}: - Reports: old$/m);assert.match(result.stdout,/^REPLACE [0-9a-f]{12} \(kit v3\.3\.8\.\.v3\.3\.9\): - Session phrases/m);
     assert.deepEqual(tree(f.root,{git:true,previous:true}),before);
   }
   const decisions=plan(f,source,{'- Reports: old':'drop'}).decisions;
